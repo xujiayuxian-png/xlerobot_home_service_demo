@@ -3,7 +3,7 @@
   <name>xlerobot_voice</name>
   <version>0.1.0</version>
   <description>Gated local voice adapter for typed home-service tasks.</description>
-  <maintainer email="lisa@example.com">lisa</maintainer>
+  <maintainer email="xujiayuxian-png@users.noreply.github.com">xujiayuxian-png</maintainer>
   <license>Apache-2.0</license>
 
   <exec_depend>ament_index_python</exec_depend>

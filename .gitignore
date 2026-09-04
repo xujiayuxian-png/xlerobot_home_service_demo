@@ -1,0 +1,45 @@
+# ROS and Python build products
+/ros2_ws/build/
+/ros2_ws/install/
+/ros2_ws/log/
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+/.venv/
+
+# Front-end build products
+**/node_modules/
+**/dist/
+
+# Local operator configuration and secrets
+/.env
+/config/local.yaml
+/.xlerobot/
+/services/classical/vendor/
+
+# Runtime and site data
+/artifacts/
+/datasets/
+/log/
+/logs/
+/maps/
+/models/
+*.bag
+*.db3
+*.mcap
+*.npz
+*.log
+
+# Large model formats are distributed outside Git.
+*.onnx
+*.pt
+*.pth
+*.safetensors
+
+# The imported voice clips have no auditable redistribution record yet.
+*.mp3
+
+# Editor and operating-system state
+/.vscode/
+/.idea/
+.DS_Store

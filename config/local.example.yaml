@@ -1,0 +1,81 @@
+schema: xlerobot_demo/v1
+
+# This repository supports the documented two-wheel reference modification.
+robot:
+  unit_id: demo-01
+  site_id: home-demo
+  devices:
+    lidar: /dev/lidar
+    right_arm: /dev/right_arm
+    left_arm: /dev/left_arm
+    # The verified collection rig has one right-arm Leader, not a dual-Leader setup.
+    leader_arm: /dev/right_master_arm
+    head_camera_serial: ''
+    wrist_camera: /dev/v4l/by-id/REPLACE_WITH_WRIST_CAMERA-video-index0
+    audio_input: auto
+    audio_output: ''
+
+# Keep per-unit results outside Git. `tools/calibrate` owns this directory and
+# its active pointer.
+calibration:
+  state_root: .xlerobot
+  # Must equal robot.unit_id; tools reject a split identity.
+  unit: demo-01
+  # tools/calibrate owns units/<unit>/active. Its target is an immutable
+  # versions/<id> directory; runtime/ is rendered only from that verified target.
+
+site:
+  map: .xlerobot/site/map.yaml
+  places: .xlerobot/site/named_places.yaml
+
+# URLs below are reached from the robot computer. 192.0.2.10 is a documentation
+# address: replace it with the GPU/WSL host that is reachable on your LAN.
+services:
+  lm_studio_url: http://192.0.2.10:1234
+  classical_url: http://192.0.2.10:8765
+  act_url: http://192.0.2.10:8766
+  bind_host: 0.0.0.0
+
+# Manual Robot-to-GPU dataset transfer. These are not credentials; SSH keys
+# stay in the user's normal SSH configuration and are never copied into Git.
+transfer:
+  ssh_host: 192.0.2.10
+  ssh_user: operator
+  remote_repo_path: xlerobot_home_service_demo
+
+models:
+  vlm: qwen/qwen3-vl-4b
+  vlm_lm_studio_version: 0.4.12+1
+  vlm_lm_studio_revision: 4
+  vlm_descriptor_sha256: e8869e92a4e59986e9aeac41fb91491d4267ab7b13aa0dbe3d7fd7c6da8e3db3
+  vlm_artifact_repo_id: lmstudio-community/Qwen3-VL-4B-Instruct-GGUF
+  vlm_artifact_revision: 9eaf9988fe9b5e33541dc614622c36d5e90dd509
+  vlm_quantization: Q4_K_M
+  act_checkpoint: .xlerobot/models/xlerobot-act-local-grasp-v1
+  # `tools/act evaluate` writes a local qualification manifest here. After the
+  # Hub release, `tools/act download` installs the fixed public manifest here.
+  act_manifest: .xlerobot/models/xlerobot-act-local-grasp-v1/model-manifest.json
+  act_training_output: .xlerobot/outputs/xlerobot-act-local-grasp-v1
+  kws_model_id: sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20
+  kws_dir: .xlerobot/models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20
+  whisper_repo_id: Systran/faster-whisper-small
+  whisper_revision: 536b0662742c02347bc0e980a01041f333bce120
+  whisper_dir: .xlerobot/models/faster-whisper-small
+  person_detector: .xlerobot/models/yolov8n.pt
+
+data:
+  collection_root: .xlerobot/artifacts
+  dataset_id: xlerobot-glue-stick-grasp-30
+  # This directory contains raw/, reviews/, and versioned derived/ outputs.
+  dataset_root: .xlerobot/artifacts/datasets/xlerobot-glue-stick-grasp-30
+  conversion_version: v1
+  repo_id: xujiayuxian-png/xlerobot-glue-stick-grasp-30
+
+demo:
+  grasp_backend: act
+  object_id: 羽毛球
+  source_place: table
+  recipient_id: nearest_person
+  voice: true
+  web: true
+  web_port: 8080

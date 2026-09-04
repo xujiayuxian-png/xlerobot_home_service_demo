@@ -13,12 +13,22 @@ setup(
             [f'resource/{package_name}'],
         ),
         (f'share/{package_name}', ['package.xml']),
+        (
+            f'share/{package_name}/config',
+            [
+                'config/d455_head_calibration.yaml',
+                'config/head_camera_poses.yaml',
+                'config/quality.yaml',
+                'config/right_handeye_poses.yaml',
+                'config/targets.yaml',
+            ],
+        ),
     ],
     install_requires=['setuptools'],
     tests_require=['pytest'],
     zip_safe=True,
-    maintainer='lisa',
-    maintainer_email='lisa@example.com',
+    maintainer='xujiayuxian-png',
+    maintainer_email='xujiayuxian-png@users.noreply.github.com',
     description='Offline camera and hand-eye calibration solvers.',
     license='Apache-2.0',
     entry_points={
@@ -27,6 +37,7 @@ setup(
             'solve_arm_handeye_calibration = xlerobot_calibration_tools.cli:main_arm',
             'collect_transform_samples = xlerobot_calibration_tools.collector_node:main',
             'detect_calibration_target = xlerobot_calibration_tools.target_node:main',
+            'xlerobot-calibrate = xlerobot_calibration_tools.public_cli:main',
         ],
     },
 )

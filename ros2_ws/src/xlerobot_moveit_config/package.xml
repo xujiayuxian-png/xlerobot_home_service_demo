@@ -3,7 +3,7 @@
   <name>xlerobot_moveit_config</name>
   <version>0.1.0</version>
   <description>Planning-only-safe MoveIt 2 configuration for the reference profile.</description>
-  <maintainer email="lisa@example.com">lisa</maintainer>
+  <maintainer email="xujiayuxian-png@users.noreply.github.com">xujiayuxian-png</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

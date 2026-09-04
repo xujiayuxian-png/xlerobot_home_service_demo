@@ -1,0 +1,231 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# shellcheck source=tools/lib/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: tools/setup robot|gpu [--with-person-detector] [--with-kws-model] [--generate-voice-prompts] [--with-gpd]
+
+Source installation for the two supported computers. It does not start a ROS
+launch file, inference service, camera, serial device, or motor controller.
+
+The person detector is an AGPL-3.0 optional extra. The upstream KWS model terms
+are unresolved, so its direct-provider download requires --with-kws-model.
+Voice prompt generation uses Edge TTS and writes ignored MP3 files locally.
+GPD is an optional native build for the classical grasp route.
+EOF
+}
+
+role=''
+if (($#)) && [[ $1 != -* ]]; then
+  role=$1
+  shift
+fi
+with_person_detector=false
+with_kws_model=false
+generate_voice_prompts=false
+with_gpd=false
+while (($#)); do
+  case $1 in
+    --with-person-detector) with_person_detector=true; shift ;;
+    --with-kws-model) with_kws_model=true; shift ;;
+    --generate-voice-prompts) generate_voice_prompts=true; shift ;;
+    --with-gpd) with_gpd=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; exit 2 ;;
+  esac
+done
+
+check_ubuntu() {
+  [[ -r /etc/os-release ]] || die 'cannot identify the operating system'
+  # shellcheck disable=SC1091
+  source /etc/os-release
+  [[ ${ID:-} == ubuntu && ${VERSION_ID:-} == 24.04 ]] || die \
+    "Ubuntu 24.04 is required (found ${PRETTY_NAME:-unknown})"
+  [[ $(uname -m) == x86_64 ]] || die 'the supported reference environment is x86_64'
+}
+
+install_base_tools() {
+  sudo apt-get update
+  sudo apt-get install -y curl python3-pip python3-venv python3-yaml rsync
+}
+
+ensure_conda_env() {
+  local conda_bin=$1 env_path=$2 expected=$3 label=$4
+  if [[ -x $env_path/bin/python ]]; then
+    local actual
+    actual=$(
+      "$env_path/bin/python" -c \
+        'import platform; print(platform.python_version())'
+    )
+    [[ $actual == "$expected" ]] || die \
+      "$label environment uses Python $actual, expected $expected; move $env_path aside and rerun"
+    note "reusing $label environment with Python $actual"
+    return
+  fi
+  [[ ! -e $env_path ]] || die \
+    "$label environment is incomplete at $env_path; move it aside and rerun"
+  "$conda_bin" create --yes --prefix "$env_path" "python=$expected" pip
+}
+
+setup_robot() {
+  check_ubuntu
+  load_local_env
+  [[ -f /opt/ros/jazzy/setup.bash ]] || die \
+    'ROS 2 Jazzy is required at /opt/ros/jazzy; install it from docs/en/install.md'
+  install_base_tools
+  if [[ -f $XLEROBOT_CONFIG ]]; then
+    require_config
+    voice_model_config_is_pinned || die \
+      'voice model IDs/revision must match assets/models/voice-runtime.manifest.json'
+  fi
+  sudo apt-get install -y npm python3-rosdep
+  if [[ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]]; then
+    sudo rosdep init
+  fi
+  rosdep update
+  source_environment /opt/ros/jazzy/setup.bash
+  rosdep install --from-paths "$repo_root/ros2_ws/src" --ignore-src -r -y
+
+  python3 -m venv --system-site-packages "$repo_root/.venv/robot"
+  "$repo_root/.venv/robot/bin/python" -m pip install --upgrade pip
+  "$repo_root/.venv/robot/bin/python" -m pip install \
+    -r "$repo_root/requirements/robot.txt"
+  voice_models_command "$repo_root/.venv/robot/bin/python" --component whisper
+  if $with_kws_model; then
+    note 'KWS model terms are not stated upstream; downloading from the provider only because --with-kws-model was explicit'
+    voice_models_command "$repo_root/.venv/robot/bin/python" --component kws
+  fi
+  if $with_person_detector; then
+    "$repo_root/.venv/robot/bin/python" -m pip install \
+      -r "$repo_root/requirements/robot-person-agpl.txt"
+    person_model_command "$repo_root/.venv/robot/bin/python"
+  fi
+  if $generate_voice_prompts; then
+    "$repo_root/.venv/robot/bin/python" \
+      "$repo_root/tools/lib/generate_voice_prompts.py" \
+      --config "$repo_root/ros2_ws/src/xlerobot_voice/config/speak_text.yaml" \
+      --output "$repo_root/ros2_ws/src/xlerobot_voice/audio"
+  fi
+
+  local web="$repo_root/ros2_ws/src/xlerobot_hmi/web"
+  if [[ -f $web/package-lock.json ]]; then
+    command -v npm >/dev/null || die 'npm is required to build the web console'
+    (cd "$web" && npm ci && npm test && npm run build)
+  fi
+
+  source_environment "$repo_root/.venv/robot/bin/activate"
+  (cd "$repo_root/ros2_ws" && colcon build --symlink-install)
+  mkdir -p "$repo_root/.xlerobot/environment"
+  "$repo_root/.venv/robot/bin/python" -m pip freeze \
+    > "$repo_root/.xlerobot/environment/robot.freeze.txt"
+  note 'robot source build complete; copy config/local.example.yaml before doctor'
+}
+
+setup_gpu() {
+  check_ubuntu
+  install_base_tools
+  command -v nvidia-smi >/dev/null || die \
+    'nvidia-smi is missing; install the NVIDIA driver/WSL GPU integration first'
+  nvidia-smi >/dev/null || die 'the NVIDIA GPU is not available'
+
+  local conda_bin
+  conda_bin=$(command -v conda || true)
+  if [[ -z $conda_bin && -x ${HOME}/miniconda3/bin/conda ]]; then
+    conda_bin=${HOME}/miniconda3/bin/conda
+  fi
+  [[ -n $conda_bin ]] || die \
+    'Conda is required for the verified Python 3.12 ACT and Python 3.10 classical environments'
+
+  local env_root="$repo_root/.xlerobot/venvs"
+  local act_env="$env_root/act"
+  local classical_env="$env_root/classical"
+  mkdir -p "$env_root" "$repo_root/.xlerobot/environment"
+  ensure_conda_env "$conda_bin" "$act_env" 3.12.13 ACT
+  "$act_env/bin/python" -m pip install --upgrade pip
+  "$act_env/bin/python" -m pip install \
+    -r "$repo_root/services/act/requirements.lock.txt"
+
+  [[ -f $repo_root/services/classical/requirements.lock.txt ]] || die \
+    'services/classical/requirements.lock.txt is missing'
+  ensure_conda_env "$conda_bin" "$classical_env" 3.10.20 classical
+  "$classical_env/bin/python" -m pip install --upgrade pip
+  "$classical_env/bin/python" -m pip install \
+    -r "$repo_root/services/classical/requirements.lock.txt"
+  "$classical_env/bin/python" "$repo_root/services/classical/download_model.py"
+
+  if $with_gpd; then
+    sudo apt-get install -y \
+      build-essential cmake libboost-all-dev libeigen3-dev libopencv-dev libpcl-dev
+    bash "$repo_root/services/classical/install_gpd.sh"
+  fi
+
+  "$act_env/bin/python" - <<'PY'
+from importlib.metadata import version
+import platform
+import torch
+
+expected = {
+    'accelerate': '1.14.0',
+    'datasets': '4.8.5',
+    'huggingface-hub': '1.20.1',
+    'lerobot': '0.5.1',
+    'numpy': '2.2.6',
+    'safetensors': '0.8.0',
+    'torch': '2.10.0+cu128',
+    'torchvision': '0.25.0+cu128',
+}
+assert platform.python_version() == '3.12.13', platform.python_version()
+assert {name: version(name) for name in expected} == expected
+assert torch.cuda.is_available(), 'PyTorch cannot see CUDA'
+assert torch.backends.cudnn.version() == 91002, torch.backends.cudnn.version()
+print(f'ACT environment ready: torch={torch.__version__}, lerobot={version("lerobot")}')
+PY
+  "$classical_env/bin/python" - <<'PY'
+from importlib.metadata import version
+import platform
+import cv2
+import numpy
+import sam2
+import torch
+
+expected = {
+    'huggingface-hub': '0.36.2',
+    'numpy': '1.26.4',
+    'opencv-python': '4.11.0.86',
+    'sam-2': '1.0',
+    'torch': '2.11.0+cu128',
+    'torchvision': '0.26.0+cu128',
+}
+assert platform.python_version() == '3.10.20', platform.python_version()
+assert {name: version(name) for name in expected} == expected
+assert torch.cuda.is_available(), 'PyTorch cannot see CUDA'
+print(f'classical environment ready: torch={torch.__version__}, numpy={numpy.__version__}')
+PY
+  "$act_env/bin/python" -m pip freeze \
+    > "$repo_root/.xlerobot/environment/act.freeze.txt"
+  "$classical_env/bin/python" -m pip freeze \
+    > "$repo_root/.xlerobot/environment/classical.freeze.txt"
+  if ! $with_gpd; then
+    note 'GPD was not built; rerun tools/setup gpu --with-gpd to enable that optional backend'
+  fi
+  note 'GPU environments complete; configure LM Studio, checkpoint, and .env'
+}
+
+if [[ $role == robot ]] && $with_gpd; then
+  die '--with-gpd is only valid with tools/setup gpu'
+fi
+if [[ $role == gpu ]] && { \
+    $with_person_detector || $with_kws_model || $generate_voice_prompts; \
+}; then
+  die 'robot-only setup flags require tools/setup robot'
+fi
+
+case $role in
+  robot) setup_robot ;;
+  gpu) setup_gpu ;;
+  '') usage >&2; exit 2 ;;
+  *) usage >&2; exit 2 ;;
+esac

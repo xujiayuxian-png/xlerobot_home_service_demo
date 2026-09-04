@@ -3,7 +3,7 @@
   <name>xlerobot_hmi</name>
   <version>0.1.0</version>
   <description>Product Operator Console and ROS web gateway.</description>
-  <maintainer email="lisa@example.com">lisa</maintainer>
+  <maintainer email="xujiayuxian-png@users.noreply.github.com">xujiayuxian-png</maintainer>
   <license>Apache-2.0</license>
 
   <exec_depend>rclpy</exec_depend>

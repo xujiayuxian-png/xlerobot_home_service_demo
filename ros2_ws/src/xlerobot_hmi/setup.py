@@ -28,8 +28,8 @@ setup(
     install_requires=['setuptools', 'aiohttp', 'PyYAML'],
     tests_require=['pytest'],
     zip_safe=True,
-    maintainer='lisa',
-    maintainer_email='lisa@example.com',
+    maintainer='xujiayuxian-png',
+    maintainer_email='xujiayuxian-png@users.noreply.github.com',
     description='Product Operator Console and ROS web gateway.',
     license='Apache-2.0',
     entry_points={

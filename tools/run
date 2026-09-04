@@ -1,0 +1,236 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# shellcheck source=tools/lib/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tools/run gpu [--config PATH]
+  tools/run mapping --hardware [--phase build|validate] [--config PATH]
+  tools/run grasp act|centroid|gpd --hardware [--config PATH]
+  tools/run demo --hardware [--config PATH]
+
+`gpu` checks LM Studio and starts proposal services on 8765 and 8766.
+`mapping` starts the site mapping/validation workspace. `grasp` submits the
+configured object with one explicit backend to a running demo stack. `demo`
+starts the live fetch-and-deliver stack with ACT, shuttlecock, voice, and web
+defaults from config/local.yaml.
+EOF
+}
+
+mode=''
+if (($#)) && [[ $1 != -* ]]; then
+  mode=$1
+  shift
+fi
+hardware=false
+phase=build
+phase_set=false
+positionals=()
+while (($#)); do
+  case $1 in
+    --hardware) hardware=true; shift ;;
+    --phase)
+      (($# >= 2)) || die '--phase requires build or validate'
+      phase=$2
+      phase_set=true
+      shift 2
+      ;;
+    --config)
+      (($# >= 2)) || die '--config requires a path'
+      XLEROBOT_CONFIG=$2
+      shift 2
+      ;;
+    -h|--help) usage; exit 0 ;;
+    -*) usage >&2; exit 2 ;;
+    *) positionals+=("$1"); shift ;;
+  esac
+done
+
+case $mode in
+  gpu|mapping|grasp|demo) ;;
+  '') usage >&2; exit 2 ;;
+  *) usage >&2; exit 2 ;;
+esac
+
+load_local_env
+
+require_hardware() {
+  $hardware || die \
+    'live robot operation requires the explicit --hardware flag; no device was opened'
+}
+
+wait_for_url() {
+  local label=$1 url=$2 pid=$3
+  for _ in $(seq 1 60); do
+    if curl --silent --fail --max-time 1 "$url" >/dev/null 2>&1; then
+      note "$label ready: $url"
+      return 0
+    fi
+    kill -0 "$pid" 2>/dev/null || return 1
+    sleep 1
+  done
+  return 1
+}
+
+runtime_paths() {
+  local state_root unit
+  state_root=$(absolute_from_repo "$(config_get calibration.state_root .xlerobot)")
+  unit=$(config_get calibration.unit demo-01)
+  printf '%s/units/%s/runtime\n' "$state_root" "$unit"
+}
+
+run_gpu() {
+  require_config
+  $hardware && die '--hardware is not valid for proposal-only GPU services'
+  ((${#positionals[@]} == 0)) || die 'tools/run gpu takes no positional arguments'
+  ! $phase_set || die '--phase is only valid for tools/run mapping'
+  local lm_url lm_model bind_host classical_python
+  local classical_pid='' act_pid=''
+  lm_url=$(url_join "$(config_get services.lm_studio_url '')" v1/models)
+  lm_model=$(config_get models.vlm qwen/qwen3-vl-4b)
+  bind_host=$(config_get services.bind_host 0.0.0.0)
+  classical_python="$repo_root/.xlerobot/venvs/classical/bin/python"
+  [[ -x $classical_python ]] || die 'classical environment missing; run tools/setup gpu'
+  [[ -f $repo_root/services/classical/server.py ]] || die \
+    'classical service source is missing'
+  lm_model_available "$lm_url" "$lm_model" || die \
+    "LM Studio is not ready with model $lm_model at $lm_url"
+  "$repo_root/tools/act" _check --config "$XLEROBOT_CONFIG"
+  if curl --silent --fail --max-time 1 http://127.0.0.1:8765/health >/dev/null 2>&1 \
+      || curl --silent --fail --max-time 1 http://127.0.0.1:8766/healthz >/dev/null 2>&1; then
+    die 'port 8765 or 8766 already has an XLeRobot service; stop it first'
+  fi
+
+  # shellcheck disable=SC2317  # Invoked indirectly by the trap below.
+  cleanup() {
+    [[ -z $classical_pid ]] || kill "$classical_pid" 2>/dev/null || true
+    [[ -z $act_pid ]] || kill "$act_pid" 2>/dev/null || true
+    [[ -z $classical_pid ]] || wait "$classical_pid" 2>/dev/null || true
+    [[ -z $act_pid ]] || wait "$act_pid" 2>/dev/null || true
+  }
+  trap cleanup EXIT INT TERM
+
+  cd "$repo_root"
+  "$classical_python" services/classical/server.py \
+    --host "$bind_host" --port 8765 &
+  classical_pid=$!
+  "$repo_root/tools/act" _serve --config "$XLEROBOT_CONFIG" &
+  act_pid=$!
+  wait_for_url 'classical service' http://127.0.0.1:8765/health "$classical_pid" \
+    || die 'classical service failed to become ready'
+  curl --silent --show-error --fail --max-time 3 \
+      http://127.0.0.1:8765/health | python3 -c '
+import json
+import sys
+health = json.load(sys.stdin)
+raise SystemExit(0 if health.get("segment_ready") is True else 1)
+' || die 'classical SAM 2 backend is not ready; inspect the service output above'
+  wait_for_url 'ACT service' http://127.0.0.1:8766/healthz "$act_pid" \
+    || die 'ACT service failed to become ready'
+  note 'GPU proposal services are running; press Ctrl-C to stop both'
+  wait -n "$classical_pid" "$act_pid"
+  die 'a GPU proposal service exited; both services were stopped'
+}
+
+run_mapping() {
+  require_hardware
+  require_config
+  ((${#positionals[@]} == 0)) || die 'tools/run mapping takes no positional arguments'
+  case $phase in build|validate) ;; *) die '--phase must be build or validate' ;; esac
+  verify_calibration_runtime >/dev/null
+  source_robot_workspace
+  local runtime artifact_root
+  runtime=$(runtime_paths)
+  artifact_root=$(absolute_from_repo "$(config_get data.collection_root .xlerobot/artifacts)")
+  mkdir -p "$artifact_root"
+  note "starting LIVE mapping phase=$phase: the mobile base may move"
+  exec ros2 launch xlerobot_bringup site_mapping.launch.py \
+    hardware_enabled:=true \
+    phase:="$phase" \
+    artifact_root:="$artifact_root" \
+    unit_id:="$(config_get robot.unit_id demo-01)" \
+    site_id:="$(config_get robot.site_id home-demo)" \
+    right_bus:="$(config_get robot.devices.right_arm /dev/right_arm)" \
+    left_bus:="$(config_get robot.devices.left_arm /dev/left_arm)" \
+    lidar_port:="$(config_get robot.devices.lidar /dev/lidar)" \
+    web_port:="$(config_get demo.web_port 8080)" \
+    geometry_file:="$runtime/geometry.yaml" \
+    servo_calibration_file:="$runtime/servos.yaml" \
+    controllers_file:="$runtime/controllers.yaml"
+}
+
+run_grasp() {
+  require_hardware
+  require_config
+  ! $phase_set || die '--phase is only valid for tools/run mapping'
+  ((${#positionals[@]} == 1)) || die \
+    'tools/run grasp requires exactly one backend: act, centroid, or gpd'
+  local selected_backend object source_place recipient
+  selected_backend=${positionals[0]}
+  case $selected_backend in act|centroid|gpd) ;; *) die \
+    "unsupported grasp backend: $selected_backend" ;; esac
+  verify_calibration_runtime >/dev/null
+  source_robot_workspace
+  object=$(config_get demo.object_id 羽毛球)
+  source_place=$(config_get demo.source_place table)
+  recipient=$(config_get demo.recipient_id nearest_person)
+  note "submitting LIVE task: object=$object backend=$selected_backend"
+  exec ros2 run xlerobot_hmi fetch_deliver "$object" \
+    --source "$source_place" --recipient "$recipient" \
+    --backend "$selected_backend" --execute
+}
+
+run_demo() {
+  require_hardware
+  require_config
+  ((${#positionals[@]} == 0)) || die 'tools/run demo takes no positional arguments'
+  ! $phase_set || die '--phase is only valid for tools/run mapping'
+  "$repo_root/tools/doctor" robot --config "$XLEROBOT_CONFIG"
+  source_robot_workspace
+
+  local runtime
+  runtime=$(runtime_paths)
+  mkdir -p "$repo_root/.xlerobot/artifacts"
+  note 'starting LIVE demo: wheels, head, arm, and gripper may move'
+  exec ros2 launch xlerobot_bringup fetch_deliver_demo.launch.py \
+    hardware_enabled:=true \
+    map:="$(absolute_from_repo "$(config_get site.map '')")" \
+    places_file:="$(absolute_from_repo "$(config_get site.places '')")" \
+    act_predict_url:="$(url_join "$(config_get services.act_url '')" predict)" \
+    classical_base_url:="$(config_get services.classical_url '')" \
+    vlm_base_url:="$(config_get services.lm_studio_url '')" \
+    person_model_path:="$(absolute_from_repo "$(config_get models.person_detector '')")" \
+    right_bus:="$(config_get robot.devices.right_arm /dev/right_arm)" \
+    left_bus:="$(config_get robot.devices.left_arm /dev/left_arm)" \
+    lidar_port:="$(config_get robot.devices.lidar /dev/lidar)" \
+    d455_serial:="$(config_get robot.devices.head_camera_serial '')" \
+    wrist_camera_device:="$(config_get robot.devices.wrist_camera '')" \
+    audio_input_device:="$(config_get robot.devices.audio_input auto)" \
+    audio_output_device:="$(config_get robot.devices.audio_output '')" \
+    tts_cache_dir:="$repo_root/.xlerobot/cache/tts" \
+    kws_model_dir:="$(voice_kws_dir)" \
+    whisper_model:="$(voice_whisper_dir)" \
+    enable_voice:="$(config_get demo.voice true)" \
+    enable_web:="$(config_get demo.web true)" \
+    enable_tts:="$(config_get demo.voice true)" \
+    default_grasp_backend:="$(config_get demo.grasp_backend act)" \
+    web_port:="$(config_get demo.web_port 8080)" \
+    artifact_root:="$repo_root/.xlerobot/artifacts" \
+    unit_id:="$(config_get robot.unit_id demo-01)" \
+    site_id:="$(config_get robot.site_id home-demo)" \
+    geometry_file:="$runtime/geometry.yaml" \
+    servo_calibration_file:="$runtime/servos.yaml" \
+    controllers_file:="$runtime/controllers.yaml" \
+    transforms_file:="$runtime/transforms.yaml" \
+    grasp_alignment_file:="$runtime/grasp_alignment.yaml"
+}
+
+case $mode in
+  gpu) run_gpu ;;
+  mapping) run_mapping ;;
+  grasp) run_grasp ;;
+  demo) run_demo ;;
+esac

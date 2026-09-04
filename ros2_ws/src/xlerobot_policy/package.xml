@@ -3,7 +3,7 @@
   <name>xlerobot_policy</name>
   <version>0.1.0</version>
   <description>Untrusted learned-policy clients and deterministic postprocessing.</description>
-  <maintainer email="lisa@example.com">lisa</maintainer>
+  <maintainer email="xujiayuxian-png@users.noreply.github.com">xujiayuxian-png</maintainer>
   <license>Apache-2.0</license>
 
   <exec_depend>python3-numpy</exec_depend>

@@ -1,0 +1,6 @@
+# Optional nearest-person detector used by the full fetch-and-deliver demo.
+# Ultralytics is AGPL-3.0 software; install this extra only after reviewing that
+# license for your use.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.12.0+cpu
+ultralytics==8.4.58

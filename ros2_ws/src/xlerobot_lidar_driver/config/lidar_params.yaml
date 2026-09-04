@@ -1,6 +1,6 @@
 lidar_node:
   ros__parameters:
-    # Safe teaching defaults. Real serial access needs both values overridden.
+    # Safe source-checkout defaults. Real serial access needs both values overridden.
     mock_hardware: true
     hardware_enabled: false
     port_name: "/dev/lidar"

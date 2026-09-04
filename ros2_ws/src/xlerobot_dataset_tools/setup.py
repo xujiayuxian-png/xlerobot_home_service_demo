@@ -18,8 +18,8 @@ setup(
     install_requires=['setuptools'],
     tests_require=['pytest'],
     zip_safe=True,
-    maintainer='lisa',
-    maintainer_email='lisa@example.com',
+    maintainer='xujiayuxian-png',
+    maintainer_email='xujiayuxian-png@users.noreply.github.com',
     description='NPZ and dual-MP4 ACT episode capture and dataset tools.',
     license='Apache-2.0',
     entry_points={

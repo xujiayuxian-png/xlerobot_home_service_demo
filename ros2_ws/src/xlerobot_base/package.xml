@@ -3,7 +3,7 @@
   <name>xlerobot_base</name>
   <version>0.1.0</version>
   <description>Drive command arbitration and safety for the ros2_control base.</description>
-  <maintainer email="lisa@example.com">lisa</maintainer>
+  <maintainer email="xujiayuxian-png@users.noreply.github.com">xujiayuxian-png</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

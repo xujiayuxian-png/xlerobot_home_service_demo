@@ -14,8 +14,8 @@ setup(
     install_requires=['setuptools', 'PyYAML'],
     tests_require=['pytest'],
     zip_safe=True,
-    maintainer='lisa',
-    maintainer_email='lisa@example.com',
+    maintainer='xujiayuxian-png',
+    maintainer_email='xujiayuxian-png@users.noreply.github.com',
     description='Commissioning workflow coordinators for XLeRobot.',
     license='Apache-2.0',
     entry_points={

@@ -2,8 +2,8 @@
 <package format="3">
   <name>xlerobot_interfaces</name>
   <version>0.1.0</version>
-  <description>Stable capability contracts for XLeRobot Home Service Lab.</description>
-  <maintainer email="lisa@example.com">lisa</maintainer>
+  <description>ROS contracts for the verified XLeRobot home-service demo.</description>
+  <maintainer email="xujiayuxian-png@users.noreply.github.com">xujiayuxian-png</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

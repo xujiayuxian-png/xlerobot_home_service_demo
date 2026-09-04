@@ -8,7 +8,7 @@ speak_text_server:
     # Set to plughw:0,0 in headless deployment; empty preserves desktop default.
     audio_player_device: ''
     edge_tts_argv: [python3, -m, edge_tts]
-    edge_cache_dir: $HOME/.cache/xlerobot_tts
+    edge_cache_dir: .xlerobot/cache/tts
     hybrid_prefix_texts: [好的，我去拿]
     preset_directory: ''
     preset_texts:

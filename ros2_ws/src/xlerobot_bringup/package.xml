@@ -2,8 +2,8 @@
 <package format="3">
   <name>xlerobot_bringup</name>
   <version>0.1.0</version>
-  <description>Product bringup profiles for XLeRobot Home Service Delivery.</description>
-  <maintainer email="lisa@example.com">lisa</maintainer>
+  <description>Bringup for the verified XLeRobot home-service demo.</description>
+  <maintainer email="xujiayuxian-png@users.noreply.github.com">xujiayuxian-png</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
@@ -23,8 +23,10 @@
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>xacro</exec_depend>
   <exec_depend>xlerobot_base</exec_depend>
+  <exec_depend>xlerobot_calibration_tools</exec_depend>
   <exec_depend>xlerobot_commissioning</exec_depend>
   <exec_depend>xlerobot_description</exec_depend>
+  <exec_depend>xlerobot_feetech</exec_depend>
   <exec_depend>xlerobot_hardware</exec_depend>
   <exec_depend>xlerobot_hmi</exec_depend>
   <exec_depend>xlerobot_lidar_driver</exec_depend>

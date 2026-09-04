@@ -1,0 +1,323 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# shellcheck source=tools/lib/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: tools/doctor robot|gpu [--config PATH]
+
+Read-only checks only: this command never opens a camera or motor device.
+EOF
+}
+
+role=''
+if (($#)) && [[ $1 != -* ]]; then
+  role=$1
+  shift
+fi
+while (($#)); do
+  case $1 in
+    --config)
+      (($# >= 2)) || die '--config requires a path'
+      XLEROBOT_CONFIG=$2
+      shift 2
+      ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; exit 2 ;;
+  esac
+done
+
+case $role in
+  robot|gpu) ;;
+  '') usage >&2; exit 2 ;;
+  *) usage >&2; exit 2 ;;
+esac
+
+load_local_env
+require_config
+errors=0
+warnings=0
+
+ok() { printf 'OK    %s\n' "$*"; }
+fail() { printf 'ERROR %s\n' "$*" >&2; errors=$((errors + 1)); }
+warn() { printf 'WARN  %s\n' "$*" >&2; warnings=$((warnings + 1)); }
+
+check_python_versions() {
+  local label=$1 python=$2 expected_python=$3
+  shift 3
+  if [[ ! -x $python ]]; then
+    fail "$label Python missing: $python"
+    return
+  fi
+  local result
+  if result=$("$python" - "$expected_python" "$@" <<'PY' 2>&1
+from importlib.metadata import PackageNotFoundError, version
+import platform
+import sys
+
+expected_python = sys.argv[1]
+items = sys.argv[2:]
+errors = []
+if expected_python and platform.python_version() != expected_python:
+    errors.append(
+        f"python={platform.python_version()} (expected {expected_python})"
+    )
+for package, expected in zip(items[::2], items[1::2], strict=True):
+    try:
+        actual = version(package)
+    except PackageNotFoundError:
+        errors.append(f"{package}=missing (expected {expected})")
+    else:
+        if actual != expected:
+            errors.append(f"{package}={actual} (expected {expected})")
+if errors:
+    raise SystemExit("; ".join(errors))
+PY
+  ); then
+    ok "$label package versions match the published environment"
+  else
+    fail "$label version mismatch: $result"
+  fi
+}
+
+check_file() {
+  local label=$1 path=$2
+  if [[ -f $path ]]; then
+    ok "$label: $path"
+  else
+    fail "$label missing: $path"
+  fi
+}
+
+check_device_name() {
+  local label=$1 path=$2
+  if [[ -e $path ]]; then
+    ok "$label present: $path"
+  else
+    warn "$label not present: $path"
+  fi
+}
+
+require_device_name() {
+  local label=$1 path=$2
+  if [[ -n $path && -e $path ]]; then
+    ok "$label present: $path"
+  else
+    fail "$label missing: ${path:-not configured}"
+  fi
+}
+
+check_d455_inventory() {
+  local configured_serial=$1 product product_name device_dir actual_serial
+  for product in /sys/bus/usb/devices/*/product; do
+    [[ -r $product ]] || continue
+    IFS= read -r product_name < "$product" || continue
+    [[ $product_name == *RealSense* && $product_name == *455* ]] || continue
+    device_dir=${product%/product}
+    actual_serial=''
+    [[ ! -r $device_dir/serial ]] || IFS= read -r actual_serial < "$device_dir/serial"
+    if [[ -z $configured_serial || $actual_serial == "$configured_serial" ]]; then
+      ok "D455 present in read-only USB inventory${actual_serial:+: $actual_serial}"
+      return
+    fi
+  done
+  fail "D455 not found in read-only USB inventory${configured_serial:+ for serial $configured_serial}; check USB 3 cabling or robot.devices.head_camera_serial"
+}
+
+check_audio_inventory() {
+  if [[ -r /proc/asound/pcm && -s /proc/asound/pcm ]]; then
+    ok 'audio PCM endpoints present in read-only ALSA inventory'
+  else
+    fail 'no PCM endpoint found in /proc/asound/pcm; check the configured USB audio device'
+  fi
+}
+
+http_check() {
+  local label=$1 url=$2
+  if curl --silent --show-error --fail --max-time 3 "$url" >/dev/null; then
+    ok "$label reachable: $url"
+  else
+    fail "$label unreachable: $url"
+  fi
+}
+
+doctor_robot() {
+  if [[ -f /opt/ros/jazzy/setup.bash ]]; then
+    ok 'ROS 2 Jazzy installed'
+  else
+    fail 'ROS 2 Jazzy missing at /opt/ros/jazzy'
+  fi
+  check_file 'workspace build' "$repo_root/ros2_ws/install/setup.bash"
+  if vlm_config_is_pinned; then
+    ok 'LM Studio and concrete Qwen artifact identities match the public manifest'
+  else
+    fail 'LM Studio/Qwen artifact config differs from the public manifest'
+  fi
+  local robot_python="$repo_root/.venv/robot/bin/python" voice_enabled
+  voice_enabled=$(config_get demo.voice true)
+  check_python_versions 'robot voice' "$robot_python" '' \
+    aiohttp 3.14.1 ctranslate2 4.8.1 edge-tts 7.2.8 \
+    faster-whisper 1.2.1 huggingface-hub 1.20.1 onnxruntime 1.27.0 \
+    scipy 1.11.4 sherpa-onnx 1.13.4 sounddevice 0.5.5
+  if [[ $voice_enabled == true ]]; then
+    if voice_model_config_is_pinned; then
+      ok 'voice model IDs and revision match the public manifest'
+    else
+      fail 'voice model IDs/revision differ from the public manifest'
+    fi
+    if [[ -x $robot_python ]] && voice_models_command "$robot_python" \
+        --check --component whisper \
+        >/dev/null 2>&1; then
+      ok 'pinned Whisper files match their SHA-256 manifest'
+    else
+      fail 'Whisper model missing or invalid; rerun tools/setup robot'
+    fi
+    if [[ -x $robot_python ]] && voice_models_command "$robot_python" \
+        --check --component kws >/dev/null 2>&1; then
+      ok 'pinned KWS files match their SHA-256 manifest'
+    else
+      fail 'KWS model missing or invalid; review its unresolved upstream terms, then rerun tools/setup robot --with-kws-model'
+    fi
+  else
+    [[ $voice_enabled == false ]] || fail 'demo.voice must be true or false'
+    ok 'voice input and feedback disabled by local config'
+  fi
+
+  if verify_calibration_runtime >/dev/null 2>&1; then
+    ok 'calibration runtime matches the active immutable version'
+  else
+    fail 'calibration runtime is missing, invalid, or does not match active'
+  fi
+
+  local state_root unit runtime
+  state_root=$(absolute_from_repo "$(config_get calibration.state_root .xlerobot)")
+  unit=$(config_get calibration.unit demo-01)
+  runtime="$state_root/units/$unit/runtime"
+  for name in geometry servos controllers transforms grasp_alignment manifest; do
+    check_file "calibration runtime $name" "$runtime/$name.yaml"
+  done
+
+  check_file 'map' "$(absolute_from_repo "$(config_get site.map '')")"
+  check_file 'named places' "$(absolute_from_repo "$(config_get site.places '')")"
+  if [[ -x $robot_python ]] && person_model_command "$robot_python" --check \
+      >/dev/null 2>&1; then
+    ok 'optional AGPL person-detector file matches its size and SHA-256'
+  else
+    fail 'person detector missing or invalid; rerun tools/setup robot --with-person-detector'
+  fi
+  check_python_versions 'optional AGPL person detector' "$robot_python" '' \
+    torch 2.12.0+cpu ultralytics 8.4.58
+  require_device_name 'lidar alias' "$(config_get robot.devices.lidar /dev/lidar)"
+  require_device_name 'right arm alias' "$(config_get robot.devices.right_arm /dev/right_arm)"
+  require_device_name 'left arm alias' "$(config_get robot.devices.left_arm /dev/left_arm)"
+  check_device_name 'Leader arm alias' "$(config_get robot.devices.leader_arm /dev/right_master_arm)"
+  require_device_name 'wrist camera alias' "$(config_get robot.devices.wrist_camera '')"
+  check_d455_inventory "$(config_get robot.devices.head_camera_serial '')"
+  [[ $voice_enabled != true ]] || check_audio_inventory
+
+  local lm lm_model classical act
+  lm=$(config_get services.lm_studio_url '')
+  lm_model=$(config_get models.vlm qwen/qwen3-vl-4b)
+  classical=$(config_get services.classical_url '')
+  act=$(config_get services.act_url '')
+  if lm_model_available "$(url_join "$lm" v1/models)" "$lm_model"; then
+    ok "LM Studio model available: $lm_model"
+  else
+    fail "LM Studio does not list the configured model: $lm_model"
+  fi
+  http_check 'classical grasp service' "$(url_join "$classical" health)"
+  http_check 'ACT service' "$(url_join "$act" healthz)"
+  if [[ -n ${XLEROBOT_ACT_TOKEN:-} && ${XLEROBOT_ACT_TOKEN} != replace-* ]]; then
+    ok 'ACT token is configured'
+  else
+    fail 'set a non-placeholder XLEROBOT_ACT_TOKEN in .env'
+  fi
+}
+
+doctor_gpu() {
+  if vlm_config_is_pinned; then
+    ok 'LM Studio and concrete Qwen artifact identities match the public manifest'
+  else
+    fail 'LM Studio/Qwen artifact config differs from the public manifest'
+  fi
+  if command -v nvidia-smi >/dev/null && nvidia-smi >/dev/null 2>&1; then
+    ok 'NVIDIA GPU available'
+  else
+    fail 'NVIDIA GPU unavailable'
+  fi
+  check_file 'ACT Python' "$repo_root/.xlerobot/venvs/act/bin/python"
+  check_file 'classical Python' "$repo_root/.xlerobot/venvs/classical/bin/python"
+  check_python_versions 'ACT' "$repo_root/.xlerobot/venvs/act/bin/python" 3.12.13 \
+    accelerate 1.14.0 datasets 4.8.5 huggingface-hub 1.20.1 \
+    lerobot 0.5.1 numpy 2.2.6 safetensors 0.8.0 \
+    torch 2.10.0+cu128 torchvision 0.25.0+cu128
+  check_python_versions 'classical' \
+    "$repo_root/.xlerobot/venvs/classical/bin/python" 3.10.20 \
+    huggingface-hub 0.36.2 numpy 1.26.4 opencv-python 4.11.0.86 sam-2 1.0 \
+    torch 2.11.0+cu128 torchvision 0.26.0+cu128
+  check_file 'classical service' "$repo_root/services/classical/server.py"
+  check_file 'ACT service' "$repo_root/services/act/server.py"
+  local checkpoint manifest lm lm_model classical_python
+  checkpoint=$(absolute_from_repo "$(config_get models.act_checkpoint '')")
+  manifest=$(absolute_from_repo "$(config_get models.act_manifest '')")
+  if verify_act_checkpoint "$checkpoint" >/dev/null 2>&1; then
+    ok "ACT checkpoint matches every hash in $manifest"
+  else
+    fail 'ACT checkpoint or configured manifest is missing, invalid, or mismatched'
+  fi
+  classical_python="$repo_root/.xlerobot/venvs/classical/bin/python"
+  if [[ -x $classical_python ]] && (
+    cd "$repo_root/services/classical"
+    "$classical_python" -c \
+      'from sam2_prompt import resolve_checkpoint; resolve_checkpoint(allow_download=False)'
+  ) >/dev/null 2>&1; then
+    ok 'SAM 2 checkpoint matches the pinned snapshot SHA-256'
+  else
+    fail 'SAM 2 checkpoint is missing or mismatched; rerun tools/setup gpu'
+  fi
+  lm=$(config_get services.lm_studio_url '')
+  lm_model=$(config_get models.vlm qwen/qwen3-vl-4b)
+  if lm_model_available "$(url_join "$lm" v1/models)" "$lm_model"; then
+    ok "LM Studio model available: $lm_model"
+  else
+    fail "LM Studio does not list the configured model: $lm_model"
+  fi
+  if [[ -n ${XLEROBOT_ACT_TOKEN:-} && ${XLEROBOT_ACT_TOKEN} != replace-* ]]; then
+    ok 'ACT token is configured'
+  else
+    fail 'set a non-placeholder XLEROBOT_ACT_TOKEN in .env'
+  fi
+  if [[ -x $repo_root/.xlerobot/venvs/act/bin/python ]]; then
+    if "$repo_root/.xlerobot/venvs/act/bin/python" -c \
+        'import torch, lerobot; assert torch.cuda.is_available(); assert torch.backends.cudnn.version() == 91002' \
+        >/dev/null 2>&1; then
+      ok 'ACT Python imports and CUDA'
+    else
+      fail 'ACT Python environment or CUDA check failed'
+    fi
+  fi
+  if [[ -x $repo_root/.xlerobot/venvs/classical/bin/python ]]; then
+    if "$repo_root/.xlerobot/venvs/classical/bin/python" -c \
+        'import cv2, numpy, sam2, torch; assert torch.cuda.is_available()' \
+        >/dev/null 2>&1; then
+      ok 'classical Python imports and CUDA'
+    else
+      fail 'classical Python environment or CUDA check failed'
+    fi
+  fi
+  if [[ -x $repo_root/services/classical/vendor/gpd/build/gpd_detect_grasps_json ]]; then
+    ok 'optional GPD native backend built'
+  else
+    warn 'optional GPD backend absent; centroid remains available (tools/setup gpu --with-gpd)'
+  fi
+}
+
+case $role in
+  robot) doctor_robot ;;
+  gpu) doctor_gpu ;;
+esac
+
+printf '\nSummary: errors=%d warnings=%d\n' "$errors" "$warnings"
+((errors == 0))

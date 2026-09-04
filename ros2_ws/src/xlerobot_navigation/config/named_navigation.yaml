@@ -26,7 +26,7 @@ named_navigation_server:
     stop_publish_count: 5
 
     # Verified two-wheel reference place. It is meaningful only with the local
-    # map used to record it; teaching deployments should override this config.
+    # map used to record it; each installation should override this config.
     place_ids: [table]
     places.table.frame_id: map
     places.table.x: 1.0289052299603214

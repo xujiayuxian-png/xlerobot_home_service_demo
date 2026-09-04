@@ -22,9 +22,9 @@ setup(
     install_requires=['setuptools'],
     tests_require=['pytest'],
     zip_safe=True,
-    maintainer='lisa',
-    maintainer_email='lisa@example.com',
-    description='Read-only RGBD object localization for the teaching stack.',
+    maintainer='xujiayuxian-png',
+    maintainer_email='xujiayuxian-png@users.noreply.github.com',
+    description='RGB-D object localization and grasp planning for the XLeRobot demo.',
     license='Apache-2.0',
     entry_points={
         'console_scripts': [
