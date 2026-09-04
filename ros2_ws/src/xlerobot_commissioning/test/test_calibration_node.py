@@ -231,3 +231,48 @@ def test_solve_rejects_invalid_request_unit_before_solver(tmp_path, monkeypatch)
     assert result.error.code == CapabilityError.INVALID_GOAL
     assert 'invalid unit_id' in result.error.message
     assert node.store.calls == []
+
+
+def test_capture_only_visual_workspace_cannot_publish_legacy_draft(tmp_path):
+    node = node_for(tmp_path, 'head_camera')
+    node.capture_only = True
+    result = node.solve_samples(
+        SimpleNamespace(unit_id='unit-001'),
+        response(),
+    )
+    assert result.error.code == CapabilityError.INVALID_GOAL
+    assert 'capture-only' in result.error.message
+    assert node.store.calls == []
+
+
+def test_capture_only_base_workspace_exports_a_cli_handoff(tmp_path):
+    draft = tmp_path / 'legacy-draft'
+    source = draft / 'components/base_geometry.yaml'
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        'schema: xlerobot_base_geometry/v1\nwheel_radius_m: 0.0635\n',
+        encoding='utf-8',
+    )
+
+    class BaseStore:
+        def save_base_geometry_measurements(self, _unit_id, **_values):
+            return draft, True, {'straight_error_percent': 0.2}
+
+    node = CalibrationNode.__new__(CalibrationNode)
+    node.capture_only = True
+    node.capture_result_file = tmp_path / 'capture/base_geometry/result.yaml'
+    node.store = BaseStore()
+    result = node.save_base_geometry(
+        SimpleNamespace(
+            unit_id='unit-001',
+            nominal_wheel_radius_m=0.0635,
+            nominal_wheel_separation_m=0.52,
+            straight_commanded_m=[1.0, 1.0],
+            straight_actual_m=[1.0, 1.0],
+            rotation_commanded_rad=[6.28, 6.28],
+            rotation_actual_rad=[6.28, 6.28],
+        ),
+        response(),
+    )
+    assert result.error.code == CapabilityError.NONE
+    assert node.capture_result_file.read_bytes() == source.read_bytes()

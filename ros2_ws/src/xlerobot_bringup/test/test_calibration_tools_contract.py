@@ -21,16 +21,25 @@ def test_four_calibration_entrypoints_select_one_shared_workflow_each():
 
 def test_shared_composition_passes_fixed_workflow_to_backend_and_console():
     source = (ROOT / 'xlerobot_bringup/calibration_launch.py').read_text()
+    assert "'hardware_enabled', default_value='false'" in source
+    assert 'OpaqueFunction(function=_require_explicit_hardware)' in source
+    assert "'calibration_capture_only': True" in source
+    assert "'capture_only': True" in source
+    assert "'capture_result_file': result_file" in source
+    assert "'task_history_root': LaunchConfiguration('task_history_root')" in source
     assert "'workflow_id': workflow_id" in source
     assert "'calibration_workflow': workflow_id" in source
     assert "'workspace': 'calibration'" in source
     assert "executable='calibration_workbench'" in source
     assert "workflow_id in {'head_camera', 'right_handeye'}" in source
     assert "'platform_runtime.launch.py'" in source
+    assert "'hardware_enabled': 'true'" in source
     assert "'enable_d455': 'true'" in source
     assert "'right_bus': LaunchConfiguration('right_bus')" in source
     assert "'left_bus': LaunchConfiguration('left_bus')" in source
     assert "'d455_serial': LaunchConfiguration('d455_serial')" in source
+    assert "'d455_config_file': PathJoinSubstitution([" in source
+    assert "'d455_head_calibration.yaml'" in source
     assert "executable='detect_calibration_target'" in source
     assert "executable='collect_transform_samples'" in source
     assert "executable='calibration_pose_server'" in source
@@ -40,3 +49,20 @@ def test_shared_composition_passes_fixed_workflow_to_backend_and_console():
     assert "workflow_id == 'servo'" in source
     assert "executable='servo_calibration_server'" in source
     assert 'technician_pin' not in source
+
+
+def test_public_capture_wrapper_requires_explicit_hardware_before_ros():
+    wrapper = ROOT.parents[2] / 'tools/calibrate'
+    completed = __import__('subprocess').run(
+        [str(wrapper), 'capture', 'servo'], text=True, capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 2
+    assert 'no device was opened' in completed.stderr
+
+    helper = (ROOT.parents[2] / 'tools/lib/calibration_capture.sh').read_text()
+    assert "printf -v config_q '%q' \"$XLEROBOT_CONFIG\"" in helper
+    assert helper.count('--config $config_q') == 3
+    assert 'render --for "$workflow"' in helper
+    assert '--fresh and --resume are mutually exclusive' in helper
+    assert 'previous capture archived without deletion' in helper

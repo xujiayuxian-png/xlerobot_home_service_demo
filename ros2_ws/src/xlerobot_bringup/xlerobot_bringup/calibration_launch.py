@@ -1,7 +1,7 @@
-"""Shared composition for the four isolated calibration tool entrypoints."""
+"""Shared composition for the four isolated live calibration entrypoints."""
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -11,6 +11,15 @@ from launch_ros.substitutions import FindPackageShare
 WORKFLOWS = {'servo', 'base_geometry', 'head_camera', 'right_handeye'}
 
 
+def _require_explicit_hardware(context):
+    """Fail before any node can open a device when consent is absent."""
+    if LaunchConfiguration('hardware_enabled').perform(context) != 'true':
+        raise RuntimeError(
+            'live calibration requires hardware_enabled:=true; no device was opened'
+        )
+    return []
+
+
 def calibration_launch(workflow_id: str) -> LaunchDescription:
     if workflow_id not in WORKFLOWS:
         raise ValueError(f'unknown calibration workflow: {workflow_id}')
@@ -18,8 +27,19 @@ def calibration_launch(workflow_id: str) -> LaunchDescription:
     sample_file = PathJoinSubstitution([
         artifact_root, 'calibration_work', workflow_id, 'samples.yaml'
     ])
+    result_file = PathJoinSubstitution([
+        artifact_root, 'calibration_work', workflow_id, 'result.yaml'
+    ])
     actions = [
-        DeclareLaunchArgument('artifact_root', default_value='/var/lib/xlerobot'),
+        DeclareLaunchArgument(
+            'hardware_enabled', default_value='false', choices=['true', 'false'],
+            description='Explicit consent for this live calibration session.',
+        ),
+        OpaqueFunction(function=_require_explicit_hardware),
+        DeclareLaunchArgument('artifact_root', default_value='.xlerobot'),
+        DeclareLaunchArgument(
+            'task_history_root', default_value='.xlerobot/logs/tasks'
+        ),
         DeclareLaunchArgument('release_id', default_value='development'),
         DeclareLaunchArgument('unit_id', default_value='reference-two-wheel'),
         DeclareLaunchArgument('right_bus', default_value='/dev/right_arm'),
@@ -52,6 +72,8 @@ def calibration_launch(workflow_id: str) -> LaunchDescription:
                 'software_revision': LaunchConfiguration('release_id'),
                 'workflow_id': workflow_id,
                 'sample_file': sample_file,
+                'capture_only': True,
+                'capture_result_file': result_file,
             }],
         ),
         Node(
@@ -64,7 +86,9 @@ def calibration_launch(workflow_id: str) -> LaunchDescription:
                 'unit_id': LaunchConfiguration('unit_id'),
                 'workspace': 'calibration',
                 'calibration_workflow': workflow_id,
+                'calibration_capture_only': True,
                 'enable_engineering_tools': True,
+                'task_history_root': LaunchConfiguration('task_history_root'),
             }],
         ),
     ]
@@ -87,6 +111,7 @@ def calibration_launch(workflow_id: str) -> LaunchDescription:
                     'platform_runtime.launch.py',
                 ])),
                 launch_arguments={
+                    'hardware_enabled': 'true',
                     'startup_ready': 'false',
                     'geometry_file': LaunchConfiguration('geometry_file'),
                     'servo_calibration_file': LaunchConfiguration(
@@ -105,6 +130,10 @@ def calibration_launch(workflow_id: str) -> LaunchDescription:
                 launch_arguments={
                     'enable_lidar': 'false', 'enable_d455': 'true',
                     'd455_serial': LaunchConfiguration('d455_serial'),
+                    'd455_config_file': PathJoinSubstitution([
+                        FindPackageShare('xlerobot_calibration_tools'), 'config',
+                        'd455_head_calibration.yaml',
+                    ]),
                 }.items(),
             ),
             Node(

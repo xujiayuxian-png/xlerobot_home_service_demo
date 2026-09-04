@@ -1,0 +1,17 @@
+schema: xlerobot_calibration_pose_set/v1
+workflow: head_camera
+units: rad
+poses:
+  - {pan: -0.60, tilt: 0.45}
+  - {pan: -0.30, tilt: 0.45}
+  - {pan:  0.00, tilt: 0.45}
+  - {pan:  0.30, tilt: 0.45}
+  - {pan:  0.60, tilt: 0.45}
+  - {pan: -0.60, tilt: 0.65}
+  - {pan: -0.30, tilt: 0.65}
+  - {pan:  0.00, tilt: 0.65}
+  - {pan:  0.30, tilt: 0.65}
+  - {pan:  0.60, tilt: 0.65}
+  - {pan: -0.45, tilt: 0.85}
+  - {pan:  0.00, tilt: 0.85}
+  - {pan:  0.45, tilt: 0.85}

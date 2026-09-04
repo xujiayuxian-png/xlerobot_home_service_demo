@@ -1,0 +1,20 @@
+schema: xlerobot_calibration_targets/v1
+
+targets:
+  head_camera:
+    dictionary: apriltag_36h11
+    layout: grid
+    rows: 4
+    columns: 4
+    first_id: 0
+    tag_size_m: 0.040
+    tag_separation_m: 0.012
+    required_tag_count: 16
+    corner_order: [bottom_right, bottom_left, top_left, top_right]
+
+  right_handeye:
+    dictionary: apriltag_36h11
+    layout: single
+    marker_id: 23
+    tag_size_m: 0.060
+    required_tag_count: 1

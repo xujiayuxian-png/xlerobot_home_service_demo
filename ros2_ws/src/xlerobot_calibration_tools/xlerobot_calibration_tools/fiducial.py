@@ -1,4 +1,4 @@
-"""Fixed, delivery-profile fiducial geometry and pose estimation."""
+"""Fixed demo-profile fiducial geometry and pose estimation."""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ import cv2
 from cv2 import aruco
 import numpy as np
 from scipy.spatial.transform import Rotation
+
+from .profiles import quality_profile, target_profile
 
 
 HEAD_WORKFLOW = 'head_camera'
@@ -46,27 +48,48 @@ class FixedTargetDetector:
         if workflow not in {HEAD_WORKFLOW, ARM_WORKFLOW}:
             raise ValueError('target detector supports only visual calibration')
         self.workflow = workflow
-        self.dictionary = aruco.Dictionary_get(aruco.DICT_APRILTAG_36h11)
-        self.parameters = aruco.DetectorParameters_create()
+        self.target = target_profile(workflow)
+        self.maximum_reprojection_rmse_px = float(
+            quality_profile(workflow)['maximum_reprojection_rmse_px']
+        )
+        if self.target.get('dictionary') != 'apriltag_36h11':
+            raise ValueError('only the shipped AprilTag 36h11 targets are supported')
+        if hasattr(aruco, 'getPredefinedDictionary'):
+            self.dictionary = aruco.getPredefinedDictionary(aruco.DICT_APRILTAG_36h11)
+        else:
+            self.dictionary = aruco.Dictionary_get(aruco.DICT_APRILTAG_36h11)
+        # OpenCV 4.6 exposes both APIs, but assigning APRILTAG refinement on
+        # the constructor-created object can crash in that release.
+        if hasattr(aruco, 'DetectorParameters_create'):
+            self.parameters = aruco.DetectorParameters_create()
+        else:
+            self.parameters = aruco.DetectorParameters()
         if hasattr(aruco, 'CORNER_REFINE_APRILTAG'):
             self.parameters.cornerRefinementMethod = aruco.CORNER_REFINE_APRILTAG
         self.parameters.cornerRefinementWinSize = 5
         self.parameters.cornerRefinementMaxIterations = 30
-        self._board = self._head_board_points()
+        self._board = self._head_board_points(self.target) if workflow == HEAD_WORKFLOW else {}
 
     @staticmethod
-    def _head_board_points() -> dict[int, np.ndarray]:
-        tag_size = 0.040
-        pitch = tag_size + 0.012
-        width = 4 * tag_size + 3 * 0.012
+    def _head_board_points(profile: dict | None = None) -> dict[int, np.ndarray]:
+        profile = profile or target_profile(HEAD_WORKFLOW)
+        rows = int(profile['rows'])
+        columns = int(profile['columns'])
+        first_id = int(profile['first_id'])
+        tag_size = float(profile['tag_size_m'])
+        separation = float(profile['tag_separation_m'])
+        pitch = tag_size + separation
+        width = columns * tag_size + (columns - 1) * separation
+        height = rows * tag_size + (rows - 1) * separation
         origin = -width * 0.5
+        origin_y = -height * 0.5
         half = tag_size * 0.5
         points = {}
-        for row in range(4):
-            for column in range(4):
-                marker_id = row * 4 + column
+        for row in range(rows):
+            for column in range(columns):
+                marker_id = first_id + row * columns + column
                 center_x = origin + column * pitch + half
-                center_y = origin + row * pitch + half
+                center_y = origin_y + row * pitch + half
                 # This physical board was verified with OpenCV detection order
                 # mapped to BR, BL, TL, TR in board coordinates.
                 points[marker_id] = np.asarray([
@@ -97,10 +120,11 @@ class FixedTargetDetector:
         detected = {int(value): index for index, value in enumerate(ids.flatten())}
         if set(detected).intersection(self._board) != set(self._board):
             return None
-        object_points = np.concatenate([self._board[index] for index in range(16)])
+        marker_ids = sorted(self._board)
+        object_points = np.concatenate([self._board[index] for index in marker_ids])
         image_points = np.concatenate([
             np.asarray(corners[detected[index]][0], dtype=np.float32)
-            for index in range(16)
+            for index in marker_ids
         ])
         ok, rvec, tvec = cv2.solvePnP(
             object_points, image_points, camera_matrix, distortion,
@@ -116,24 +140,27 @@ class FixedTargetDetector:
         error = _rmse(
             object_points, image_points, rvec, tvec, camera_matrix, distortion
         )
-        if error >= 1.0:
+        if error >= self.maximum_reprojection_rmse_px:
             return None
-        return TargetEstimate(_matrix(rvec, tvec), 16, error, tuple(range(16)))
+        return TargetEstimate(
+            _matrix(rvec, tvec), len(marker_ids), error, tuple(marker_ids)
+        )
 
     def _estimate_arm(self, corners, ids, camera_matrix, distortion):
         matches = [
             index for index, marker_id in enumerate(ids.flatten())
-            if int(marker_id) == 23
+            if int(marker_id) == int(self.target['marker_id'])
         ]
         if len(matches) != 1:
             return None
         marker = np.asarray(corners[matches[0]], dtype=np.float32)
+        tag_size = float(self.target['tag_size_m'])
         rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(
-            marker, 0.060, camera_matrix, distortion
+            marker, tag_size, camera_matrix, distortion
         )
         rvec = rvecs[0].reshape(3, 1)
         tvec = tvecs[0].reshape(3, 1)
-        half = 0.030
+        half = tag_size * 0.5
         object_points = np.asarray([
             [-half, half, 0.0], [half, half, 0.0],
             [half, -half, 0.0], [-half, -half, 0.0],
@@ -141,6 +168,8 @@ class FixedTargetDetector:
         error = _rmse(
             object_points, marker[0], rvec, tvec, camera_matrix, distortion
         )
-        if error >= 1.2:
+        if error >= self.maximum_reprojection_rmse_px:
             return None
-        return TargetEstimate(_matrix(rvec, tvec), 1, error, (23,))
+        return TargetEstimate(
+            _matrix(rvec, tvec), 1, error, (int(self.target['marker_id']),)
+        )

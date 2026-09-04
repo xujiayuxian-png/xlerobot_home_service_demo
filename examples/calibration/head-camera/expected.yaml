@@ -1,0 +1,13 @@
+schema: xlerobot_calibration_replay_expected/v1
+fixture_kind: synthetic
+checks:
+  model: moving_camera_fixed_target
+  calibration_id: synthetic-head-board-replay-12
+  metrics.sample_count: 12
+  metrics.reprojection_rmse_px: {value: 0.3977541116, absolute_tolerance: 0.000001}
+  metrics.translation_rmse_mm: {value: 0.0, absolute_tolerance: 0.001}
+  metrics.rotation_rmse_deg: {value: 0.0, absolute_tolerance: 0.001}
+  metrics.observability.rotation_rank: {value: 3.0, absolute_tolerance: 0.0}
+  x.xyz_m.0: {value: 0.031, absolute_tolerance: 0.000001}
+  x.xyz_m.1: {value: 0.048, absolute_tolerance: 0.000001}
+  x.xyz_m.2: {value: 0.034, absolute_tolerance: 0.000001}

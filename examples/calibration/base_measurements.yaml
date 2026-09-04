@@ -1,0 +1,9 @@
+schema: xlerobot_base_measurements/v1
+nominal_wheel_radius_m: 0.0635
+nominal_wheel_separation_m: 0.52
+straight_trials:
+  - {commanded_m: 1.0, actual_m: 0.992}
+  - {commanded_m: 1.0, actual_m: 0.997}
+rotation_trials:
+  - {commanded_rad: 6.283185307, actual_rad: 6.20}
+  - {commanded_rad: 6.283185307, actual_rad: 6.24}

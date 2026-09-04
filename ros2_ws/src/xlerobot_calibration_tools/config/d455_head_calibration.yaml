@@ -1,0 +1,19 @@
+# D455 capture profile for the head-camera fiducial workflow.  Depth and IMU
+# are intentionally disabled: calibration consumes only color plus CameraInfo.
+enable_color: true
+enable_depth: false
+enable_infra: false
+enable_infra1: false
+enable_infra2: false
+enable_gyro: false
+enable_accel: false
+enable_motion: false
+enable_sync: false
+enable_rgbd: false
+align_depth.enable: false
+pointcloud.enable: false
+publish_tf: true
+initial_reset: false
+reconnect_timeout: 6.0
+base_frame_id: head_camera_link
+rgb_camera.color_profile: 1280x720x15

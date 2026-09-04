@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 import math
+import os
 from pathlib import Path
 
 import rclpy
@@ -52,13 +53,19 @@ class CalibrationNode(Node):
     def __init__(self):
         super().__init__('calibration_workbench')
         root = Path(str(self.declare_parameter(
-            'artifact_root', '/var/lib/xlerobot'
+            'artifact_root', '.xlerobot'
         ).value)).expanduser()
         revision = str(self.declare_parameter('software_revision', 'development').value)
         self.workflow_id = str(self.declare_parameter('workflow_id', '').value)
         if self.workflow_id not in WORKFLOWS:
             raise ValueError('workflow_id must select exactly one calibration tool')
         self.store = UnitCalibrationStore(root, revision)
+        self.capture_only = bool(self.declare_parameter('capture_only', False).value)
+        capture_result = str(self.declare_parameter(
+            'capture_result_file',
+            str(root / 'calibration_work' / self.workflow_id / 'result.yaml'),
+        ).value)
+        self.capture_result_file = Path(capture_result).expanduser()
         sample_file = str(self.declare_parameter('sample_file', '').value)
         self.sample_file = Path(sample_file).expanduser() if sample_file else None
         self.create_service(
@@ -88,7 +95,8 @@ class CalibrationNode(Node):
 
     def goal(self, goal):
         if (
-            goal.workflow_id != self.workflow_id or not goal.unit_id.strip()
+            getattr(self, 'capture_only', False)
+            or goal.workflow_id != self.workflow_id or not goal.unit_id.strip()
             or goal.automatic or not goal.dry_run
         ):
             return GoalResponse.REJECT
@@ -113,6 +121,8 @@ class CalibrationNode(Node):
 
     def import_result(self, request, response):
         try:
+            if getattr(self, 'capture_only', False):
+                raise ValueError('capture-only workspace cannot import calibration results')
             if request.workflow_id != self.workflow_id:
                 raise ValueError('result belongs to a different calibration tool')
             draft, quality, metrics = self.store.import_result(
@@ -131,6 +141,8 @@ class CalibrationNode(Node):
 
     def activate(self, request, response):
         try:
+            if getattr(self, 'capture_only', False):
+                raise ValueError('capture-only workspace cannot activate calibration bundles')
             if request.artifact_type != 'calibration':
                 raise ValueError('expected artifact_type=calibration')
             if request.version:
@@ -158,6 +170,16 @@ class CalibrationNode(Node):
                 rotation_commanded=list(request.rotation_commanded_rad),
                 rotation_actual=list(request.rotation_actual_rad),
             )
+            if getattr(self, 'capture_only', False):
+                source = draft / 'components' / 'base_geometry.yaml'
+                target = self.capture_result_file
+                target.parent.mkdir(parents=True, exist_ok=True)
+                temporary = target.with_name(f'.{target.name}.tmp')
+                try:
+                    temporary.write_bytes(source.read_bytes())
+                    os.replace(temporary, target)
+                finally:
+                    temporary.unlink(missing_ok=True)
             response.error.code = CapabilityError.NONE
             response.error.message = 'base geometry fitted into unit draft'
             response.draft_uri = draft.as_uri()
@@ -171,6 +193,8 @@ class CalibrationNode(Node):
 
     def solve_samples(self, request, response):
         try:
+            if getattr(self, 'capture_only', False):
+                raise ValueError('capture-only workspace cannot solve calibration samples')
             contract = _SAMPLE_CONTRACTS[self.workflow_id]
             model = contract['model']
             unit_id = _id(request.unit_id, 'unit_id')

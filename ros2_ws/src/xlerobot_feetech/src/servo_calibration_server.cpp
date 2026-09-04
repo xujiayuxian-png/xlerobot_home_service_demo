@@ -71,7 +71,7 @@ public:
     const auto right_port = declare_parameter<std::string>("right_port", "/dev/right_arm");
     const auto left_port = declare_parameter<std::string>("left_port", "/dev/left_arm");
     output_ = declare_parameter<std::string>(
-      "result_file", "/var/lib/xlerobot/calibration_work/servo/result.yaml");
+      "result_file", ".xlerobot/calibration_work/servo/result.yaml");
     const auto baudrate = declare_parameter<int>("baudrate", 1000000);
     if (!right_.connect(right_port, baudrate)) {
       throw std::runtime_error("failed to open right servo bus: " + right_port);

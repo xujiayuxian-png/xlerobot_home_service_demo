@@ -27,9 +27,10 @@ def generate_launch_description() -> LaunchDescription:
     enable_d455 = LaunchConfiguration("enable_d455")
     lidar_port = LaunchConfiguration("lidar_port")
     d455_serial = LaunchConfiguration("d455_serial")
-    realsense_config = PathJoinSubstitution(
+    default_realsense_config = PathJoinSubstitution(
         [FindPackageShare("xlerobot_bringup"), "config", "realsense_d455.yaml"]
     )
+    realsense_config = LaunchConfiguration("d455_config_file")
 
     return LaunchDescription(
         [
@@ -47,6 +48,11 @@ def generate_launch_description() -> LaunchDescription:
                     "Optional head D455 serial number; empty selects the only "
                     "connected RealSense device."
                 ),
+            ),
+            DeclareLaunchArgument(
+                "d455_config_file",
+                default_value=default_realsense_config,
+                description="RealSense YAML profile for this capture/runtime.",
             ),
             package_launch(
                 "xlerobot_lidar_driver",

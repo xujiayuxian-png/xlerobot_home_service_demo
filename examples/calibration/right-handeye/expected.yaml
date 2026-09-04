@@ -1,0 +1,14 @@
+schema: xlerobot_calibration_replay_expected/v1
+fixture_kind: anonymized_real_capture
+checks:
+  model: fixed_camera_moving_target
+  calibration_id: public-tag23-real-replay-36
+  metrics.sample_count: 36
+  metrics.reprojection_rmse_px: {value: 0.0358140378, absolute_tolerance: 0.000001}
+  metrics.translation_rmse_mm: {value: 6.25747005, absolute_tolerance: 0.05}
+  metrics.translation_p95_mm: {value: 12.25359177, absolute_tolerance: 0.10}
+  metrics.rotation_rmse_deg: {value: 2.88798120, absolute_tolerance: 0.05}
+  metrics.observability.rotation_rank: {value: 3.0, absolute_tolerance: 0.0}
+  y.xyz_m.0: {value: 0.00208408, absolute_tolerance: 0.001}
+  y.xyz_m.1: {value: -0.04727343, absolute_tolerance: 0.001}
+  y.xyz_m.2: {value: 0.02529631, absolute_tolerance: 0.001}

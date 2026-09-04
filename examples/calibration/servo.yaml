@@ -1,0 +1,120 @@
+schema: xlerobot_servo_calibration/v1
+right_arm:
+  joints:
+    shoulder_pan:
+      servo_id: 1
+      offset: 2136
+      direction: 1
+      raw_min: 1099
+      raw_max: 3146
+      limit_min: -2.05
+      limit_max: 2.05
+    shoulder_lift:
+      servo_id: 2
+      offset: 2070
+      direction: -1
+      raw_min: 870
+      raw_max: 3236
+      limit_min: -1.4
+      limit_max: 1.85
+    elbow_flex:
+      servo_id: 3
+      offset: 1987
+      direction: 1
+      raw_min: 866
+      raw_max: 3130
+      limit_min: -1.65
+      limit_max: 1.7
+    wrist_flex:
+      servo_id: 4
+      offset: 2145
+      direction: 1
+      raw_min: 928
+      raw_max: 3201
+      limit_min: -1.75
+      limit_max: 1.75
+    wrist_roll:
+      servo_id: 5
+      offset: 2036
+      direction: -1
+      raw_min: 121
+      raw_max: 3972
+      limit_min: -3.09
+      limit_max: 3.09
+    gripper:
+      servo_id: 6
+      offset: 1885
+      direction: 1
+      raw_min: 1885
+      raw_max: 3386
+      limit_min: 0.0
+      limit_max: 1.65
+left_arm:
+  joints:
+    shoulder_pan:
+      servo_id: 1
+      offset: 2058
+      direction: 1
+      raw_min: 1013
+      raw_max: 3094
+      limit_min: -2.05
+      limit_max: 2.05
+    shoulder_lift:
+      servo_id: 2
+      offset: 2108
+      direction: -1
+      raw_min: 945
+      raw_max: 3137
+      limit_min: -1.45
+      limit_max: 1.78
+    elbow_flex:
+      servo_id: 3
+      offset: 2027
+      direction: 1
+      raw_min: 857
+      raw_max: 3140
+      limit_min: -1.5
+      limit_max: 1.7
+    wrist_flex:
+      servo_id: 4
+      offset: 2109
+      direction: 1
+      raw_min: 943
+      raw_max: 3211
+      limit_min: -1.75
+      limit_max: 1.75
+    wrist_roll:
+      servo_id: 5
+      offset: 2054
+      direction: -1
+      raw_min: 127
+      raw_max: 3973
+      limit_min: -3.09
+      limit_max: 3.09
+    gripper:
+      servo_id: 6
+      offset: 1872
+      direction: 1
+      raw_min: 1853
+      raw_max: 3392
+      limit_min: 0.0
+      limit_max: 1.65
+head:
+  joints:
+    pan:
+      servo_id: 7
+      offset: 2015
+      direction: -1
+      raw_min: 779
+      raw_max: 3207
+      limit_min: -1.57
+      limit_max: 1.57
+    tilt:
+      servo_id: 8
+      offset: 2033
+      direction: 1
+      raw_min: 1109
+      raw_max: 2873
+      limit_min: -0.76
+      limit_max: 1.45
+

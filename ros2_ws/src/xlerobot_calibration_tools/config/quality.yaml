@@ -1,0 +1,39 @@
+schema: xlerobot_calibration_quality/v1
+
+# These gates describe the public two-wheel reference demo.  A result that
+# misses a gate can still be inspected, but it cannot enter an active bundle.
+workflows:
+  servo:
+    minimum_range_coverage: 0.60
+
+  base_geometry:
+    maximum_residual_percent: 5.0
+
+  head_camera:
+    minimum_samples: 12
+    maximum_reprojection_rmse_px: 1.0
+    maximum_translation_rmse_mm: 10.0
+    maximum_translation_p95_mm: 15.0
+    maximum_rotation_rmse_deg: 1.5
+    observability:
+      minimum_rotation_rank: 2
+      minimum_max_pairwise_rotation_deg: 20.0
+
+  right_handeye:
+    minimum_samples: 20
+    maximum_reprojection_rmse_px: 1.2
+    maximum_translation_rmse_mm: 10.0
+    # A single noisy pose should remain visible in translation_max_mm, but the
+    # robust publication gate is p95.  This is important for the 36-pose real
+    # Tag23 capture distributed with the demo.
+    maximum_translation_p95_mm: 15.0
+    maximum_rotation_rmse_deg: 5.0
+    observability:
+      minimum_rotation_rank: 2
+      minimum_max_pairwise_rotation_deg: 30.0
+      minimum_translation_axes: 2
+      minimum_translation_span_m: 0.05
+
+  grasp_alignment:
+    minimum_samples: 3
+    maximum_plane_rmse_mm: 10.0

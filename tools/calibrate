@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# shellcheck source=tools/lib/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+export XLEROBOT_DEMO_ROOT="$repo_root"
+
+if [[ ${1-} == capture ]]; then
+  shift
+  exec "$repo_root/tools/lib/calibration_capture.sh" "$@"
+fi
+
+if [[ ${1-} != -h && ${1-} != --help ]]; then
+  load_local_env
+fi
+
+export PYTHONPATH="$repo_root/ros2_ws/src/xlerobot_calibration_tools${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m xlerobot_calibration_tools.public_cli "$@"

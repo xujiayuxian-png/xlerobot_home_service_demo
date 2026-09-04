@@ -1,0 +1,19 @@
+schema: xlerobot_grasp_alignment_measurements/v1
+frame: base_link
+head_pose_rad: {pan: 0.0, tilt: 0.8}
+workspace_m:
+  min: [0.02, -0.09, 0.84]
+  max: [0.10, -0.02, 0.88]
+samples:
+  - vision_xyz_m: [0.0350, -0.0750, 0.8500]
+    fk_xyz_m: [0.0402, -0.0690, 0.8563]
+    settled_z_shortfall_m: 0.037
+  - vision_xyz_m: [0.0550, -0.0600, 0.8600]
+    fk_xyz_m: [0.0607, -0.0545, 0.8667]
+    settled_z_shortfall_m: 0.038
+  - vision_xyz_m: [0.0750, -0.0450, 0.8700]
+    fk_xyz_m: [0.0806, -0.0394, 0.8765]
+    settled_z_shortfall_m: 0.039
+  - vision_xyz_m: [0.0450, -0.0350, 0.8550]
+    fk_xyz_m: [0.0505, -0.0292, 0.8615]
+    settled_z_shortfall_m: 0.038
