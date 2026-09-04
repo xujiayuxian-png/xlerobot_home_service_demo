@@ -203,6 +203,9 @@ class FetchDeliverTaskNode(Node):
                 "finite and positive"
             )
         self.handover_text = str(self.declare_parameter("handover_text", "给你").value)
+        self.speech_enabled = bool(
+            self.declare_parameter("speech_enabled", True).value
+        )
         self.default_standoff_m = float(self.declare_parameter("standoff_m", 0.5).value)
         self.detection_head_positions = [
             float(value) for value in self.declare_parameter(
@@ -327,6 +330,7 @@ class FetchDeliverTaskNode(Node):
         self._task_event_progress = 0.0
         self._task_event_message = ""
         self._task_event_observation = PerceptionObservation()
+        self._task_event_backend_used = ""
         state_qos = QoSProfile(depth=1)
         state_qos.reliability = ReliabilityPolicy.RELIABLE
         state_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
@@ -426,6 +430,7 @@ class FetchDeliverTaskNode(Node):
                     object_id=request.object_id,
                     source_place=request.source_place,
                     recipient_id=request.recipient_id,
+                    grasp_backend=request.grasp_backend,
                     dry_run=request.dry_run,
                 )
             )
@@ -505,6 +510,7 @@ class FetchDeliverTaskNode(Node):
             self._task_event_progress = 0.0
             self._task_event_message = ""
             self._task_event_observation = PerceptionObservation()
+            self._task_event_backend_used = ""
         self._publish_task_event(goal_handle, "RUNNING")
 
         try:
@@ -563,7 +569,12 @@ class FetchDeliverTaskNode(Node):
 
             detect_goal = DetectObject.Goal()
             detect_goal.object_id = request.object_id
-            detect_goal.target_frame = "map"
+            # ACT keeps the historical map-frame point; traditional plans are
+            # executable PoseStamped waypoints in the local arm frame.
+            detect_goal.target_frame = (
+                "map" if request.grasp_backend == "act" else "base_link"
+            )
+            detect_goal.grasp_backend = request.grasp_backend
             detect_goal.dry_run = request.dry_run
             detect_result = self._call(
                 self.detect_client,
@@ -575,25 +586,42 @@ class FetchDeliverTaskNode(Node):
                 self.stage_timeouts["detect_object"],
             )
             self._require_success(detect_result.error)
+            if detect_result.backend_used != request.grasp_backend:
+                raise TaskFailure(
+                    CapabilityError.BACKEND_FAILURE,
+                    "detection backend mismatch: requested "
+                    f"{request.grasp_backend}, got {detect_result.backend_used or 'empty'}",
+                )
+            with self._task_event_lock:
+                self._task_event_backend_used = detect_result.backend_used
             self._set_task_observation(detect_result.observation)
             self._publish_task_event(goal_handle, "RUNNING")
 
             grasp_goal = GraspObject.Goal()
             grasp_goal.object_id = request.object_id
             grasp_goal.target = detect_result.target
-            grasp_goal.backend = ""
+            grasp_goal.backend = request.grasp_backend
+            grasp_goal.grasp_plan = detect_result.grasp_plan
             grasp_goal.dry_run = request.dry_run
-            self._require_success(
-                self._call(
-                    self.grasp_client,
-                    grasp_goal,
-                    "grasp_object",
-                    goal_handle,
-                    deadline,
-                    3,
-                    self.stage_timeouts["grasp_object"],
-                ).error
+            grasp_result = self._call(
+                self.grasp_client,
+                grasp_goal,
+                "grasp_object",
+                goal_handle,
+                deadline,
+                3,
+                self.stage_timeouts["grasp_object"],
             )
+            self._require_success(grasp_result.error)
+            if grasp_result.backend_used != request.grasp_backend:
+                raise TaskFailure(
+                    CapabilityError.BACKEND_FAILURE,
+                    "grasp backend mismatch: requested "
+                    f"{request.grasp_backend}, got {grasp_result.backend_used or 'empty'}",
+                )
+            with self._task_event_lock:
+                self._task_event_backend_used = grasp_result.backend_used
+            self._publish_task_event(goal_handle, "RUNNING")
 
             self._clear_task_observation()
             scan_goal = ScanForPerson.Goal()
@@ -629,21 +657,7 @@ class FetchDeliverTaskNode(Node):
             )
 
             self._clear_task_observation()
-            speak_goal = SpeakText.Goal()
-            speak_goal.text = self.handover_text
-            speak_goal.voice = ""
-            speak_goal.dry_run = request.dry_run
-            self._require_success(
-                self._call(
-                    self.speak_client,
-                    speak_goal,
-                    "speak_text",
-                    goal_handle,
-                    deadline,
-                    6,
-                    self.stage_timeouts["speak_text"],
-                ).error
-            )
+            self._run_speech_stage(goal_handle, request, deadline)
 
             handover_goal = HandoverObject.Goal()
             handover_goal.object_id = request.object_id
@@ -664,6 +678,7 @@ class FetchDeliverTaskNode(Node):
             result.error.code = CapabilityError.NONE
             result.error.message = "fetch-and-deliver completed"
             result.completed_object_id = request.object_id
+            result.grasp_backend_used = request.grasp_backend
             self._feedback(goal_handle, "complete", "done", 1.0)
             self._check_parent(goal_handle, deadline)
             self._publish_task_event(
@@ -688,6 +703,7 @@ class FetchDeliverTaskNode(Node):
             result.error.code = error_code
             result.error.message = error_message
             result.completed_object_id = ""
+            result.grasp_backend_used = self._task_event_backend_used
             if error_code == CapabilityError.CANCELED:
                 self._publish_task_event(
                     goal_handle, "CANCELED", error_code, error_message
@@ -703,6 +719,7 @@ class FetchDeliverTaskNode(Node):
             result.error.code = CapabilityError.INTERNAL_ERROR
             result.error.message = str(exc)
             result.completed_object_id = ""
+            result.grasp_backend_used = self._task_event_backend_used
             self._publish_task_event(
                 goal_handle, "FAILED", CapabilityError.INTERNAL_ERROR, str(exc)
             )
@@ -712,6 +729,33 @@ class FetchDeliverTaskNode(Node):
             with self._lock:
                 if not self._blocked_reason:
                     self._goal_active = False
+
+    def _run_speech_stage(self, goal_handle, request, deadline) -> None:
+        """Run stage seven, or publish an explicit skip when speech is disabled."""
+        if not self.speech_enabled:
+            self._feedback(
+                goal_handle,
+                "speak_text",
+                "skipped",
+                7.0 / float(len(CAPABILITY_SEQUENCE)),
+                "speech disabled by configuration",
+            )
+            return
+        speak_goal = SpeakText.Goal()
+        speak_goal.text = self.handover_text
+        speak_goal.voice = ""
+        speak_goal.dry_run = request.dry_run
+        self._require_success(
+            self._call(
+                self.speak_client,
+                speak_goal,
+                "speak_text",
+                goal_handle,
+                deadline,
+                6,
+                self.stage_timeouts["speak_text"],
+            ).error
+        )
 
     def _move_head_for_detection(self, parent_goal, task_deadline):
         stage_deadline = min(
@@ -1198,6 +1242,7 @@ class FetchDeliverTaskNode(Node):
         event.object_id = request.object_id
         event.source_place = request.source_place
         event.recipient_id = request.recipient_id
+        event.grasp_backend = request.grasp_backend
         event.dry_run = request.dry_run
         event.status = status
         with self._task_event_lock:
@@ -1206,6 +1251,7 @@ class FetchDeliverTaskNode(Node):
             event.state.progress = self._task_event_progress
             event.state.message = self._task_event_message
             event.observation = self._task_event_observation
+            event.grasp_backend_used = self._task_event_backend_used
         event.error.code = int(error_code)
         event.error.message = str(error_message)
         self.task_event_publisher.publish(event)
@@ -1331,8 +1377,9 @@ class FetchDeliverTaskNode(Node):
             "scan_for_person": self.scan_client,
             "approach_target": self.approach_client,
             "handover_object": self.handover_client,
-            "speak_text": self.speak_client,
         }
+        if self.speech_enabled:
+            clients["speak_text"] = self.speak_client
         unavailable = [
             name for name, client in clients.items() if not client.server_is_ready()
         ]

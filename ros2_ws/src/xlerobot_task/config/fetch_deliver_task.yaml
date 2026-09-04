@@ -31,6 +31,8 @@ fetch_deliver_task:
     head_camera_info_topic: /xlerobot/d455/color/camera_info
     wrist_camera_topic: /right_wrist_camera/image_raw
     handover_text: 给你
+    speech_enabled: true
+    # Clients must select one of act, centroid, or gpd explicitly.
     # Prefer the original demo's close handover distance. ApproachTarget retries
     # farther path-valid candidates if the 0.5 m goal is obstructed at runtime.
     standoff_m: 0.5

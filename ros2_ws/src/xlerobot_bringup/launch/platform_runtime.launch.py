@@ -9,6 +9,10 @@ from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 def _runtime_nodes(context):
+    if LaunchConfiguration('hardware_enabled').perform(context) != 'true':
+        raise RuntimeError(
+            'platform runtime requires hardware_enabled:=true; no device was opened'
+        )
     model = PathJoinSubstitution(
         [FindPackageShare('xlerobot_description'), 'urdf', 'two_wheel_reference.urdf.xacro']
     )
@@ -105,6 +109,10 @@ def _runtime_nodes(context):
 def generate_launch_description() -> LaunchDescription:
     return LaunchDescription(
         [
+            DeclareLaunchArgument(
+                'hardware_enabled', default_value='false', choices=['true', 'false'],
+                description='Explicit consent to open motor buses.',
+            ),
             DeclareLaunchArgument(
                 'startup_ready', default_value='false', choices=['true', 'false'],
                 description='Move the right arm and gripper to the verified demo ready pose.',

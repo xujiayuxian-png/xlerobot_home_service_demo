@@ -53,6 +53,11 @@ def _append_entrypoints(actions, context, live):
                         'audio_enabled': live,
                         'intent_backend_enabled': live,
                         'task_dry_run': not live,
+                        'default_grasp_backend': LaunchConfiguration(
+                            'default_grasp_backend'
+                        ),
+                        'kws_model_dir': LaunchConfiguration('kws_model_dir'),
+                        'whisper_model': LaunchConfiguration('whisper_model'),
                         'speech_enabled': live,
                         'speech_dry_run': not live,
                         'lmstudio_url': LaunchConfiguration('vlm_base_url'),
@@ -95,6 +100,10 @@ def _append_entrypoints(actions, context, live):
 
 
 def _runtime(context):
+    if LaunchConfiguration('hardware_enabled').perform(context) != 'true':
+        raise RuntimeError(
+            'live demo requires hardware_enabled:=true; no device was opened'
+        )
     live = True
     enabled = 'true'
     perception_mode = 'observe'
@@ -108,6 +117,7 @@ def _runtime(context):
             'xlerobot_bringup', 'platform_runtime.launch.py',
             {
                 'startup_ready': enabled,
+                'hardware_enabled': enabled,
                 'geometry_file': LaunchConfiguration('geometry_file'),
                 'servo_calibration_file': LaunchConfiguration('servo_calibration_file'),
                 'controllers_file': LaunchConfiguration('controllers_file'),
@@ -192,6 +202,9 @@ def _runtime(context):
                     'backend_enabled': enabled,
                     'dry_run_mode': perception_mode,
                     'vlm_base_url': LaunchConfiguration('vlm_base_url'),
+                    'classical_base_url': LaunchConfiguration('classical_base_url'),
+                    'transforms_file': LaunchConfiguration('transforms_file'),
+                    'grasp_alignment_file': LaunchConfiguration('grasp_alignment_file'),
                 },
             ),
             _include(
@@ -229,7 +242,12 @@ def _runtime(context):
             _include(
                 'xlerobot_manipulation',
                 'grasp_object.launch.py',
-                {'execution_enabled': enabled},
+                {
+                    'execution_enabled': enabled,
+                    'grasp_alignment_file': LaunchConfiguration(
+                        'grasp_alignment_file'
+                    ),
+                },
             ),
             _include(
                 'xlerobot_manipulation',
@@ -242,9 +260,13 @@ def _runtime(context):
                 {
                     'backend_enabled': LaunchConfiguration('enable_tts'),
                     'audio_player_device': LaunchConfiguration('audio_output_device'),
+                    'edge_cache_dir': LaunchConfiguration('tts_cache_dir'),
                 },
             ),
-            _include('xlerobot_task', 'fetch_deliver_task.launch.py'),
+            _include(
+                'xlerobot_task', 'fetch_deliver_task.launch.py',
+                {'speech_enabled': LaunchConfiguration('enable_tts')},
+            ),
         ]
     )
 
@@ -273,6 +295,10 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription(
         [
             SetEnvironmentVariable('FASTDDS_BUILTIN_TRANSPORTS', 'UDPv4'),
+            DeclareLaunchArgument(
+                'hardware_enabled', default_value='false', choices=['true', 'false'],
+                description='Explicit consent for the live robot demo.',
+            ),
             DeclareLaunchArgument('map', description='Absolute path to the map YAML file.'),
             DeclareLaunchArgument(
                 'places_file', description='Absolute path to map-specific named places YAML.'
@@ -282,6 +308,23 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 'vlm_base_url', default_value='http://127.0.0.1:1234'
+            ),
+            DeclareLaunchArgument(
+                'classical_base_url', default_value='http://127.0.0.1:8765'
+            ),
+            DeclareLaunchArgument(
+                'default_grasp_backend',
+                default_value='act',
+                choices=['act', 'centroid', 'gpd'],
+                description='Backend used by voice requests that do not name one.',
+            ),
+            DeclareLaunchArgument(
+                'transforms_file', default_value='',
+                description='Activated runtime transforms; required by centroid/GPD.',
+            ),
+            DeclareLaunchArgument(
+                'grasp_alignment_file', default_value='',
+                description='Activated grasp alignment; required by every backend.',
             ),
             DeclareLaunchArgument('person_model_path', default_value=''),
             DeclareLaunchArgument('right_bus', default_value='/dev/right_arm'),
@@ -301,12 +344,25 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument('audio_input_device', default_value='auto'),
             DeclareLaunchArgument('audio_output_device', default_value=''),
             DeclareLaunchArgument(
+                'tts_cache_dir', default_value='.xlerobot/cache/tts'
+            ),
+            DeclareLaunchArgument(
+                'kws_model_dir',
+                default_value='',
+                description='Absolute path to the verified sherpa-onnx KWS model.',
+            ),
+            DeclareLaunchArgument(
+                'whisper_model',
+                default_value='',
+                description='Absolute path to the verified faster-whisper snapshot.',
+            ),
+            DeclareLaunchArgument(
                 'enable_web', default_value='false', choices=['true', 'false']
             ),
             DeclareLaunchArgument('web_bind_host', default_value='0.0.0.0'),
             DeclareLaunchArgument('web_port', default_value='8080'),
             DeclareLaunchArgument(
-                'artifact_root', default_value='/var/lib/xlerobot'
+                'artifact_root', default_value='.xlerobot/artifacts'
             ),
             DeclareLaunchArgument('release_id', default_value='development'),
             DeclareLaunchArgument('unit_id', default_value='reference-two-wheel'),

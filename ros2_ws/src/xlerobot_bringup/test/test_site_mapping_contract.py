@@ -3,6 +3,7 @@ from pathlib import Path
 
 from launch import LaunchContext
 from launch.actions import IncludeLaunchDescription
+import pytest
 
 
 def _load_launch(path):
@@ -50,8 +51,9 @@ def test_site_mapping_profile_has_isolated_tools_and_no_imu_dependency():
 
     context = LaunchContext()
     context.launch_configurations.update({
+        'hardware_enabled': 'true',
         'phase': 'build',
-        'artifact_root': '/var/lib/xlerobot',
+        'artifact_root': '.xlerobot/artifacts',
         'site_id': 'test-site',
         'right_bus': '/dev/test-right',
         'left_bus': '/dev/test-left',
@@ -60,6 +62,18 @@ def test_site_mapping_profile_has_isolated_tools_and_no_imu_dependency():
     actions = _load_launch(launch_path).runtime(context)
     platform = _include_arguments(actions, 'platform_runtime.launch.py')
     sensors = _include_arguments(actions, 'sensors.launch.py')
+    assert platform['hardware_enabled'] == 'true'
     assert platform['right_bus'].perform(context) == '/dev/test-right'
     assert platform['left_bus'].perform(context) == '/dev/test-left'
     assert sensors['lidar_port'].perform(context) == '/dev/test-lidar'
+
+
+def test_site_mapping_fails_closed_without_explicit_hardware_consent():
+    launch_path = (
+        Path(__file__).resolve().parents[1] / 'launch' / 'site_mapping.launch.py'
+    )
+    context = LaunchContext()
+    context.launch_configurations['hardware_enabled'] = 'false'
+
+    with pytest.raises(RuntimeError, match='no device was opened'):
+        _load_launch(launch_path).runtime(context)

@@ -1,0 +1,7 @@
+--extra-index-url https://download.pytorch.org/whl/cu128
+huggingface-hub==0.36.2
+numpy==1.26.4
+opencv-python==4.11.0.86
+torch==2.11.0+cu128
+torchvision==0.26.0+cu128
+sam-2 @ git+https://github.com/facebookresearch/sam2.git@2b90b9f5ceec907a1c18123530e92e794ad901a4

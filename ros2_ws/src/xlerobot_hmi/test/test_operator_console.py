@@ -35,15 +35,18 @@ from xlerobot_hmi.operator_console import (
 )
 from xlerobot_hmi.manual_control import ManualControlCoordinator
 from xlerobot_interfaces.msg import CapabilityError, PerceptionObservation, TaskEvent
-from xlerobot_interfaces.srv import FinalizeEpisode, ReviewEpisode
+from xlerobot_interfaces.srv import FinalizeEpisode, ReviewEpisode, ServoCalibrationStep
 import yaml
 
 
 def test_parse_task_request_uses_stable_execute_task_contract():
-    goal = parse_task_request({'object_id': ' 羽毛球 ', 'dry_run': True})
+    goal = parse_task_request({
+        'object_id': ' 羽毛球 ', 'grasp_backend': 'gpd', 'dry_run': True,
+    })
     assert goal.object_id == '羽毛球'
     assert goal.source_place == 'table'
     assert goal.recipient_id == 'nearest_person'
+    assert goal.grasp_backend == 'gpd'
     assert goal.dry_run is True
 
 
@@ -57,7 +60,7 @@ def test_task_history_survives_reopen(tmp_path: Path):
     database = tmp_path / 'console.sqlite3'
     record = TaskRecord(
         task_id='task-1', object_id='ball', source_place='table',
-        recipient_id='nearest_person', dry_run=True,
+        recipient_id='nearest_person', grasp_backend='act', dry_run=True,
         created_at='2026-07-13T00:00:00+00:00',
         updated_at='2026-07-13T00:00:01+00:00',
     )
@@ -77,6 +80,7 @@ def test_task_history_index_is_bounded_to_latest_one_hundred(tmp_path: Path):
             object_id='ball',
             source_place='table',
             recipient_id='nearest_person',
+            grasp_backend='act',
             dry_run=True,
             created_at=stamp,
             updated_at=stamp,
@@ -114,6 +118,7 @@ def test_voice_task_events_are_persisted_and_exposed_live():
     event.object_id = '羽毛球'
     event.source_place = 'table'
     event.recipient_id = 'nearest_person'
+    event.grasp_backend = 'centroid'
     event.status = 'RUNNING'
     event.current_capability = 'detect_object'
     event.state.phase = 'detecting'
@@ -290,7 +295,6 @@ def test_manual_action_timeout_cancels_and_drains_before_releasing():
         assert node.manual_control.action_active() is False
 
     asyncio.run(exercise())
-
 
 def test_calibration_action_does_not_require_demo_stop_or_task_reservation():
     class GoalHandle:
@@ -537,6 +541,7 @@ def test_acceptance_unknown_recovers_server_uuid_and_remains_cancelable():
         object_id='ball',
         source_place='table',
         recipient_id='nearest_person',
+        grasp_backend='act',
         dry_run=False,
     )
 
@@ -551,6 +556,7 @@ def test_acceptance_unknown_recovers_server_uuid_and_remains_cancelable():
         event.object_id = goal.object_id
         event.source_place = goal.source_place
         event.recipient_id = goal.recipient_id
+        event.grasp_backend = goal.grasp_backend
         event.dry_run = goal.dry_run
         event.status = 'RUNNING'
         event.current_capability = 'auto_localize'
@@ -579,6 +585,7 @@ def test_terminal_task_event_before_goal_response_is_not_revived():
             object_id='ball',
             source_place='table',
             recipient_id='nearest_person',
+            grasp_backend='act',
             dry_run=False,
         )
         submission = asyncio.create_task(
@@ -590,6 +597,7 @@ def test_terminal_task_event_before_goal_response_is_not_revived():
         event.object_id = goal.object_id
         event.source_place = goal.source_place
         event.recipient_id = goal.recipient_id
+        event.grasp_backend = goal.grasp_backend
         event.dry_run = goal.dry_run
         event.status = 'CANCELED'
         event.error.code = CapabilityError.CANCELED
@@ -618,6 +626,7 @@ def test_succeeded_action_transport_with_capability_error_is_failed_terminal():
         object_id='ball',
         source_place='table',
         recipient_id='nearest_person',
+        grasp_backend='act',
         dry_run=False,
         status='RUNNING',
         created_at=now,
@@ -675,6 +684,7 @@ def test_submit_returns_terminal_snapshot_when_result_callback_is_immediate():
             object_id='ball',
             source_place='table',
             recipient_id='nearest_person',
+            grasp_backend='act',
             dry_run=False,
         )
         result = await OperatorConsoleNode.submit_task(node, goal)
@@ -1011,6 +1021,42 @@ def _handeye_sample_document():
     }
 
 
+def _head_sample_document():
+    document = _handeye_sample_document()
+    document['model'] = 'moving_camera_fixed_target'
+    document['frames'].update({
+        'moving': 'head_tilt_link',
+        'camera': 'head_camera_link',
+    })
+    return document
+
+
+def test_head_capture_restores_existing_sample_count(tmp_path):
+    sample_file = tmp_path / 'calibration_work/head_camera/samples.yaml'
+    sample_file.parent.mkdir(parents=True)
+    sample_file.write_text(
+        yaml.safe_dump(_head_sample_document(), sort_keys=False),
+        encoding='utf-8',
+    )
+    values = {
+        'enable_engineering_tools': True,
+        'workspace': 'calibration',
+        'calibration_workflow': 'head_camera',
+    }
+    node = SimpleNamespace(
+        artifact_root=tmp_path,
+        parameter=lambda name: values[name],
+    )
+
+    async def request_coverage():
+        response = await ConsoleApplication(
+            node
+        ).calibration_sample_coverage(object())
+        assert json.loads(response.text)['sample_count'] == 2
+
+    asyncio.run(request_coverage())
+
+
 def test_handeye_coverage_reads_only_valid_atomic_sample_facts(tmp_path):
     sample_file = (
         tmp_path / 'calibration_work' / 'right_handeye' / 'samples.yaml'
@@ -1072,6 +1118,53 @@ def test_handeye_coverage_fails_closed_on_nonfinite_samples(tmp_path):
         assert 'invalid' in captured.value.text
 
     asyncio.run(request_coverage())
+
+
+def test_capture_only_servo_finalize_returns_result_without_legacy_import():
+    values = {
+        'enable_engineering_tools': True,
+        'workspace': 'calibration',
+        'calibration_workflow': 'servo',
+        'calibration_capture_only': True,
+    }
+    audits = []
+    node = SimpleNamespace(
+        parameter=lambda name: values[name],
+        servo_calibration_client=object(),
+        calibration_import_client=object(),
+        history=SimpleNamespace(audit=lambda *args: audits.append(args)),
+    )
+    calls = []
+    application = ConsoleApplication(node)
+
+    async def call_service(client, message, _timeout):
+        calls.append((client, message))
+        response = ServoCalibrationStep.Response()
+        response.error.code = CapabilityError.NONE
+        response.phase = 'COMPLETE'
+        response.result_uri = 'file:///capture/result.yaml'
+        return response
+
+    application._call_service = call_service
+
+    class Request:
+        @staticmethod
+        async def json():
+            return {
+                'command': 'finalize', 'unit_id': 'robot-1',
+                'group': 'right_arm', 'joint': 'gripper',
+            }
+
+    async def finalize():
+        response = await application.servo_calibration_step(Request())
+        payload = json.loads(response.text)
+        assert payload['result_uri'] == 'file:///capture/result.yaml'
+        assert 'draft_uri' not in payload
+
+    asyncio.run(finalize())
+    assert len(calls) == 1
+    assert calls[0][0] is node.servo_calibration_client
+    assert audits
 
 
 def test_collection_finalize_uses_typed_coordinator_service_and_is_idempotent():
@@ -1355,109 +1448,3 @@ def test_review_rejects_dry_run_or_unpublished_episode(active):
             await ConsoleApplication(node).review_episode(Request())
 
     asyncio.run(exercise())
-
-
-def test_collection_sync_reuses_product_cli_and_installation_config(
-    tmp_path, monkeypatch
-):
-    config = tmp_path / 'installation.yaml'
-    config.write_text(
-        'schema: xlerobot_installation/v1\nunit_id: robot-1\n'
-        'gpu:\n  act_host: 192.168.1.20\n  ssh_user: operator\n  ssh_port: 22\n'
-    )
-    arguments = tmp_path / 'arguments.txt'
-    command = tmp_path / 'xlerobot-data-sync'
-    command.write_text(
-        f'#!/bin/sh\nprintf "%s\\n" "$@" > "{arguments}"\n'
-        'printf \'{"status":"complete","added":["episode-1"],'
-        '"unchanged":[],"conflicts":[]}\'\n'
-    )
-    command.chmod(0o755)
-    audits = []
-    values = {
-        'enable_engineering_tools': True,
-        'workspace': 'collection',
-        'installation_config': str(config),
-        'data_sync_command': str(command),
-    }
-    node = SimpleNamespace(
-        parameter=lambda name: values[name],
-        collection_snapshot=lambda: None,
-        history=SimpleNamespace(audit=lambda *items: audits.append(items)),
-    )
-    monkeypatch.setattr(
-        ConsoleApplication, '_static_root', staticmethod(lambda: None)
-    )
-
-    async def synchronize():
-        application = ConsoleApplication(node).build()
-        async with TestClient(TestServer(application)) as client:
-            response = await client.post(
-                '/api/v1/collections/sync', json={'dataset_id': 'act-pick'}
-            )
-            assert response.status == 200
-            assert await response.json() == {
-                'status': 'complete',
-                'added': ['episode-1'],
-                'unchanged': [],
-                'conflicts': [],
-            }
-
-    asyncio.run(synchronize())
-    called = arguments.read_text().splitlines()
-    assert called == [
-        '--dataset', 'act-pick', '--unit-id', 'robot-1',
-        '--gpu-host', '192.168.1.20', '--ssh-user', 'operator',
-        '--ssh-port', '22',
-    ]
-    assert audits[-1][1:3] == ('dataset.sync', 'success')
-
-
-def test_collection_sync_maps_immutable_remote_conflict_to_http_409(
-    tmp_path, monkeypatch
-):
-    config = tmp_path / 'installation.yaml'
-    config.write_text(
-        'schema: xlerobot_installation/v1\nunit_id: robot-1\n'
-        'gpu:\n  act_host: 192.168.1.20\n  ssh_user: operator\n  ssh_port: 22\n'
-    )
-    command = tmp_path / 'xlerobot-data-sync'
-    command.write_text(
-        '#!/bin/sh\n'
-        'printf \'{"status":"conflict","added":[],"unchanged":[],'
-        '"conflicts":["episode-1"]}\'\n'
-        'exit 3\n'
-    )
-    command.chmod(0o755)
-    audits = []
-    values = {
-        'enable_engineering_tools': True,
-        'workspace': 'collection',
-        'installation_config': str(config),
-        'data_sync_command': str(command),
-    }
-    node = SimpleNamespace(
-        parameter=lambda name: values[name],
-        collection_snapshot=lambda: None,
-        history=SimpleNamespace(audit=lambda *items: audits.append(items)),
-    )
-    monkeypatch.setattr(
-        ConsoleApplication, '_static_root', staticmethod(lambda: None)
-    )
-
-    async def synchronize():
-        application = ConsoleApplication(node).build()
-        async with TestClient(TestServer(application)) as client:
-            response = await client.post(
-                '/api/v1/collections/sync', json={'dataset_id': 'act-pick'}
-            )
-            assert response.status == 409
-            assert await response.json() == {
-                'status': 'conflict',
-                'added': [],
-                'unchanged': [],
-                'conflicts': ['episode-1'],
-            }
-
-    asyncio.run(synchronize())
-    assert audits[-1][1:3] == ('dataset.sync', 'conflict')

@@ -22,15 +22,17 @@ export const api = {
   bootstrap: () => request<Bootstrap>('/api/v1/bootstrap'),
   health: () => request<Health>('/api/v1/health'),
   recentTasks: () => request<{ tasks: Task[] }>('/api/v1/tasks'),
-  submitTask: (objectId: string) => request<Task>('/api/v1/tasks/fetch-deliver', {
+  submitTask: (objectId: string, graspBackend: 'act' | 'centroid' | 'gpd') =>
+    request<Task>('/api/v1/tasks/fetch-deliver', {
     method: 'POST',
     body: JSON.stringify({
       object_id: objectId,
       source_place: 'table',
       recipient_id: 'nearest_person',
+      grasp_backend: graspBackend,
       dry_run: false,
     }),
-  }),
+    }),
   cancelTask: (taskId: string) => request<Task>(`/api/v1/tasks/${taskId}`, {
     method: 'DELETE',
   }),
@@ -164,14 +166,4 @@ export const api = {
       + `${encodeURIComponent(episodeId)}/review`, {
       method: 'POST', body: JSON.stringify({ status, notes, failure_reason: '' }),
     }),
-  syncDataset: (datasetId: string) => request<{
-    status: string
-    added: string[]
-    unchanged: string[]
-    conflicts: string[]
-    destination?: string
-    message?: string
-  }>('/api/v1/collections/sync', {
-    method: 'POST', body: JSON.stringify({ dataset_id: datasetId }),
-  }),
 }

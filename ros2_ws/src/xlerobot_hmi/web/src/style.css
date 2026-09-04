@@ -106,7 +106,7 @@ article, .engineering-card {
 .operator-workspace .lower-grid { order: 4; }
 .hero-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(280px, .75fr); gap: 16px; margin-top: 16px; }
 .task-card { min-height: 0; display: flex; flex-direction: column; padding: 18px 20px; }
-.task-card form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; margin: 12px 0 0; }
+.task-card form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, .65fr) auto; gap: 10px; margin: 12px 0 0; }
 input, select {
   width: 100%; min-width: 0; background: #07171d; color: #eef7f8;
   border: 1px solid #34515a; border-radius: 10px; padding: 12px 14px; outline: none;

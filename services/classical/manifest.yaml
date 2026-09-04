@@ -1,0 +1,27 @@
+schema: xlerobot_classical_dependencies/v1
+verified_environment:
+  python: 3.10.20
+  huggingface_hub: 0.36.2
+  numpy: 1.26.4
+  opencv_python: 4.11.0.86
+  torch: 2.11.0+cu128
+  torchvision: 0.26.0+cu128
+sam2:
+  repository: https://github.com/facebookresearch/sam2.git
+  commit: 2b90b9f5ceec907a1c18123530e92e794ad901a4
+  model_id: facebook/sam2.1-hiera-tiny
+  snapshot: de431c4043854a71d8101e17995dfe596bf101a5
+  checkpoint_sha256: 7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69
+gpd:
+  repository: https://github.com/atenpas/gpd.git
+  commit: 6327f20eabfcba41a05fdd2e2ba408153dc2e958
+  binary: build/gpd_detect_grasps_json
+  patch_source: patches/detect_grasps_json.cpp
+  config: config/xlerobot_headless.cfg
+verified_native_toolchain:
+  cmake: 3.28.3
+  gcc_gxx: 13.3
+  pcl: 1.14.0
+  opencv: 4.6.0
+  eigen: 3.4.0
+  boost: 1.83

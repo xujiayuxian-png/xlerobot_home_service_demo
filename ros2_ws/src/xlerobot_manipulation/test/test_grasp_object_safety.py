@@ -63,9 +63,20 @@ class GraspObjectSafetyTest(unittest.TestCase):
         handle = self._wait(self.client.send_goal_async(goal), 3.0)
         self.assertFalse(handle.accepted)
 
+    def test_03_act_has_no_uncalibrated_compensation_fallback(self):
+        goal = self._goal()
+        goal.dry_run = True
+        handle = self._wait(self.client.send_goal_async(goal), 3.0)
+        self.assertTrue(handle.accepted)
+        wrapped = self._wait(handle.get_result_async(), 3.0)
+        self.assertEqual(wrapped.status, GoalStatus.STATUS_ABORTED)
+        self.assertEqual(wrapped.result.error.code, CapabilityError.UNAVAILABLE)
+        self.assertIn('grasp_alignment_file', wrapped.result.error.message)
+
     def _goal(self):
         goal = GraspObject.Goal()
         goal.object_id = 'camping_lamp'
+        goal.backend = 'act'
         goal.target.header.frame_id = 'base_link'
         goal.target.header.stamp = self.node.get_clock().now().to_msg()
         goal.target.point.x = 0.2

@@ -16,6 +16,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/PerceptionObservation.msg"
   "msg/ScanMapConsistency.msg"
   "msg/TaskEvent.msg"
+  "msg/TopGraspPlan.msg"
   "action/ApproachTarget.action"
   "action/AutoLocalize.action"
   "action/CalibrationJob.action"

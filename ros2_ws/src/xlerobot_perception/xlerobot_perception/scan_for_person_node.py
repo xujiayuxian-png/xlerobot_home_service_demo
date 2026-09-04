@@ -89,7 +89,7 @@ class ScanForPersonNode(Node):
         model_path = str(self.declare_parameter('model_path', '').value).strip()
         if not model_path:
             model_dir = Path(os.environ.get(
-                'XLEROBOT_MODEL_DIR', Path.home() / '.cache' / 'xlerobot_models'
+                'XLEROBOT_MODEL_DIR', '.xlerobot/models'
             ))
             model_path = str(model_dir / 'yolov8n.pt')
         self.model_path = os.path.expandvars(os.path.expanduser(model_path))

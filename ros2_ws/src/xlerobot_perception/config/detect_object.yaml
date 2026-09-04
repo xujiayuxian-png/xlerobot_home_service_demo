@@ -18,3 +18,35 @@ detect_object_vlm:
     vlm_jpeg_quality: 90
     # Verified prototype grounding upscales 640x480 to a 1280-pixel long edge.
     vlm_request_long_edge_px: 1280
+    # Prompted SAM2 and GPD share this service on the GPU workstation.
+    classical_base_url: http://127.0.0.1:8765
+    # Required for centroid/GPD; ACT remains independent of these files.
+    transforms_file: ''
+    grasp_alignment_file: ''
+    classical_timeout_s: 90.0
+    gpd_timeout_s: 120.0
+    gpd_top_k: 10
+    classical_planning_frame: base_link
+    top_down_orientation_xyzw: [0.70710678, 0.0, 0.0, 0.70710678]
+    pregrasp_above_top_m: 0.08
+    grasp_below_top_m: 0.012
+    lift_above_top_m: 0.10
+    min_table_clearance_m: 0.005
+    min_object_points: 80
+    workspace_x_m: [-0.06, 0.18]
+    workspace_y_m: [-0.10, 0.15]
+    workspace_z_m: [0.0, 1.6]
+    min_grasp_width_m: 0.015
+    max_grasp_width_m: 0.085
+    width_margin_m: 0.008
+    gpd_max_centroid_distance_m: 0.10
+    # Strict lower-center table fit and main 3D body extraction. No raw-mask fallback.
+    table_roi_y_start_fraction: 0.35
+    table_plane_distance_m: 0.003
+    table_ransac_iterations: 400
+    table_min_inliers: 200
+    body_cluster_epsilon_m: 0.015
+    body_cluster_min_points: 40
+    refinement_sampling_stride: 2
+    wrist_yaw_min_rad: -3.14159265
+    wrist_yaw_max_rad: 3.14159265

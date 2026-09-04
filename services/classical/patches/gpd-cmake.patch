@@ -1,0 +1,24 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 8a69279..c6445f0 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -135,6 +135,7 @@ add_library(${PROJECT_NAME}_image_generator src/${PROJECT_NAME}/descriptor/image
+ ## Declare C++ executables
+ add_executable(${PROJECT_NAME}_cem_detect_grasps src/cem_detect_grasps.cpp)
+ add_executable(${PROJECT_NAME}_detect_grasps src/detect_grasps.cpp)
++add_executable(${PROJECT_NAME}_detect_grasps_json src/detect_grasps_json.cpp)
+ add_executable(${PROJECT_NAME}_generate_candidates src/generate_candidates.cpp)
+ add_executable(${PROJECT_NAME}_label_grasps src/label_grasps.cpp)
+ add_executable(${PROJECT_NAME}_test_grasp_image src/tests/test_grasp_image.cpp)
+@@ -258,6 +259,11 @@ target_link_libraries(${PROJECT_NAME}_detect_grasps
+   ${PROJECT_NAME}_config_file
+ ${PCL_LIBRARIES})
+ 
++target_link_libraries(${PROJECT_NAME}_detect_grasps_json
++  ${PROJECT_NAME}_grasp_detector
++  ${PROJECT_NAME}_config_file
++${PCL_LIBRARIES})
++
+ target_link_libraries(${PROJECT_NAME}_label_grasps
+   ${PROJECT_NAME}_grasp_detector
+   ${PROJECT_NAME}_config_file

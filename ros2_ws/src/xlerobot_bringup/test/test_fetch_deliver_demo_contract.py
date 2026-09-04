@@ -52,7 +52,10 @@ def test_complete_demo_has_one_canonical_platform_owner_and_required_inputs():
         for action in description.entities
         if isinstance(action, DeclareLaunchArgument)
     }
-    assert {'right_bus', 'left_bus', 'lidar_port', 'd455_serial'} <= declared
+    assert {
+        'hardware_enabled', 'right_bus', 'left_bus', 'lidar_port', 'd455_serial'
+    } <= declared
+    assert {'kws_model_dir', 'whisper_model', 'tts_cache_dir'} <= declared
     assert "'platform_runtime.launch.py'" in source
     assert "'startup_ready': enabled" in source
     assert 'xlerobot_mock' not in source
@@ -73,12 +76,17 @@ def test_complete_demo_has_one_canonical_platform_owner_and_required_inputs():
         assert package in source
     assert "'enable_web'" in source
     assert "'places_file': LaunchConfiguration('places_file')" in source
+    assert "'kws_model_dir': LaunchConfiguration('kws_model_dir')" in source
+    assert "'whisper_model': LaunchConfiguration('whisper_model')" in source
+    assert "'edge_cache_dir': LaunchConfiguration('tts_cache_dir')" in source
+    assert "'speech_enabled': LaunchConfiguration('enable_tts')" in source
     assert "'pixel_format': 'MJPG'" in source
     assert "'maintenance_presets.launch.py'" in source
     assert "'scan_map_consistency.launch.py'" in source
     assert "'activate_navigation_after_localization': enabled" in source
     assert "'verify_grasp.launch.py'" in source
-    assert "{'execution_enabled': enabled}" in source
+    assert "'execution_enabled': enabled" in source
+    assert "'grasp_alignment_file': LaunchConfiguration(" in source
     assert "'manual_retreat_extra_timeout_s': 2.0" in source
     assert "'backup_action': '/backup'" not in source
     for argument in ('geometry_file', 'servo_calibration_file', 'controllers_file'):
@@ -86,6 +94,7 @@ def test_complete_demo_has_one_canonical_platform_owner_and_required_inputs():
 
     context = LaunchContext()
     context.launch_configurations.update({
+        'hardware_enabled': 'true',
         'map': '/tmp/map.yaml',
         'places_file': '/tmp/places.yaml',
         'enable_voice': 'false',
@@ -98,10 +107,24 @@ def test_complete_demo_has_one_canonical_platform_owner_and_required_inputs():
     actions = module._runtime(context)
     platform = _include_arguments(actions, 'platform_runtime.launch.py')
     sensors = _include_arguments(actions, 'sensors.launch.py')
+    assert platform['hardware_enabled'] == 'true'
     assert platform['right_bus'].perform(context) == '/dev/test-right'
     assert platform['left_bus'].perform(context) == '/dev/test-left'
     assert sensors['lidar_port'].perform(context) == '/dev/test-lidar'
     assert sensors['d455_serial'].perform(context) == 'head-serial'
+
+
+def test_complete_demo_fails_closed_without_explicit_hardware_consent():
+    launch_path = (
+        Path(__file__).resolve().parents[1]
+        / 'launch'
+        / 'fetch_deliver_demo.launch.py'
+    )
+    context = LaunchContext()
+    context.launch_configurations['hardware_enabled'] = 'false'
+
+    with pytest.raises(RuntimeError, match='no device was opened'):
+        _load_launch(launch_path)._runtime(context)
 
 
 def test_operator_console_is_registered_as_a_fail_closed_critical_process():
@@ -194,7 +217,7 @@ def test_leaf_hardware_launches_consume_profile_device_arguments():
         for action in platform.entities
         if isinstance(action, DeclareLaunchArgument)
     }
-    assert {'right_bus', 'left_bus'} <= platform_arguments
+    assert {'hardware_enabled', 'right_bus', 'left_bus'} <= platform_arguments
     assert (
         "' right_bus_port:=', LaunchConfiguration('right_bus')"
         in platform_source
@@ -204,6 +227,22 @@ def test_leaf_hardware_launches_consume_profile_device_arguments():
         in platform_source
     )
 
+    context = LaunchContext()
+    context.launch_configurations['hardware_enabled'] = 'false'
+    with pytest.raises(RuntimeError, match='no device was opened'):
+        _load_launch(platform_path)._runtime_nodes(context)
+
+    leader_path = launch_root / 'leader_runtime.launch.py'
+    leader_module = _load_launch(leader_path)
+    leader_arguments = {
+        action.name
+        for action in leader_module.generate_launch_description().entities
+        if isinstance(action, DeclareLaunchArgument)
+    }
+    assert 'hardware_enabled' in leader_arguments
+    with pytest.raises(RuntimeError, match='no device was opened'):
+        leader_module.runtime(context)
+
     sensors_path = launch_root / 'sensors.launch.py'
     sensors = _load_launch(sensors_path).generate_launch_description()
     sensor_arguments = {
@@ -211,11 +250,12 @@ def test_leaf_hardware_launches_consume_profile_device_arguments():
         for action in sensors.entities
         if isinstance(action, DeclareLaunchArgument)
     }
-    assert {'lidar_port', 'd455_serial'} <= sensor_arguments.keys()
+    assert {'lidar_port', 'd455_serial', 'd455_config_file'} <= sensor_arguments.keys()
     context = LaunchContext()
     context.launch_configurations.update({
         'lidar_port': '/dev/test-lidar',
         'd455_serial': 'head-serial',
+        'd455_config_file': '/tmp/test-d455.yaml',
     })
     includes = [
         action
@@ -228,29 +268,11 @@ def test_leaf_hardware_launches_consume_profile_device_arguments():
     assert lidar['port_name'].perform(context) == '/dev/test-lidar'
     assert isinstance(realsense['serial_no'], LaunchConfiguration)
     assert realsense['serial_no'].perform(context) == 'head-serial'
+    assert isinstance(realsense['config_file'], LaunchConfiguration)
+    assert realsense['config_file'].perform(context) == '/tmp/test-d455.yaml'
     empty_context = LaunchContext()
     sensor_arguments['d455_serial'].execute(empty_context)
     assert empty_context.launch_configurations['d455_serial'] == ''
-
-
-def test_product_runner_forwards_customer_device_paths_to_every_profile():
-    runner = (
-        Path(__file__).resolve().parents[4]
-        / 'deploy'
-        / 'bin'
-        / 'xlerobot-run-profile'
-    ).read_text(encoding='utf-8')
-
-    assert runner.count('right_bus:="$XLEROBOT_RIGHT_BUS"') == 4
-    assert runner.count('left_bus:="$XLEROBOT_LEFT_BUS"') == 4
-    assert runner.count('lidar_port:="$XLEROBOT_LIDAR"') == 3
-    assert runner.count('d455_serial:="$XLEROBOT_D455_SERIAL"') == 3
-    assert runner.count(
-        'wrist_camera_device:="$XLEROBOT_WRIST_CAMERA"'
-    ) == 2
-    assert runner.count(
-        'calibration_version:="$XLEROBOT_CALIBRATION_VERSION"'
-    ) == 1
 
 
 def test_low_precision_position_controllers_do_not_abort_on_path_error():

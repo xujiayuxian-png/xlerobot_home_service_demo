@@ -16,6 +16,7 @@
 
 #include <control_msgs/action/follow_joint_trajectory.hpp>
 #include <geometry_msgs/msg/point_stamped.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <moveit_msgs/msg/constraints.hpp>
 #include <moveit_msgs/msg/joint_constraint.hpp>
 #include <moveit_msgs/msg/move_it_error_codes.hpp>
@@ -36,6 +37,8 @@
 #include <xlerobot_interfaces/action/verify_grasp.hpp>
 #include <xlerobot_interfaces/msg/capability_error.hpp>
 #include <xlerobot_interfaces/msg/policy_start_context.hpp>
+#include <xlerobot_interfaces/msg/top_grasp_plan.hpp>
+#include <yaml-cpp/yaml.h>
 
 #include "xlerobot_manipulation/grasp_plan_validator.hpp"
 
@@ -52,6 +55,7 @@ using PrepareGrasp = xlerobot_interfaces::action::PrepareGrasp;
 using LearnedPolicy = xlerobot_interfaces::action::ExecuteLearnedPolicy;
 using VerifyGrasp = xlerobot_interfaces::action::VerifyGrasp;
 using PolicyStartContext = xlerobot_interfaces::msg::PolicyStartContext;
+using TopGraspPlan = xlerobot_interfaces::msg::TopGraspPlan;
 using FollowTrajectory = control_msgs::action::FollowJointTrajectory;
 using GetPositionIK = moveit_msgs::srv::GetPositionIK;
 using GetMotionPlan = moveit_msgs::srv::GetMotionPlan;
@@ -76,6 +80,41 @@ constexpr int kMaximumGraspAttempts = 2;
 bool finite_point(const geometry_msgs::msg::Point & point)
 {
   return std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z);
+}
+
+bool finite_pose(const geometry_msgs::msg::PoseStamped & pose)
+{
+  const auto & q = pose.pose.orientation;
+  const double norm = q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w;
+  return !pose.header.frame_id.empty() && finite_point(pose.pose.position) &&
+         std::isfinite(norm) && std::abs(norm - 1.0) <= 1e-3;
+}
+
+bool valid_classical_plan(
+  const TopGraspPlan & plan, const std::string & backend, bool dry_run)
+{
+  const bool backend_valid = backend == "centroid" || backend == "gpd";
+  const std::string expected_method = backend == "centroid" ?
+    "sam2_rgbd_top_centroid" : "sam2_rgbd_gpd_top";
+  const bool method_valid = plan.method == expected_method ||
+    (dry_run && plan.method == "contract_only");
+  return plan.valid && backend_valid && plan.backend == backend && method_valid &&
+         !plan.observation_id.empty() && !plan.selection_reason.empty() &&
+         finite_pose(plan.pregrasp) && finite_pose(plan.grasp) && finite_pose(plan.lift) &&
+         plan.pregrasp.header.frame_id == plan.grasp.header.frame_id &&
+         plan.lift.header.frame_id == plan.grasp.header.frame_id &&
+         std::isfinite(plan.score) &&
+         std::isfinite(plan.table_height_m) &&
+         std::isfinite(plan.object_height_m) && plan.object_height_m > 0.0F &&
+         std::isfinite(plan.grasp_width_m) && plan.grasp_width_m > 0.0F &&
+         std::isfinite(plan.wrist_yaw_seed_rad) &&
+         std::isfinite(plan.wrist_yaw_min_rad) &&
+         std::isfinite(plan.wrist_yaw_max_rad) &&
+         plan.wrist_yaw_min_rad < plan.wrist_yaw_max_rad &&
+         plan.wrist_yaw_seed_rad >= plan.wrist_yaw_min_rad &&
+         plan.wrist_yaw_seed_rad <= plan.wrist_yaw_max_rad &&
+         plan.pregrasp.pose.position.z > plan.grasp.pose.position.z &&
+         plan.lift.pose.position.z > plan.grasp.pose.position.z;
 }
 
 }  // namespace
@@ -107,7 +146,8 @@ public:
     ee_link_ = declare_parameter<std::string>("ee_link", "right_arm_ee_link");
     pregrasp_offset_m_ = declare_parameter<double>("pregrasp_offset_m", 0.08);
     vision_fk_compensation_m_ = declare_parameter<std::vector<double>>(
-      "vision_fk_compensation_m", {0.0055, 0.0057, 0.0445});
+      "vision_fk_compensation_m", {0.0, 0.0, 0.0});
+    grasp_alignment_file_ = declare_parameter<std::string>("grasp_alignment_file", "");
     top_grasp_orientation_xyzw_ = declare_parameter<std::vector<double>>(
       "top_grasp_orientation_xyzw", {0.70710678, 0.0, 0.0, 0.70710678});
     tf_timeout_s_ = declare_parameter<double>("tf_timeout_s", 1.0);
@@ -124,6 +164,8 @@ public:
     head_move_duration_s_ = declare_parameter<double>("head_move_duration_s", 1.5);
     pregrasp_gripper_duration_s_ = declare_parameter<double>(
       "pregrasp_gripper_duration_s", 2.0);
+    grasp_gripper_duration_s_ = declare_parameter<double>(
+      "grasp_gripper_duration_s", 2.0);
     pregrasp_move_duration_s_ = declare_parameter<double>("pregrasp_move_duration_s", 4.0);
     return_ready_duration_s_ = declare_parameter<double>("return_ready_duration_s", 4.0);
     pregrasp_settle_timeout_s_ = declare_parameter<double>("pregrasp_settle_timeout_s", 2.0);
@@ -161,6 +203,13 @@ public:
       "workspace_min", {-0.8, -0.8, 0.0});
     workspace_max_ = declare_parameter<std::vector<double>>(
       "workspace_max", {0.8, 0.8, 1.6});
+    if (!grasp_alignment_file_.empty()) {
+      load_grasp_alignment(grasp_alignment_file_);
+    } else {
+      RCLCPP_WARN(
+        get_logger(),
+        "no grasp_alignment_file: ACT, centroid, and GPD pregrasp execution are unavailable");
+    }
     joint_names_ = declare_parameter<std::vector<std::string>>(
       "joint_names",
       {"right_arm_shoulder_pan", "right_arm_shoulder_lift", "right_arm_elbow_flex",
@@ -236,7 +285,8 @@ public:
       std::bind(&GraspObjectServer::handle_prepare_accepted, this, std::placeholders::_1));
 
     RCLCPP_INFO(
-      get_logger(), "GraspObject and PrepareGrasp ready; execution_enabled=%s backend=act",
+      get_logger(),
+      "GraspObject and PrepareGrasp ready; execution_enabled=%s backends=act,centroid,gpd",
       execution_enabled_ ? "true" : "false");
   }
 
@@ -250,6 +300,74 @@ public:
   }
 
 private:
+  static std::vector<double> yaml_vector3(
+    const YAML::Node & value, const std::string & label)
+  {
+    if (!value.IsSequence() || value.size() != 3) {
+      throw std::invalid_argument(label + " must contain three values");
+    }
+    std::vector<double> result;
+    result.reserve(3);
+    for (size_t index = 0; index < 3; ++index) {
+      const double item = value[index].as<double>();
+      if (!std::isfinite(item)) {
+        throw std::invalid_argument(label + " must contain finite values");
+      }
+      result.push_back(item);
+    }
+    return result;
+  }
+
+  void load_grasp_alignment(const std::string & path)
+  {
+    try {
+      const auto document = YAML::LoadFile(path);
+      if (!document.IsMap() ||
+        document["schema"].as<std::string>("") != "xlerobot_grasp_alignment/v1" ||
+        document["frame"].as<std::string>("") != base_frame_)
+      {
+        throw std::invalid_argument(
+                "grasp_alignment_file must be xlerobot_grasp_alignment/v1 in " + base_frame_);
+      }
+      vision_fk_compensation_m_ = yaml_vector3(
+        document["vision_fk_compensation_m"], "vision_fk_compensation_m");
+      gravity_sag_z_m_ = document["gravity_sag_z_m"].as<double>();
+      if (!std::isfinite(gravity_sag_z_m_) || gravity_sag_z_m_ < 0.0) {
+        throw std::invalid_argument("gravity_sag_z_m must be finite and nonnegative");
+      }
+      const auto head = document["head_pose_rad"];
+      if (!head.IsMap() || !head["pan"] || !head["tilt"] ||
+        !std::isfinite(head["pan"].as<double>()) ||
+        !std::isfinite(head["tilt"].as<double>()))
+      {
+        throw std::invalid_argument("head_pose_rad must contain finite pan and tilt");
+      }
+      const auto workspace = document["workspace_m"];
+      if (!workspace.IsMap()) {
+        throw std::invalid_argument("workspace_m must contain min and max");
+      }
+      calibration_workspace_min_ = yaml_vector3(workspace["min"], "workspace_m.min");
+      calibration_workspace_max_ = yaml_vector3(workspace["max"], "workspace_m.max");
+      for (size_t index = 0; index < 3; ++index) {
+        if (calibration_workspace_min_[index] >= calibration_workspace_max_[index]) {
+          throw std::invalid_argument("workspace_m bounds must be ordered");
+        }
+      }
+      const auto metrics = document["metrics"];
+      if (!metrics.IsMap() || !metrics["sample_count"] || !metrics["plane_rmse_mm"] ||
+        metrics["sample_count"].as<double>() <= 0.0 ||
+        !std::isfinite(metrics["plane_rmse_mm"].as<double>()) ||
+        metrics["plane_rmse_mm"].as<double>() < 0.0)
+      {
+        throw std::invalid_argument("grasp alignment metrics are incomplete");
+      }
+      grasp_alignment_ready_ = true;
+    } catch (const YAML::Exception & error) {
+      throw std::invalid_argument(
+              "cannot load grasp_alignment_file " + path + ": " + error.what());
+    }
+  }
+
   void validate_parameters(
     const std::vector<double> & lower,
     const std::vector<double> & upper) const
@@ -275,7 +393,8 @@ private:
       !positive(policy_duration_s_) || !positive(verification_timeout_s_) ||
       !positive(joint_state_timeout_s_) ||
       !positive(head_move_duration_s_) ||
-      !positive(pregrasp_gripper_duration_s_) || !positive(pregrasp_move_duration_s_) ||
+      !positive(pregrasp_gripper_duration_s_) || !positive(grasp_gripper_duration_s_) ||
+      !positive(pregrasp_move_duration_s_) ||
       gripper_joint_.empty() ||
       !std::isfinite(gripper_lower_position_) || !std::isfinite(gripper_upper_position_) ||
       gripper_lower_position_ >= gripper_upper_position_ ||
@@ -381,10 +500,12 @@ private:
   rclcpp_action::GoalResponse handle_goal(
     const rclcpp_action::GoalUUID &, std::shared_ptr<const GraspObject::Goal> goal)
   {
-    const std::string backend = goal->backend.empty() ? "act" : goal->backend;
-    if (goal->object_id.empty() || backend != "act" || goal->target.header.frame_id.empty() ||
-      !finite_point(goal->target.point))
-    {
+    const std::string & backend = goal->backend;
+    const bool act_valid = backend == "act" && !goal->target.header.frame_id.empty() &&
+      finite_point(goal->target.point);
+    const bool classical_valid = valid_classical_plan(
+      goal->grasp_plan, backend, goal->dry_run);
+    if (goal->object_id.empty() || (!act_valid && !classical_valid)) {
       return rclcpp_action::GoalResponse::REJECT;
     }
     std::lock_guard<std::mutex> lock(active_mutex_);
@@ -454,10 +575,20 @@ private:
     } guard{this};
 
     auto result = std::make_shared<GraspObject::Result>();
-    result->backend_used = "act";
+    result->backend_used = goal_handle->get_goal()->backend;
     VerifyGoalHandle::SharedPtr verification_handle;
     try {
       const auto & goal = *goal_handle->get_goal();
+      if (goal.backend != "act") {
+        execute_classical(goal_handle, goal);
+        result->error.code = CapabilityError::NONE;
+        result->error.message = goal.dry_run ?
+          "dry-run classical plans validated without controller commands" :
+          goal.backend + " grasp executed locally, verified, and arm returned ready";
+        publish_feedback(goal_handle, "complete", 1.0F, result->error.message);
+        goal_handle->succeed(result);
+        return;
+      }
       // Freeze the detected point in base_link once. A visual retry happens
       // several seconds later, after ACT and verification, when the original
       // timestamp may already have fallen out of the TF buffer.
@@ -537,6 +668,282 @@ private:
     }
   }
 
+  void execute_classical(
+    const std::shared_ptr<GoalHandleGrasp> & goal_handle,
+    const GraspObject::Goal & goal)
+  {
+    if (!grasp_alignment_ready_) {
+      throw GraspFailure(
+              CapabilityError::UNAVAILABLE,
+              "centroid/gpd execution requires a validated grasp_alignment_file");
+    }
+    if (!valid_classical_plan(goal.grasp_plan, goal.backend, goal.dry_run)) {
+      throw GraspFailure(
+              CapabilityError::INVALID_GOAL, "classical TopGraspPlan is invalid");
+    }
+    VerifyGoalHandle::SharedPtr verification_handle;
+    const int maximum_attempts = goal.dry_run ? 1 : kMaximumGraspAttempts;
+    for (int attempt = 1; attempt <= maximum_attempts; ++attempt) {
+      try {
+        execute_classical_attempt(goal_handle, goal.grasp_plan, goal.dry_run);
+        if (goal.dry_run) {
+          return;
+        }
+        publish_feedback(
+          goal_handle, "return_ready", 0.90F,
+          "returning the locally executed grasp to the verified ready pose");
+        send_named_trajectory(
+          goal_handle, arm_client_, joint_names_, ready_positions_,
+          return_ready_duration_s_, controller_timeout_s_, "return ready");
+        publish_feedback(
+          goal_handle, "verify_grasp", 0.94F,
+          "capturing a fresh wrist image after the traditional grasp");
+        auto verification = start_grasp_verification(goal_handle, goal.object_id);
+        verification_handle = verification.handle;
+        const double gripper_position = wait_for_gripper_position(goal_handle);
+        finish_grasp_verification(goal_handle, verification, gripper_position);
+        verification_handle.reset();
+        publish_feedback(goal_handle, "head_ready", 0.98F, "raising head after grasp");
+        send_named_trajectory(
+          goal_handle, head_client_, {"head_pan_joint", "head_tilt_joint"},
+          head_ready_positions_, head_move_duration_s_, controller_timeout_s_, "head ready");
+        return;
+      } catch (const GraspVerificationFailure & failure) {
+        cancel_verification_noexcept(verification_handle);
+        verification_handle.reset();
+        if (attempt >= maximum_attempts) {
+          publish_feedback(
+            goal_handle, "head_ready", 0.98F,
+            "raising head after the final failed grasp verification");
+          send_named_trajectory(
+            goal_handle, head_client_, {"head_pan_joint", "head_tilt_joint"},
+            head_ready_positions_, head_move_duration_s_, controller_timeout_s_, "head ready");
+          throw;
+        }
+        publish_feedback(
+          goal_handle, "retry_grasp", 0.45F,
+          goal.backend + " grasp verification failed; retrying the same explicit backend: " +
+          failure.what());
+      } catch (...) {
+        cancel_verification_noexcept(verification_handle);
+        throw;
+      }
+    }
+  }
+
+  void execute_classical_attempt(
+    const std::shared_ptr<GoalHandleGrasp> & goal_handle,
+    const TopGraspPlan & plan,
+    bool dry_run)
+  {
+    publish_feedback(
+      goal_handle, "validate", 0.05F,
+      "validating explicit " + plan.backend + " TopGraspPlan for local execution");
+    if (!dry_run) {
+      require_motion_gate();
+    }
+    const std::vector<double> wrist_seeds{static_cast<double>(plan.wrist_yaw_seed_rad)};
+    if (!dry_run) {
+      publish_feedback(
+        goal_handle, "pregrasp_gripper", 0.12F,
+        "opening gripper before traditional pregrasp");
+      send_named_trajectory(
+        goal_handle, gripper_client_, {gripper_joint_}, {pregrasp_gripper_position_},
+        pregrasp_gripper_duration_s_, controller_timeout_s_, "pregrasp gripper");
+    }
+    execute_classical_pose(
+      goal_handle, plan.pregrasp, wrist_seeds, dry_run,
+      "pregrasp", 0.28F, true, false);
+    execute_classical_pose(
+      goal_handle, plan.grasp, wrist_seeds, dry_run,
+      "grasp_descent", 0.52F, false, true);
+    if (!dry_run) {
+      publish_feedback(goal_handle, "close_gripper", 0.66F, "closing gripper on object");
+      send_named_trajectory(
+        goal_handle, gripper_client_, {gripper_joint_}, {gripper_closed_position_},
+        grasp_gripper_duration_s_, controller_timeout_s_, "grasp gripper");
+    }
+    execute_classical_pose(
+      goal_handle, plan.lift, wrist_seeds, dry_run,
+      "lift", 0.82F, true, false);
+  }
+
+  void execute_classical_pose(
+    const std::shared_ptr<GoalHandleGrasp> & goal_handle,
+    const geometry_msgs::msg::PoseStamped & measured_pose,
+    const std::vector<double> & wrist_seeds,
+    bool dry_run,
+    const std::string & label,
+    float progress,
+    bool apply_gravity_sag,
+    bool enforce_calibration_envelope)
+  {
+    check_parent(goal_handle);
+    const auto measured = wait_for_measured_state(goal_handle);
+    const auto command_pose = transform_classical_pose(
+      measured_pose, apply_gravity_sag, enforce_calibration_envelope);
+    publish_feedback(
+      goal_handle, label + "_ik", progress - 0.10F,
+      "solving collision-aware IK for " + label);
+    const auto ik_state = solve_ik(
+      goal_handle, command_pose, measured.message, wrist_seeds);
+    publish_feedback(
+      goal_handle, label + "_plan", progress - 0.05F,
+      "planning local MoveIt trajectory for " + label);
+    auto trajectory = plan_pregrasp(goal_handle, ik_state, measured.message);
+    const auto validation = plan_validator_->validate(trajectory, measured.positions);
+    if (!validation) {
+      throw GraspFailure(
+              CapabilityError::SAFETY_REJECTED,
+              "local " + label + " plan validation failed: " + validation.message);
+    }
+    if (dry_run) {
+      publish_feedback(
+        goal_handle, label, progress,
+        "dry-run " + label + " MoveIt plan validated; controller not contacted");
+      return;
+    }
+    trajectory = pregrasp_execution_trajectory(trajectory);
+    publish_feedback(
+      goal_handle, label, progress, "executing validated local " + label + " trajectory");
+    send_trajectory(
+      goal_handle, arm_client_, trajectory, controller_timeout_s_, label);
+    wait_for_arm_arrival(goal_handle, trajectory, label);
+  }
+
+  geometry_msgs::msg::PoseStamped transform_classical_pose(
+    const geometry_msgs::msg::PoseStamped & input,
+    bool apply_gravity_sag,
+    bool enforce_calibration_envelope)
+  {
+    geometry_msgs::msg::PoseStamped transformed;
+    if (input.header.frame_id == base_frame_) {
+      transformed = input;
+    } else {
+      try {
+        const auto transform = tf_buffer_->lookupTransform(
+          base_frame_, input.header.frame_id, rclcpp::Time(input.header.stamp),
+          tf2::durationFromSec(tf_timeout_s_));
+        tf2::doTransform(input, transformed, transform);
+      } catch (const std::exception & error) {
+        throw GraspFailure(
+                CapabilityError::UNAVAILABLE,
+                "classical pose transform failed: " + std::string(error.what()));
+      }
+    }
+    transformed.header.frame_id = base_frame_;
+    if (enforce_calibration_envelope) {
+      const double measured_values[3] = {
+        transformed.pose.position.x,
+        transformed.pose.position.y,
+        transformed.pose.position.z,
+      };
+      for (size_t index = 0; index < 3; ++index) {
+        if (measured_values[index] < calibration_workspace_min_[index] ||
+          measured_values[index] > calibration_workspace_max_[index])
+        {
+          throw GraspFailure(
+                  CapabilityError::SAFETY_REJECTED,
+                  "classical grasp is outside the calibrated workspace envelope");
+        }
+      }
+    }
+    transformed.pose.position.x += vision_fk_compensation_m_[0];
+    transformed.pose.position.y += vision_fk_compensation_m_[1];
+    transformed.pose.position.z += vision_fk_compensation_m_[2] +
+      (apply_gravity_sag ? gravity_sag_z_m_ : 0.0);
+    const double values[3] = {
+      transformed.pose.position.x,
+      transformed.pose.position.y,
+      transformed.pose.position.z,
+    };
+    for (size_t index = 0; index < 3; ++index) {
+      if (!std::isfinite(values[index]) || values[index] < workspace_min_[index] ||
+        values[index] > workspace_max_[index])
+      {
+        throw GraspFailure(
+                CapabilityError::SAFETY_REJECTED,
+                "classical " + input.header.frame_id + " pose is outside workspace");
+      }
+    }
+    return transformed;
+  }
+
+  void wait_for_arm_arrival(
+    const std::shared_ptr<GoalHandleGrasp> & goal_handle,
+    const trajectory_msgs::msg::JointTrajectory & trajectory,
+    const std::string & label)
+  {
+    if (trajectory.points.empty() ||
+      trajectory.points.back().positions.size() != trajectory.joint_names.size())
+    {
+      throw GraspFailure(
+              CapabilityError::SAFETY_REJECTED,
+              label + " trajectory has no complete final state");
+    }
+    std::map<std::string, double> target;
+    for (size_t index = 0; index < trajectory.joint_names.size(); ++index) {
+      target[trajectory.joint_names[index]] = trajectory.points.back().positions[index];
+    }
+    const auto deadline = std::chrono::steady_clock::now() +
+      std::chrono::duration<double>(pregrasp_settle_timeout_s_);
+    auto stable_since = std::chrono::steady_clock::time_point{};
+    auto last_sample = std::chrono::steady_clock::time_point{};
+    while (rclcpp::ok() && !shutting_down_ && std::chrono::steady_clock::now() < deadline) {
+      check_parent(goal_handle);
+      require_motion_gate();
+      const auto measured = measured_state();
+      if (measured.received_at == last_sample) {
+        std::this_thread::sleep_for(20ms);
+        continue;
+      }
+      last_sample = measured.received_at;
+      std::map<std::string, size_t> indices;
+      for (size_t index = 0; index < measured.message.name.size(); ++index) {
+        indices[measured.message.name[index]] = index;
+      }
+      bool stable = true;
+      for (const auto & name : joint_names_) {
+        const auto expected = target.find(name);
+        const auto actual = indices.find(name);
+        if (expected == target.end() || actual == indices.end() ||
+          actual->second >= measured.message.position.size() ||
+          !std::isfinite(measured.message.position[actual->second]) ||
+          std::abs(measured.message.position[actual->second] - expected->second) >
+          pregrasp_arrival_tolerance_rad_)
+        {
+          stable = false;
+          break;
+        }
+        if (actual->second < measured.message.velocity.size() &&
+          (!std::isfinite(measured.message.velocity[actual->second]) ||
+          std::abs(measured.message.velocity[actual->second]) >
+          pregrasp_arrival_velocity_tolerance_radps_))
+        {
+          stable = false;
+          break;
+        }
+      }
+      if (!stable) {
+        stable_since = std::chrono::steady_clock::time_point{};
+      } else {
+        const auto current = std::chrono::steady_clock::now();
+        if (stable_since == std::chrono::steady_clock::time_point{}) {
+          stable_since = current;
+        }
+        if (std::chrono::duration<double>(current - stable_since).count() >=
+          pregrasp_settle_hold_s_)
+        {
+          return;
+        }
+      }
+      std::this_thread::sleep_for(20ms);
+    }
+    throw GraspFailure(
+            CapabilityError::SAFETY_REJECTED,
+            label + " controller reported success but measured arm did not settle");
+  }
+
   void execute_prepare(const std::shared_ptr<GoalHandlePrepare> goal_handle)
   {
     struct ReservationGuard
@@ -584,10 +991,22 @@ private:
     if (!dry_run) {
       require_motion_gate();
     }
+    if (!grasp_alignment_ready_) {
+      throw GraspFailure(
+              CapabilityError::UNAVAILABLE,
+              "ACT pregrasp requires a validated grasp_alignment_file");
+    }
     const auto measured = wait_for_measured_state(goal_handle);
     const auto pregrasp = transform_pregrasp(target);
     publish_feedback(goal_handle, "ik", 0.15F, "solving bounded position-only pregrasp IK");
-    const auto ik_state = solve_ik(goal_handle, pregrasp, measured.message);
+    geometry_msgs::msg::PoseStamped pregrasp_pose;
+    pregrasp_pose.header = pregrasp.header;
+    pregrasp_pose.pose.position = pregrasp.point;
+    pregrasp_pose.pose.orientation.x = top_grasp_orientation_xyzw_[0];
+    pregrasp_pose.pose.orientation.y = top_grasp_orientation_xyzw_[1];
+    pregrasp_pose.pose.orientation.z = top_grasp_orientation_xyzw_[2];
+    pregrasp_pose.pose.orientation.w = top_grasp_orientation_xyzw_[3];
+    const auto ik_state = solve_ik(goal_handle, pregrasp_pose, measured.message, {});
     publish_feedback(goal_handle, "plan", 0.30F, "planning collision-aware pregrasp trajectory");
     auto trajectory = plan_pregrasp(goal_handle, ik_state, measured.message);
     const auto validation = plan_validator_->validate(
@@ -641,11 +1060,17 @@ private:
   geometry_msgs::msg::PointStamped transform_pregrasp(
     const geometry_msgs::msg::PointStamped & target)
   {
+    if (!grasp_alignment_ready_) {
+      throw GraspFailure(
+              CapabilityError::UNAVAILABLE,
+              "ACT pregrasp requires a validated grasp_alignment_file");
+    }
     auto transformed = transform_target_to_base(target);
     const auto measured_target = transformed.point;
     transformed.point.x += vision_fk_compensation_m_[0];
     transformed.point.y += vision_fk_compensation_m_[1];
-    transformed.point.z += vision_fk_compensation_m_[2] + pregrasp_offset_m_;
+    transformed.point.z += vision_fk_compensation_m_[2] +
+      gravity_sag_z_m_ + pregrasp_offset_m_;
     RCLCPP_INFO(
       get_logger(),
       "pregrasp target base_link measured=(%.5f,%.5f,%.5f) commanded=(%.5f,%.5f,%.5f)",
@@ -888,14 +1313,18 @@ private:
   template<typename GoalHandleT>
   sensor_msgs::msg::JointState solve_ik(
     const std::shared_ptr<GoalHandleT> & goal_handle,
-    const geometry_msgs::msg::PointStamped & target,
-    const sensor_msgs::msg::JointState & seed_state)
+    const geometry_msgs::msg::PoseStamped & target,
+    const sensor_msgs::msg::JointState & seed_state,
+    const std::vector<double> & preferred_wrist_seeds)
   {
     wait_for_service<GetPositionIK>(ik_client_, service_timeout_s_, goal_handle, "compute_ik");
     std::string errors;
-    auto wrist_candidates = wrist_roll_seeds_;
+    auto wrist_candidates = preferred_wrist_seeds;
+    wrist_candidates.insert(
+      wrist_candidates.end(), wrist_roll_seeds_.begin(), wrist_roll_seeds_.end());
     if (include_radial_wrist_roll_seed_) {
-      wrist_candidates.push_back(std::atan2(target.point.y, target.point.x));
+      wrist_candidates.push_back(
+        std::atan2(target.pose.position.y, target.pose.position.x));
     }
     for (double wrist_seed : wrist_candidates) {
       auto request = std::make_shared<GetPositionIK::Request>();
@@ -919,12 +1348,7 @@ private:
         }
       }
       auto & pose = request->ik_request.pose_stamped;
-      pose.header = target.header;
-      pose.pose.position = target.point;
-      pose.pose.orientation.x = top_grasp_orientation_xyzw_[0];
-      pose.pose.orientation.y = top_grasp_orientation_xyzw_[1];
-      pose.pose.orientation.z = top_grasp_orientation_xyzw_[2];
-      pose.pose.orientation.w = top_grasp_orientation_xyzw_[3];
+      pose = target;
       request->ik_request.timeout = static_cast<builtin_interfaces::msg::Duration>(
         rclcpp::Duration::from_seconds(1.0));
       request->ik_request.avoid_collisions = true;
@@ -1396,7 +1820,10 @@ private:
   std::string base_frame_;
   std::string arm_group_;
   std::string ee_link_;
+  std::string grasp_alignment_file_;
   double pregrasp_offset_m_{0.08};
+  double gravity_sag_z_m_{0.0};
+  bool grasp_alignment_ready_{false};
   bool include_radial_wrist_roll_seed_{true};
   double tf_timeout_s_{1.0};
   double service_timeout_s_{5.0};
@@ -1410,6 +1837,7 @@ private:
   double joint_state_timeout_s_{0.50};
   double head_move_duration_s_{1.5};
   double pregrasp_gripper_duration_s_{2.0};
+  double grasp_gripper_duration_s_{2.0};
   double pregrasp_move_duration_s_{4.0};
   double return_ready_duration_s_{4.0};
   double pregrasp_settle_timeout_s_{2.0};
@@ -1433,6 +1861,8 @@ private:
   std::vector<double> pregrasp_wrist_flex_range_;
   std::vector<double> workspace_min_;
   std::vector<double> workspace_max_;
+  std::vector<double> calibration_workspace_min_;
+  std::vector<double> calibration_workspace_max_;
   std::vector<std::string> joint_names_;
   std::vector<std::string> policy_joint_names_;
   std::unique_ptr<GraspPlanValidator> plan_validator_;

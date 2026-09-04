@@ -14,8 +14,8 @@ scan_for_person_detector:
     tf_timeout_s: 3.0
     min_depth_m: 0.20
     max_depth_m: 5.0
-    # The delivery image supplies this asset outside Git. Empty resolves to
-    # $XLEROBOT_MODEL_DIR/yolov8n.pt or ~/.cache/xlerobot_models/yolov8n.pt.
+    # The setup tool supplies this optional asset outside Git. Empty resolves
+    # to $XLEROBOT_MODEL_DIR/yolov8n.pt or .xlerobot/models/yolov8n.pt.
     model_path: ''
     yolo_conf: 0.60
     yolo_imgsz: 480

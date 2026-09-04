@@ -111,6 +111,9 @@ class VoiceAssistantNode(Node):
             'intent_backend_enabled', False
         ).value)
         self.task_dry_run = bool(self.declare_parameter('task_dry_run', True).value)
+        self.default_grasp_backend = str(self.declare_parameter(
+            'default_grasp_backend', 'act'
+        ).value)
         self.speech_enabled = bool(self.declare_parameter('speech_enabled', False).value)
         self.speech_dry_run = bool(self.declare_parameter('speech_dry_run', True).value)
         self.execute_action = str(self.declare_parameter(
@@ -175,7 +178,7 @@ class VoiceAssistantNode(Node):
     def _declare_audio_parameters(self):
         self.kws_model_dir = str(self.declare_parameter(
             'kws_model_dir',
-            '$HOME/.cache/xlerobot_models/'
+            '.xlerobot/models/'
             'sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20',
         ).value)
         self.kws_tokens = str(self.declare_parameter('kws_tokens', '').value)
@@ -244,6 +247,8 @@ class VoiceAssistantNode(Node):
     def _validate_parameters(self):
         if not 0.0 <= self.intent_threshold <= 1.0:
             raise ValueError('intent_confidence_threshold must be in [0, 1]')
+        if self.default_grasp_backend not in {'act', 'centroid', 'gpd'}:
+            raise ValueError('default_grasp_backend must be one of: act, centroid, gpd')
         positive = {
             'task_timeout_s': self.task_timeout_s,
             'speech_timeout_s': self.speech_timeout_s,
@@ -531,7 +536,11 @@ class VoiceAssistantNode(Node):
     def _execute_task(self, intent):
         with self._task_feedback_lock:
             self._last_task_capability = ''
-        goal = execute_task_goal(intent, dry_run=self.task_dry_run)
+        goal = execute_task_goal(
+            intent,
+            dry_run=self.task_dry_run,
+            grasp_backend=self.default_grasp_backend,
+        )
         return self._call_action(
             self.execute_client,
             goal,

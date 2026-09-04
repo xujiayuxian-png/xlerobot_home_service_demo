@@ -34,6 +34,7 @@ class FlowTest(unittest.TestCase):
                     "object_id": "yellow_stick",
                     "source_place": "table",
                     "recipient_id": "nearest_person",
+                    "grasp_backend": "act",
                     "dry_run": True,
                 }
                 values[field] = ""
@@ -46,8 +47,30 @@ class FlowTest(unittest.TestCase):
                 object_id="羽毛球",
                 source_place="table",
                 recipient_id="person",
+                grasp_backend="act",
                 dry_run=False,
             ))
+
+    def test_grasp_backend_is_explicit_and_closed_set(self):
+        for backend in ("act", "centroid", "gpd"):
+            validate_request(FetchDeliverRequest(
+                object_id="羽毛球",
+                source_place="table",
+                recipient_id="nearest_person",
+                grasp_backend=backend,
+                dry_run=True,
+            ))
+        for backend in ("", "auto", "traditional"):
+            with self.subTest(backend=backend), self.assertRaisesRegex(
+                ValueError, "grasp_backend"
+            ):
+                validate_request(FetchDeliverRequest(
+                    object_id="羽毛球",
+                    source_place="table",
+                    recipient_id="nearest_person",
+                    grasp_backend=backend,
+                    dry_run=True,
+                ))
 
     def test_head_arrival_uses_measured_joint_positions(self):
         state = JointState(

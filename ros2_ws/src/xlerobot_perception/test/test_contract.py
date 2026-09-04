@@ -15,8 +15,8 @@ def stamped_message(seconds, nanoseconds=0):
 
 
 def test_goal_accepts_unicode_object_and_relative_frame():
-    validate_goal_fields('露营灯', 'map')
-    validate_goal_fields('camping_lamp', 'base_link/camera')
+    validate_goal_fields('露营灯', 'map', 'act')
+    validate_goal_fields('camping_lamp', 'base_link/camera', 'gpd')
 
 
 @pytest.mark.parametrize(
@@ -25,7 +25,15 @@ def test_goal_accepts_unicode_object_and_relative_frame():
 )
 def test_goal_rejects_ambiguous_identifiers(object_id, target_frame):
     with pytest.raises(ValueError):
-        validate_goal_fields(object_id, target_frame)
+        validate_goal_fields(object_id, target_frame, 'act')
+
+
+def test_goal_requires_an_explicit_grasp_backend():
+    for backend in ('act', 'centroid', 'gpd'):
+        validate_goal_fields('lamp', 'base_link', backend)
+    for backend in ('', 'auto', 'traditional'):
+        with pytest.raises(ValueError, match='grasp_backend'):
+            validate_goal_fields('lamp', 'base_link', backend)
 
 
 def test_sync_requires_nonzero_close_timestamps():

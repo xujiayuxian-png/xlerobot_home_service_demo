@@ -1,1 +1,1 @@
-"""Voice-to-task adapter for the teaching stack."""
+"""Voice-to-task adapter for the XLeRobot home-service demo."""

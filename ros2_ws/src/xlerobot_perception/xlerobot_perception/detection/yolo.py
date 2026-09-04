@@ -14,7 +14,7 @@ class YoloDetection:
 
 
 class YoloPersonDetector:
-    """Load the delivery model and return person boxes in source pixels."""
+    """Load the configured person model and return boxes in source pixels."""
 
     def __init__(self, model_path: str, *, confidence: float, image_size: int, device: str):
         from ultralytics import YOLO

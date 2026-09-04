@@ -4,7 +4,8 @@ import type { Task } from './types'
 
 const task = (task_id: string, updated_at: string): Task => ({
   task_id, object_id: task_id, source_place: 'table', recipient_id: 'nearest_person',
-  dry_run: false, status: 'RUNNING', current_capability: 'detect_object',
+  grasp_backend: 'act', grasp_backend_used: 'act', dry_run: false,
+  status: 'RUNNING', current_capability: 'detect_object',
   phase: 'running', progress: .5, message: '', error_code: 0,
   created_at: updated_at, updated_at, completed_at: '', stage_elapsed_s: 1,
   capability_durations: {},

@@ -1,10 +1,12 @@
 string object_id
 string source_place
 string recipient_id
+string grasp_backend
 bool dry_run
 ---
 xlerobot_interfaces/CapabilityError error
 string completed_object_id
+string grasp_backend_used
 ---
 string current_capability
 xlerobot_interfaces/CapabilityProgress state

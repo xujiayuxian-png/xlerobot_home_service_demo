@@ -10,7 +10,8 @@ describe('operator console API', () => {
   it('does not let a stale HTTP task response overwrite a terminal SSE state', () => {
     const base: Task = {
       task_id: 'task-1', object_id: 'ball', source_place: 'table',
-      recipient_id: 'nearest_person', dry_run: false, status: 'RUNNING',
+      recipient_id: 'nearest_person', grasp_backend: 'act',
+      grasp_backend_used: 'act', dry_run: false, status: 'RUNNING',
       current_capability: 'handover_object', phase: 'running', progress: .9,
       message: '', error_code: 0, created_at: '2026-07-20T00:00:00Z',
       updated_at: '2026-07-20T00:00:01Z', completed_at: '',
@@ -32,7 +33,7 @@ describe('operator console API', () => {
         headers: { 'content-type': 'application/json' },
       })
     }) as typeof fetch
-    await api.submitTask('羽毛球')
+    await api.submitTask('羽毛球', 'gpd')
     expect(requested).toBe('/api/v1/tasks/fetch-deliver')
   })
 
@@ -79,6 +80,7 @@ describe('operator console API', () => {
     const responses: Record<string, unknown> = {
       '/api/v1/bootstrap': {
         release: 'test', unit: 'robot-1', site: '', workspace: 'collection',
+        default_dataset_id: 'xlerobot-glue-stick-grasp-30',
         mapping_phase: '', calibration_workflow: '',
         engineering_tools_enabled: true, available_workspaces: ['collection'],
         named_places: [], active_task: null, mapping: null, perception: null,
@@ -107,6 +109,8 @@ describe('operator console API', () => {
     globalThis.EventSource = SilentEventSource as unknown as typeof EventSource
 
     render(<App />)
+    expect((await screen.findByPlaceholderText('Dataset ID') as HTMLInputElement).value)
+      .toBe('xlerobot-glue-stick-grasp-30')
     const finish = await screen.findByRole(
       'button', { name: 'End / 正常结束并发布' },
     ) as HTMLButtonElement
@@ -210,6 +214,44 @@ describe('operator console API', () => {
     expect(screen.getByText('200.0 mm')).toBeTruthy()
     expect(screen.getByText('28.6°')).toBeTruthy()
     expect(rendered.getByText(/不据此增加或推断质量通过阈值/)).toBeTruthy()
+  })
+
+  it('shows only capture controls in a public calibration session', async () => {
+    const responses: Record<string, unknown> = {
+      '/api/v1/bootstrap': {
+        release: 'test', unit: 'robot-1', site: '', workspace: 'calibration',
+        default_dataset_id: 'xlerobot-glue-stick-grasp-30',
+        mapping_phase: '', calibration_workflow: 'head_camera',
+        calibration_capture_only: true,
+        engineering_tools_enabled: true, available_workspaces: ['calibration'],
+        named_places: [], active_task: null, mapping: null, perception: null,
+        voice_transcript: '', collection: null, drive_stop_latched: false,
+      },
+      '/api/v1/health': {
+        readiness: 'READY', execute_task_available: false,
+        voice_state: 'DISABLED', drive_stop_latched: false,
+        diagnostics: {}, requirements: {},
+      },
+      '/api/v1/tasks': { tasks: [] },
+    }
+    globalThis.fetch = (async (input: RequestInfo | URL) =>
+      new Response(JSON.stringify(responses[String(input)]), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      })) as typeof fetch
+    class SilentEventSource {
+      onmessage: ((event: MessageEvent) => void) | null = null
+      onerror: (() => void) | null = null
+      onopen: (() => void) | null = null
+      close() {}
+    }
+    globalThis.EventSource = SilentEventSource as unknown as typeof EventSource
+
+    render(<App />)
+    expect(await screen.findByText(/只采集原始标定结果/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: '采集当前静止姿态' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '检查当前工作流' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '求解并写入 draft' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '激活完整 calibration bundle' })).toBeNull()
   })
 
   it('keeps teleop disconnected in the default Demo view', async () => {

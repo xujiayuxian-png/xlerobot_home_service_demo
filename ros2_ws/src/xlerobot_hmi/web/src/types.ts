@@ -5,6 +5,8 @@ export interface Task {
   object_id: string
   source_place: string
   recipient_id: string
+  grasp_backend: 'act' | 'centroid' | 'gpd'
+  grasp_backend_used: string
   dry_run: boolean
   cancelable?: boolean
   status: string
@@ -23,10 +25,12 @@ export interface Task {
 export interface Bootstrap {
   release: string
   unit: string
+  default_dataset_id: string
   site: string
   workspace: string
   mapping_phase: string
   calibration_workflow: string
+  calibration_capture_only?: boolean
   engineering_tools_enabled: boolean
   available_workspaces: string[]
   named_places: NamedPlace[]

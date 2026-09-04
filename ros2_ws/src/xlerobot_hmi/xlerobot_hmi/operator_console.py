@@ -18,7 +18,6 @@ import re
 import secrets
 import shutil
 import sqlite3
-import subprocess
 import threading
 import time
 from typing import Any
@@ -153,6 +152,7 @@ def parse_task_request(payload: Any) -> ExecuteTask.Goal:
         'object_id': str(payload.get('object_id', '')).strip(),
         'source_place': str(payload.get('source_place', 'table')).strip(),
         'recipient_id': str(payload.get('recipient_id', 'nearest_person')).strip(),
+        'grasp_backend': str(payload.get('grasp_backend', '')).strip(),
     }
     empty = [name for name, value in fields.items() if not value]
     if empty:
@@ -161,6 +161,9 @@ def parse_task_request(payload: Any) -> ExecuteTask.Goal:
     goal.object_id = fields['object_id']
     goal.source_place = fields['source_place']
     goal.recipient_id = fields['recipient_id']
+    if fields['grasp_backend'] not in {'act', 'centroid', 'gpd'}:
+        raise ValueError('grasp_backend must be one of: act, centroid, gpd')
+    goal.grasp_backend = fields['grasp_backend']
     goal.dry_run = bool(payload.get('dry_run', False))
     return goal
 
@@ -238,7 +241,9 @@ class TaskRecord:
     object_id: str
     source_place: str
     recipient_id: str
+    grasp_backend: str
     dry_run: bool
+    grasp_backend_used: str = ''
     cancelable: bool = True
     status: str = 'ACCEPTING'
     current_capability: str = ''
@@ -358,22 +363,20 @@ class OperatorConsoleNode(Node):
         super().__init__('xlerobot_operator_console')
         self.declare_parameter('bind_host', '0.0.0.0')
         self.declare_parameter('port', 8080)
-        self.declare_parameter('artifact_root', '/var/lib/xlerobot')
+        self.declare_parameter('artifact_root', '.xlerobot/artifacts')
         self.declare_parameter('release_id', 'development')
         self.declare_parameter('unit_id', 'reference-two-wheel')
+        self.declare_parameter(
+            'default_dataset_id', 'xlerobot-glue-stick-grasp-30'
+        )
         self.declare_parameter('site_id', '')
         self.declare_parameter('places_file', '')
         self.declare_parameter('workspace', 'operator')
         self.declare_parameter('mapping_phase', '')
         self.declare_parameter('calibration_workflow', '')
+        self.declare_parameter('calibration_capture_only', False)
         self.declare_parameter('enable_engineering_tools', False)
-        self.declare_parameter('task_history_root', '/var/log/xlerobot/tasks')
-        self.declare_parameter(
-            'installation_config', '/etc/xlerobot/installation.yaml'
-        )
-        self.declare_parameter(
-            'data_sync_command', '/opt/xlerobot/current/bin/xlerobot-data-sync'
-        )
+        self.declare_parameter('task_history_root', '.xlerobot/logs/tasks')
         self.declare_parameter(
             'head_camera_topic', '/xlerobot/d455/color/image_raw'
         )
@@ -701,6 +704,7 @@ class OperatorConsoleNode(Node):
                 and event.object_id == local.object_id
                 and event.source_place == local.source_place
                 and event.recipient_id == local.recipient_id
+                and event.grasp_backend == local.grasp_backend
                 and bool(event.dry_run) == local.dry_run
             ):
                 # ExecuteTask admits one goal at a time.  A matching TaskEvent
@@ -739,7 +743,9 @@ class OperatorConsoleNode(Node):
                         object_id=event.object_id,
                         source_place=event.source_place,
                         recipient_id=event.recipient_id,
+                        grasp_backend=event.grasp_backend,
                         dry_run=bool(event.dry_run),
+                        grasp_backend_used=event.grasp_backend_used,
                         cancelable=True,
                         created_at=created_at,
                         updated_at=created_at,
@@ -765,6 +771,8 @@ class OperatorConsoleNode(Node):
                 record.progress = float(event.state.progress)
                 record.message = event.error.message or event.state.message
                 record.error_code = int(event.error.code)
+                record.grasp_backend = event.grasp_backend
+                record.grasp_backend_used = event.grasp_backend_used
                 record.stage_elapsed_s = round(
                     max(0.0, now_monotonic - stage_started),
                     3,
@@ -1174,6 +1182,7 @@ class OperatorConsoleNode(Node):
                 object_id=goal.object_id,
                 source_place=goal.source_place,
                 recipient_id=goal.recipient_id,
+                grasp_backend=goal.grasp_backend,
                 dry_run=goal.dry_run,
                 created_at=now,
                 updated_at=now,
@@ -1316,6 +1325,10 @@ class OperatorConsoleNode(Node):
                     f'ExecuteTask returned non-terminal action status {wrapped.status}'
                 )
                 return
+            with self._task_lock:
+                backend_used = str(getattr(result, 'grasp_backend_used', ''))
+                if self.active_task is not None and backend_used:
+                    self.active_task.grasp_backend_used = backend_used
             self._finish_task(status, int(result.error.code), result.error.message)
         except Exception as exc:
             self._mark_task_result_unknown(
@@ -1844,7 +1857,6 @@ class ConsoleApplication:
                 '/api/v1/datasets/{dataset_id}/episodes/{episode_id}/review',
                 self.review_episode,
             ),
-            web.post('/api/v1/collections/sync', self.sync_collection),
         ])
         static = self._static_root()
         if static and static.exists():
@@ -1880,10 +1892,14 @@ class ConsoleApplication:
         return web.json_response({
             'release': self.node.parameter('release_id'),
             'unit': self.node.parameter('unit_id'),
+            'default_dataset_id': self.node.parameter('default_dataset_id'),
             'site': self.node.parameter('site_id'),
             'workspace': self.node.parameter('workspace'),
             'mapping_phase': self.node.parameter('mapping_phase'),
             'calibration_workflow': self.node.parameter('calibration_workflow'),
+            'calibration_capture_only': bool(
+                self.node.parameter('calibration_capture_only')
+            ),
             'engineering_tools_enabled': engineering,
             'available_workspaces': available,
             'named_places': self.node.named_places,
@@ -2675,6 +2691,8 @@ class ConsoleApplication:
     async def calibration_job(self, request):
         self._require_engineering_workspace(request)
         self._require_workspace('calibration')
+        if bool(self.node.parameter('calibration_capture_only')):
+            raise web.HTTPNotFound(text='capture-only calibration does not run preflight')
         payload = await request.json()
         goal = CalibrationJob.Goal()
         goal.unit_id = str(payload.get('unit_id', '')).strip()
@@ -2709,6 +2727,8 @@ class ConsoleApplication:
     async def import_calibration(self, request):
         self._require_engineering_workspace(request)
         self._require_workspace('calibration')
+        if bool(self.node.parameter('calibration_capture_only')):
+            raise web.HTTPNotFound(text='capture-only calibration does not import results')
         payload = await request.json()
         message = ImportCalibrationResult.Request(
             unit_id=str(payload.get('unit_id', '')).strip(),
@@ -2734,6 +2754,8 @@ class ConsoleApplication:
     async def activate_calibration(self, request):
         self._require_engineering_workspace(request)
         self._require_workspace('calibration')
+        if bool(self.node.parameter('calibration_capture_only')):
+            raise web.HTTPNotFound(text='capture-only calibration does not activate bundles')
         payload = await request.json()
         message = ActivateArtifact.Request(
             artifact_type='calibration', artifact_id=request.match_info['unit_id'],
@@ -2822,21 +2844,21 @@ class ConsoleApplication:
         return web.json_response(evidence, status=201)
 
     async def calibration_sample_coverage(self, request):
-        """Expose validated hand-eye pose facts from the atomic sample file."""
+        """Expose restored visual-capture facts from the atomic sample file."""
         self._require_engineering_workspace(request)
         self._require_workspace('calibration')
         workflow = str(self.node.parameter('calibration_workflow'))
-        if workflow != 'right_handeye':
+        if workflow not in {'head_camera', 'right_handeye'}:
             raise web.HTTPNotFound(
-                text='hand-eye sample coverage is not active'
+                text='visual calibration sample coverage is not active'
             )
         from xlerobot_calibration_tools.sample_set import TransformSampleSet
-        from xlerobot_calibration_tools.solver import ARM_MODEL
+        from xlerobot_calibration_tools.solver import ARM_MODEL, HEAD_MODEL
 
         sample_file = (
             self.node.artifact_root
             / 'calibration_work'
-            / 'right_handeye'
+            / workflow
             / 'samples.yaml'
         )
         if not sample_file.exists():
@@ -2848,12 +2870,15 @@ class ConsoleApplication:
             })
         try:
             samples = TransformSampleSet.read(
-                sample_file, expected_model=ARM_MODEL
+                sample_file,
+                expected_model=(
+                    HEAD_MODEL if workflow == 'head_camera' else ARM_MODEL
+                ),
             )
             coverage = samples.coverage()
         except (OSError, TypeError, ValueError) as error:
             raise web.HTTPConflict(
-                text=f'hand-eye samples are invalid: {error}'
+                text=f'{workflow} samples are invalid: {error}'
             ) from error
         return web.json_response(coverage)
 
@@ -2892,7 +2917,10 @@ class ConsoleApplication:
             'raw_positions': list(response.raw_positions),
             'result_uri': response.result_uri,
         }
-        if command_name == 'finalize':
+        if (
+            command_name == 'finalize'
+            and not bool(self.node.parameter('calibration_capture_only'))
+        ):
             imported = await self._call_service(
                 self.node.calibration_import_client,
                 ImportCalibrationResult.Request(
@@ -2918,6 +2946,8 @@ class ConsoleApplication:
     async def solve_calibration_samples(self, request):
         self._require_engineering_workspace(request)
         self._require_workspace('calibration')
+        if bool(self.node.parameter('calibration_capture_only')):
+            raise web.HTTPNotFound(text='capture-only calibration does not solve samples')
         workflow = str(self.node.parameter('calibration_workflow'))
         if workflow not in {'head_camera', 'right_handeye'}:
             raise web.HTTPNotFound(text='visual calibration tool is not active')
@@ -3059,65 +3089,6 @@ class ConsoleApplication:
             'status': message.status,
         })
         return web.json_response({'review_uri': response.review_uri})
-
-    async def sync_collection(self, request):
-        self._require_engineering_workspace(request)
-        self._require_workspace('collection')
-        payload = await request.json()
-        dataset_id = str(payload.get('dataset_id', '')).strip()
-        if not IDENTIFIER.fullmatch(dataset_id):
-            raise web.HTTPBadRequest(text='invalid dataset_id')
-        active = self.node.collection_snapshot()
-        if active and active.get('status') == 'RUNNING':
-            raise web.HTTPConflict(text='finish the active episode before syncing')
-        config_path = Path(str(self.node.parameter('installation_config')))
-        command_path = Path(str(self.node.parameter('data_sync_command')))
-        try:
-            config = yaml.safe_load(config_path.read_text(encoding='utf-8')) or {}
-            gpu = config['gpu']
-            unit_id = str(config['unit_id'])
-            arguments = [
-                str(command_path), '--dataset', dataset_id,
-                '--unit-id', unit_id, '--gpu-host', str(gpu['act_host']),
-                '--ssh-user', str(gpu['ssh_user']),
-                '--ssh-port', str(int(gpu['ssh_port'])),
-            ]
-        except (OSError, KeyError, TypeError, ValueError, yaml.YAMLError) as error:
-            raise web.HTTPConflict(text=f'invalid installation config: {error}') from error
-        if not command_path.is_file() or not os.access(command_path, os.X_OK):
-            raise web.HTTPServiceUnavailable(text='xlerobot-data-sync is unavailable')
-        completed = await asyncio.to_thread(
-            subprocess.run, arguments, text=True, capture_output=True, check=False
-        )
-        result = None
-        if completed.stdout:
-            try:
-                result = json.loads(completed.stdout)
-            except json.JSONDecodeError:
-                result = None
-        if completed.returncode == 3 and isinstance(result, dict):
-            self.node.history.audit('operator', 'dataset.sync', 'conflict', {
-                'dataset_id': dataset_id, 'result': result,
-            })
-            return web.json_response(result, status=409)
-        if completed.returncode != 0:
-            message = (completed.stderr or completed.stdout).strip()
-            self.node.history.audit('operator', 'dataset.sync', 'failed', {
-                'dataset_id': dataset_id, 'message': message,
-            })
-            raise web.HTTPBadGateway(text=message or 'dataset sync failed')
-        if result is None:
-            result = {
-                'status': 'complete',
-                'added': [],
-                'unchanged': [],
-                'conflicts': [],
-                'message': completed.stdout.strip(),
-            }
-        self.node.history.audit('operator', 'dataset.sync', 'success', {
-            'dataset_id': dataset_id, 'result': result,
-        })
-        return web.json_response(result)
 
     async def _call_service(self, client, request, timeout_s: float):
         if not await _wait_until_ready(client.service_is_ready, 2.0):

@@ -31,6 +31,7 @@ def bare_node():
     node.joint_state_max_age_s = 0.5
     node.camera_max_age_s = 1.0
     node.diagnostic_max_age_s = 3.0
+    node.speech_enabled = True
     now = time.monotonic()
     node._latest_joint_state_received_monotonic = now
     node._readiness_joint_state_received_monotonic = now
@@ -81,6 +82,7 @@ def test_manual_reservation_and_task_activity_are_atomic():
         object_id='yellow_stick',
         source_place='table',
         recipient_id='nearest_person',
+        grasp_backend='act',
         dry_run=True,
     )
     assert node.goal_callback(request) == GoalResponse.REJECT
@@ -117,6 +119,21 @@ def test_live_readiness_requires_stop_state_startup_sensors_and_actions():
     assert any('head_depth camera is stale' in reason for reason in reasons)
 
 
+def test_voice_disabled_does_not_require_speak_action_server():
+    node = bare_node()
+    node.speech_enabled = False
+    node.speak_client.ready = False
+    assert node._live_readiness() == (True, [])
+
+    feedback = []
+    node._feedback = lambda *args: feedback.append(args)
+    node._call = lambda *args: (_ for _ in ()).throw(
+        AssertionError('disabled speech must not call its action server')
+    )
+    node._run_speech_stage(object(), SimpleNamespace(dry_run=False), 1.0)
+    assert feedback[0][2] == 'skipped'
+
+
 def test_stop_latch_change_during_goal_acceptance_rejects_live_goal():
     node = bare_node()
     warnings = []
@@ -132,6 +149,7 @@ def test_stop_latch_change_during_goal_acceptance_rejects_live_goal():
         object_id='yellow_stick',
         source_place='table',
         recipient_id='nearest_person',
+        grasp_backend='act',
         dry_run=False,
     )
 

@@ -23,6 +23,7 @@ def send_goal(client, *, dry_run):
     goal = DetectObject.Goal()
     goal.object_id = 'camping_lamp'
     goal.target_frame = 'map'
+    goal.grasp_backend = 'act'
     goal.dry_run = dry_run
     handle = wait_future(client.send_goal_async(goal))
     assert handle.accepted

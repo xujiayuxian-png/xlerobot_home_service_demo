@@ -3,6 +3,8 @@ string task_id
 string object_id
 string source_place
 string recipient_id
+string grasp_backend
+string grasp_backend_used
 bool dry_run
 string status
 string current_capability

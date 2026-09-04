@@ -10,6 +10,10 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def runtime(context):
+    if LaunchConfiguration('hardware_enabled').perform(context) != 'true':
+        raise RuntimeError(
+            'Leader runtime requires hardware_enabled:=true; no device was opened'
+        )
     model = PathJoinSubstitution([
         FindPackageShare('xlerobot_description'), 'urdf', 'leader_attachment.urdf.xacro'
     ])
@@ -56,6 +60,10 @@ def runtime(context):
 
 def generate_launch_description():
     return LaunchDescription([
+        DeclareLaunchArgument(
+            'hardware_enabled', default_value='false', choices=['true', 'false'],
+            description='Explicit consent to open the Leader motor bus.',
+        ),
         DeclareLaunchArgument('leader_port', default_value='/dev/right_master_arm'),
         DeclareLaunchArgument('control_enable_lease_s', default_value='1.0'),
         OpaqueFunction(function=runtime),

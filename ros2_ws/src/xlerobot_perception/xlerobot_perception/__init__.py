@@ -1,1 +1,1 @@
-"""Read-only perception capabilities for the XLeRobot teaching stack."""
+"""Perception capabilities for the reproducible XLeRobot home-service demo."""

@@ -51,7 +51,7 @@ add_executable(streaming_joint_executor
 
 add_executable(grasp_object_server src/grasp_object_server.cpp)
 target_compile_features(grasp_object_server PUBLIC cxx_std_17)
-target_link_libraries(grasp_object_server xlerobot_grasp_safety)
+target_link_libraries(grasp_object_server xlerobot_grasp_safety yaml-cpp)
 ament_target_dependencies(grasp_object_server
   control_msgs
   moveit_msgs

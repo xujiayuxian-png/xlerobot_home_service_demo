@@ -14,6 +14,7 @@ def generate_launch_description():
         / 'grasp_object.yaml'
     )
     execution_enabled = LaunchConfiguration('execution_enabled')
+    grasp_alignment_file = LaunchConfiguration('grasp_alignment_file')
     return LaunchDescription(
         [
             DeclareLaunchArgument(
@@ -22,12 +23,19 @@ def generate_launch_description():
                 choices=['true', 'false'],
                 description='Independent gate for controller-facing grasp stages.',
             ),
+            DeclareLaunchArgument('grasp_alignment_file', default_value=''),
             Node(
                 package='xlerobot_manipulation',
                 executable='grasp_object_server',
                 name='grasp_object_server',
                 output='screen',
-                parameters=[config, {'execution_enabled': execution_enabled}],
+                parameters=[
+                    config,
+                    {
+                        'execution_enabled': execution_enabled,
+                        'grasp_alignment_file': grasp_alignment_file,
+                    },
+                ],
             ),
         ]
     )

@@ -1,6 +1,7 @@
 string object_id
 geometry_msgs/PointStamped target
 string backend
+xlerobot_interfaces/TopGraspPlan grasp_plan
 bool dry_run
 ---
 xlerobot_interfaces/CapabilityError error

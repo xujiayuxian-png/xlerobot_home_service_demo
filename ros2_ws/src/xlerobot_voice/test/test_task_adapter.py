@@ -14,13 +14,26 @@ def test_current_execute_task_contract_has_no_legacy_json_fields():
         confidence=0.95,
         normalized_command='把露营灯拿过来',
     )
-    goal = execute_task_goal(intent, dry_run=True)
+    goal = execute_task_goal(intent, dry_run=True, grasp_backend='centroid')
     assert goal.object_id == '露营灯'
     assert goal.source_place == 'table'
     assert goal.recipient_id == 'nearest_person'
+    assert goal.grasp_backend == 'centroid'
     assert goal.dry_run
     assert not hasattr(goal, 'command_text')
     assert not hasattr(goal, 'task_json')
+
+
+def test_voice_backend_is_configuration_not_language_intent():
+    intent = IntentResult(
+        intent='fetch_deliver', object_id='羽毛球', source_place='table',
+        recipient_id='nearest_person', confidence=0.9,
+        normalized_command='拿羽毛球',
+    )
+    for backend in ('act', 'centroid', 'gpd'):
+        assert execute_task_goal(
+            intent, dry_run=True, grasp_backend=backend
+        ).grasp_backend == backend
 
 
 def test_acceptance_prompt_overlaps_task_dispatch():

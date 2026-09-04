@@ -200,24 +200,27 @@ export function App() {
       phase={bootstrap.mapping_phase} initialSiteId={bootstrap.site} onError={setError} />}
     {workspace === 'calibration' && <CalibrationWorkspace
       unitId={bootstrap.unit} workflow={bootstrap.calibration_workflow}
+      captureOnly={bootstrap.calibration_capture_only === true}
       onError={setError} />}
     {workspace === 'collection' && <CollectionWorkspace
-      state={collection} onState={setCollection} onError={setError} />}
+      state={collection} initialDatasetId={bootstrap.default_dataset_id}
+      onState={setCollection} onError={setError} />}
   </div>
 }
 
-function CollectionWorkspace({ state, onState, onError }: {
+function CollectionWorkspace({ state, initialDatasetId, onState, onError }: {
   state: CollectionState | null
+  initialDatasetId: string
   onState: (state: CollectionState | null) => void
   onError: (message: string) => void
 }) {
   const [template, setTemplate] = useState<'pick' | 'manual'>('pick')
-  const [datasetId, setDatasetId] = useState('act-pick')
+  const [datasetId, setDatasetId] = useState(
+    initialDatasetId || 'xlerobot-glue-stick-grasp-30',
+  )
   const [objectId, setObjectId] = useState('羽毛球')
   const [instruction, setInstruction] = useState('抓住羽毛球')
   const [duration, setDuration] = useState(30)
-  const [syncing, setSyncing] = useState(false)
-  const [syncResult, setSyncResult] = useState('')
   const running = state?.status === 'RUNNING'
   const abortable = running && ![
     'STOPPING_TELEOP', 'FINALIZING', 'REVIEW',
@@ -259,17 +262,6 @@ function CollectionWorkspace({ state, onState, onError }: {
       onError(`${status === 'accepted' ? '已接受' : '已拒绝'}：${value.review_uri}`)
     } catch (reason) { onError(String(reason)) }
   }
-  const sync = async () => {
-    setSyncing(true)
-    try {
-      const value = await api.syncDataset(datasetId)
-      setSyncResult(
-        `同步完成：新增 ${value.added.length}，已存在 ${value.unchanged.length} → `
-        + `${value.destination || 'GPU'}`,
-      )
-    } catch (reason) { onError(String(reason)) }
-    finally { setSyncing(false) }
-  }
   return <section className="engineering-card collection-card">
     <p className="section-label">FOLLOWER NEXT-STATE · NPZ + DUAL MP4</p>
     <h2>ACT 数据采集</h2>
@@ -305,16 +297,13 @@ function CollectionWorkspace({ state, onState, onError }: {
       <div className="field-row">
       <button onClick={() => review('accepted')}>接受</button>
       <button onClick={() => review('rejected')}>拒绝</button></div>}
-    {!running && <button className="block" onClick={sync} disabled={syncing || !datasetId}>
-      {syncing ? '正在断点续传…' : '同步 accepted episodes 到 GPU'}
-    </button>}
-    {syncResult && <p className="saved">{syncResult}</p>}
     <p className="hint">Recorder READY 后才允许预备运动；启动记录成功后才释放 Leader 并启用遥操。停止时先禁用遥操，再原子发布 NPZ 和双路 MP4。快速夹爪动作不做平滑。</p>
   </section>
 }
 
-function CalibrationWorkspace({ unitId, workflow, onError }: {
-  unitId: string, workflow: string, onError: (message: string) => void
+function CalibrationWorkspace({ unitId, workflow, captureOnly, onError }: {
+  unitId: string, workflow: string, captureOnly: boolean,
+  onError: (message: string) => void
 }) {
   const [sourceUri, setSourceUri] = useState('')
   const [result, setResult] = useState('')
@@ -396,14 +385,14 @@ function CalibrationWorkspace({ unitId, workflow, onError }: {
   }
   const visual = workflow === 'head_camera' || workflow === 'right_handeye'
   useEffect(() => {
-    if (workflow !== 'right_handeye') {
+    if (!visual) {
       setCoverage(null)
       return
     }
     let active = true
     api.calibrationSampleCoverage().then(value => {
       if (!active) return
-      setCoverage(value)
+      setCoverage(workflow === 'right_handeye' ? value : null)
       setSampleCount(value.sample_count)
     }).catch(reason => {
       if (active) {
@@ -412,7 +401,7 @@ function CalibrationWorkspace({ unitId, workflow, onError }: {
       }
     })
     return () => { active = false }
-  }, [workflow, onError])
+  }, [workflow, visual, onError])
   const servoJoints: Record<string, string[]> = {
     right_arm: ['shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll', 'gripper'],
     left_arm: ['shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll', 'gripper'],
@@ -429,8 +418,10 @@ function CalibrationWorkspace({ unitId, workflow, onError }: {
   return <section className="engineering-card calibration-card">
     <p className="section-label">UNIT CALIBRATION · {unitId}</p>
     <h2>{workflows[workflow] || '标定工具'}</h2>
-    <p>所有结果先进入 draft；四项质量门槛全部通过后才能激活。激活不会修改仓库配置。</p>
-    <button onClick={preflight}>检查当前工作流</button>
+    {captureOnly
+      ? <p>此页面只采集原始标定结果；请回到命令行用 tools/calibrate 严格求解、导入并激活。</p>
+      : <><p>所有结果先进入 draft；四项质量门槛全部通过后才能激活。激活不会修改仓库配置。</p>
+        <button onClick={preflight}>检查当前工作流</button></>}
     {workflow === 'servo' ? <>
       <label>标定分组<select value={servoGroup} onChange={event => {
         setServoGroup(event.target.value)
@@ -452,7 +443,8 @@ function CalibrationWorkspace({ unitId, workflow, onError }: {
       <div className="button-row">
         <button className="primary" onClick={() => servoStep('start_range')}>4. 开始记录当前关节范围</button>
         <button onClick={() => servoStep('finish_range')}>5. 完成当前关节范围</button>
-        <button onClick={() => servoStep('finalize')}>6. 验收全部并写入 draft</button>
+        <button onClick={() => servoStep('finalize')}>{captureOnly
+          ? '6. 完成采集并保存结果' : '6. 验收全部并写入 draft'}</button>
       </div>
       <p className="hint">先支撑机械臂，再释放扭矩。整组摆到机械零位后记录一次零位；随后逐关节开始记录、手动覆盖安全活动范围、完成记录。禁止用力顶机械限位。</p>
     </> : workflow === 'base_geometry' ? <>
@@ -464,7 +456,8 @@ function CalibrationWorkspace({ unitId, workflow, onError }: {
       <label>两次直行实测距离 m<input value={straightActual} onChange={event => setStraightActual(event.target.value)} /></label>
       <label>两次旋转命令角度 rad<input value={rotationCommanded} onChange={event => setRotationCommanded(event.target.value)} /></label>
       <label>两次旋转实测角度 rad<input value={rotationActual} onChange={event => setRotationActual(event.target.value)} /></label>
-      <button className="primary" onClick={saveBaseGeometry}>计算、验收并保存 draft</button>
+      <button className="primary" onClick={saveBaseGeometry}>{captureOnly
+        ? '保存底盘测量结果' : '计算、验收并保存 draft'}</button>
       <p className="hint">至少两次直行和两次旋转；运动试验由当前独立 profile 执行，填写现场实测值后拟合。</p>
     </> : visual ? <>
       <div className="camera-previews">
@@ -487,16 +480,16 @@ function CalibrationWorkspace({ unitId, workflow, onError }: {
       </div>
       <div className="button-row">
         <button className="primary" onClick={captureSample}>采集当前静止姿态</button>
-        <button onClick={solveSamples}>求解并写入 draft</button>
+        {!captureOnly && <button onClick={solveSamples}>求解并写入 draft</button>}
       </div>
       <p className="hint">“移动到所选姿态”每次只执行一个已验证的头部或右臂姿态，属于真机运动；画面稳定且标定目标完整可见后再点击采样。启动页面不会自动移动。</p>
-    </> : <>
+    </> : !captureOnly ? <>
       <label>本地结果 URI<input value={sourceUri}
         onChange={event => setSourceUri(event.target.value)}
-        placeholder="file:///var/lib/xlerobot/staging/result.yaml" /></label>
+        placeholder=".xlerobot/staging/result.yaml" /></label>
       <button className="primary" onClick={importResult} disabled={!sourceUri}>导入并验收</button>
-    </>}
-    <button onClick={activate}>激活完整 calibration bundle</button>
+    </> : null}
+    {!captureOnly && <button onClick={activate}>激活完整 calibration bundle</button>}
     {result && <p className="saved">{result}</p>}
   </section>
 }
@@ -920,6 +913,7 @@ function OperatorWorkspace({
   onError: (message: string) => void
 }) {
   const [objectId, setObjectId] = useState('')
+  const [graspBackend, setGraspBackend] = useState<'act' | 'centroid' | 'gpd'>('act')
   const [placeId, setPlaceId] = useState(
     places.find(place => place.id === 'table')?.id || places[0]?.id || '',
   )
@@ -960,7 +954,7 @@ function OperatorWorkspace({
     event.preventDefault()
     onError('')
     try {
-      onTask(await api.submitTask(objectId.trim()))
+      onTask(await api.submitTask(objectId.trim(), graspBackend))
       setObjectId('')
     } catch (reason) { onError(String(reason)) }
   }
@@ -1011,6 +1005,14 @@ function OperatorWorkspace({
         {!running && <form onSubmit={submit}>
           <input value={objectId} onChange={event => setObjectId(event.target.value)}
             placeholder="输入物体名称，例如：羽毛球" aria-label="物体名" required />
+          <select value={graspBackend} aria-label="抓取路线"
+            onChange={event => setGraspBackend(
+              event.target.value as 'act' | 'centroid' | 'gpd',
+            )}>
+            <option value="act">ACT 学习策略</option>
+            <option value="centroid">传统 · 质心顶抓</option>
+            <option value="gpd">传统 · GPD 顶抓</option>
+          </select>
           <button className="primary" disabled={!demoReady}>
             开始任务
           </button>
@@ -1292,7 +1294,7 @@ function TaskProgress({ task }: { task: Task }) {
       || task.current_capability || task.status}</span><strong>{percentage}%</strong></div>
     <div className="bar"><span style={{ width: `${percentage}%` }} /></div>
     <p>{task.phase}{task.message ? ` · ${task.message}` : ''}
-      {` · 本阶段 ${task.stage_elapsed_s.toFixed(1)} s`}</p>
+      {` · ${task.grasp_backend_used || task.grasp_backend} · 本阶段 ${task.stage_elapsed_s.toFixed(1)} s`}</p>
     {task.error_code !== 0 && <p className="error-detail">错误 {task.error_code}：{task.message}</p>}
   </div>
 }
@@ -1364,7 +1366,7 @@ function HistoryPanel({ tasks }: { tasks: Task[] }) {
     <div className="history">
       {tasks.length === 0 && <p>尚无任务记录</p>}
       {tasks.slice(0, 6).map(task => <div key={task.task_id}>
-        <span>{task.object_id}</span><span>{capabilityNames[task.current_capability] || task.current_capability || '—'}</span>
+        <span>{task.object_id} · {task.grasp_backend_used || task.grasp_backend}</span><span>{capabilityNames[task.current_capability] || task.current_capability || '—'}</span>
         <strong className={task.status.toLowerCase()}>{task.status === 'SUCCEEDED' ? '完成'
           : task.status === 'FAILED' ? '失败' : task.status === 'CANCELED' ? '已取消' : task.status}</strong>
       </div>)}

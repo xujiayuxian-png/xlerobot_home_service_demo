@@ -19,6 +19,7 @@ def generate_launch_description():
     )
     backend_enabled = LaunchConfiguration('backend_enabled')
     audio_player_device = LaunchConfiguration('audio_player_device')
+    edge_cache_dir = LaunchConfiguration('edge_cache_dir')
     return LaunchDescription(
         [
             DeclareLaunchArgument(
@@ -32,6 +33,11 @@ def generate_launch_description():
                 default_value='',
                 description='Optional mpg123 ALSA output, for example plughw:0,0.',
             ),
+            DeclareLaunchArgument(
+                'edge_cache_dir',
+                default_value='.xlerobot/cache/tts',
+                description='Ignored local cache for generated speech.',
+            ),
             Node(
                 package='xlerobot_voice',
                 executable='speak_text',
@@ -44,6 +50,7 @@ def generate_launch_description():
                             backend_enabled, value_type=bool
                         ),
                         'audio_player_device': audio_player_device,
+                        'edge_cache_dir': edge_cache_dir,
                     },
                 ],
             ),

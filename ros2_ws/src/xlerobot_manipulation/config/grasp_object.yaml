@@ -8,8 +8,11 @@ grasp_object_server:
     arm_group: right_arm
     ee_link: right_arm_ee_link
     pregrasp_offset_m: 0.08
-    # Migrated from the verified prototype's 2026-06-14 right-arm calibration.
-    vision_fk_compensation_m: [0.0055, 0.0057, 0.0445]
+    # Classical compensation must come from grasp_alignment_file; never use a
+    # hidden machine-specific value when that file is absent.
+    vision_fk_compensation_m: [0.0, 0.0, 0.0]
+    # Required by all three backends; loaded and validated by the local executor.
+    grasp_alignment_file: ''
     top_grasp_orientation_xyzw: [0.70710678, 0.0, 0.0, 0.70710678]
     tf_timeout_s: 1.0
     service_timeout_s: 5.0
@@ -25,6 +28,7 @@ grasp_object_server:
     joint_state_timeout_s: 0.50
     head_move_duration_s: 1.5
     pregrasp_gripper_duration_s: 2.0
+    grasp_gripper_duration_s: 2.0
     # Proven prototype contract: execute the planned final joint target as one
     # four-second position trajectory on the low-cost servo arm.
     pregrasp_move_duration_s: 4.0

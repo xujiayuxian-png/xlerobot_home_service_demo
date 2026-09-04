@@ -20,6 +20,10 @@ def include(package, launch_file, arguments=None):
 
 
 def runtime(context):
+    if LaunchConfiguration('hardware_enabled').perform(context) != 'true':
+        raise RuntimeError(
+            'live mapping requires hardware_enabled:=true; no device was opened'
+        )
     phase = LaunchConfiguration('phase').perform(context)
     artifact_root = Path(LaunchConfiguration('artifact_root').perform(context))
     site_id = LaunchConfiguration('site_id').perform(context).strip()
@@ -30,6 +34,7 @@ def runtime(context):
 
     actions = [
         include('xlerobot_bringup', 'platform_runtime.launch.py', {
+            'hardware_enabled': 'true',
             'geometry_file': LaunchConfiguration('geometry_file'),
             'servo_calibration_file': LaunchConfiguration('servo_calibration_file'),
             'controllers_file': LaunchConfiguration('controllers_file'),
@@ -97,8 +102,12 @@ def runtime(context):
 
 def generate_launch_description():
     return LaunchDescription([
+        DeclareLaunchArgument(
+            'hardware_enabled', default_value='false', choices=['true', 'false'],
+            description='Explicit consent for live mapping and validation.',
+        ),
         DeclareLaunchArgument('phase', default_value='build', choices=['build', 'validate']),
-        DeclareLaunchArgument('artifact_root', default_value='/var/lib/xlerobot'),
+        DeclareLaunchArgument('artifact_root', default_value='.xlerobot/artifacts'),
         DeclareLaunchArgument('release_id', default_value='development'),
         DeclareLaunchArgument('unit_id', default_value='reference-two-wheel'),
         DeclareLaunchArgument('site_id'),

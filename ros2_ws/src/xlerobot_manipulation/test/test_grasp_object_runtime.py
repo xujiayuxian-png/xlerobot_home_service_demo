@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import threading
 import time
 import unittest
@@ -48,6 +49,9 @@ def generate_test_description():
                 'return_ready_duration_s': 0.1,
                 'pregrasp_settle_timeout_s': 0.4,
                 'pregrasp_settle_hold_s': 0.05,
+                'grasp_alignment_file': str(
+                    Path(__file__).parent / 'data' / 'grasp_alignment.yaml'
+                ),
             }
         ],
         output='screen',
@@ -315,6 +319,84 @@ class GraspObjectRuntimeTest(unittest.TestCase):
         self.assertEqual(wrapped.result.error.code, CapabilityError.NONE)
         self.assertEqual(self.fake.events, ['ik', 'plan'])
         self.assertEqual(wrapped.result.start_context.context_id, '')
+
+    def test_01b_classical_split_compensation_and_sag_are_applied_once(self):
+        self.fake.events.clear()
+        self.fake.ik_requests.clear()
+        goal = self._goal(dry_run=True)
+        goal.backend = 'centroid'
+        plan = goal.grasp_plan
+        plan.valid = True
+        plan.observation_id = 'public-fixture-observation'
+        plan.backend = 'centroid'
+        plan.method = 'sam2_rgbd_top_centroid'
+        plan.score = 0.9
+        plan.table_height_m = 0.80
+        plan.object_height_m = 0.06
+        plan.grasp_width_m = 0.04
+        plan.wrist_yaw_seed_rad = 0.0
+        plan.wrist_yaw_min_rad = -3.0
+        plan.wrist_yaw_max_rad = 3.0
+        plan.selection_reason = 'shared public RGB-D fixture'
+        for pose, xyz in (
+            (plan.pregrasp, (0.10, -0.05, 0.88)),
+            (plan.grasp, (0.10, -0.05, 0.86)),
+            (plan.lift, (0.10, -0.05, 0.89)),
+        ):
+            pose.header.frame_id = 'base_link'
+            pose.pose.position.x, pose.pose.position.y, pose.pose.position.z = xyz
+            pose.pose.orientation.x = 0.70710678
+            pose.pose.orientation.w = 0.70710678
+        wrapped = self._run(goal)
+        self.assertEqual(wrapped.status, GoalStatus.STATUS_SUCCEEDED)
+        self.assertEqual(wrapped.result.backend_used, 'centroid')
+        self.assertEqual(self.fake.events, ['ik', 'plan', 'ik', 'plan', 'ik', 'plan'])
+        poses = [
+            request.ik_request.pose_stamped.pose.position
+            for request in self.fake.ik_requests
+        ]
+        # pregrasp/lift add split vision compensation and gravity sag.
+        self.assertAlmostEqual(poses[0].x, 0.1055)
+        self.assertAlmostEqual(poses[0].y, -0.0443)
+        self.assertAlmostEqual(poses[0].z, 0.9245)
+        # The contact grasp adds vision compensation only.
+        self.assertAlmostEqual(poses[1].z, 0.8665)
+        self.assertAlmostEqual(poses[2].z, 0.9345)
+
+    def test_01c_gpd_accepts_finite_backend_native_ranking_scores(self):
+        for score in (-0.25, 2.75):
+            with self.subTest(score=score):
+                self.fake.events.clear()
+                goal = self._goal(dry_run=True)
+                goal.backend = 'gpd'
+                plan = goal.grasp_plan
+                plan.valid = True
+                plan.observation_id = 'gpd-native-score'
+                plan.backend = 'gpd'
+                plan.method = 'sam2_rgbd_gpd_top'
+                plan.score = score
+                plan.table_height_m = 0.80
+                plan.object_height_m = 0.06
+                plan.grasp_width_m = 0.04
+                plan.wrist_yaw_seed_rad = 0.0
+                plan.wrist_yaw_min_rad = -3.0
+                plan.wrist_yaw_max_rad = 3.0
+                plan.selection_reason = 'native GPD logit-margin rank'
+                for pose, xyz in (
+                    (plan.pregrasp, (0.10, -0.05, 0.88)),
+                    (plan.grasp, (0.10, -0.05, 0.86)),
+                    (plan.lift, (0.10, -0.05, 0.89)),
+                ):
+                    pose.header.frame_id = 'base_link'
+                    pose.pose.position.x, pose.pose.position.y, pose.pose.position.z = xyz
+                    pose.pose.orientation.x = 0.70710678
+                    pose.pose.orientation.w = 0.70710678
+                wrapped = self._run(goal)
+                self.assertEqual(wrapped.status, GoalStatus.STATUS_SUCCEEDED)
+                self.assertEqual(wrapped.result.backend_used, 'gpd')
+                self.assertEqual(
+                    self.fake.events, ['ik', 'plan', 'ik', 'plan', 'ik', 'plan']
+                )
 
     def test_02_live_sequence_is_pregrasp_policy_return_ready_then_head_up(self):
         self.fake.events.clear()

@@ -1,10 +1,13 @@
 string object_id
 string target_frame
+string grasp_backend
 bool dry_run
 ---
 xlerobot_interfaces/CapabilityError error
 geometry_msgs/PointStamped target
 float32 confidence
 xlerobot_interfaces/PerceptionObservation observation
+xlerobot_interfaces/TopGraspPlan grasp_plan
+string backend_used
 ---
 xlerobot_interfaces/CapabilityProgress state

@@ -1,0 +1,12 @@
+schema: xlerobot_grasp_alignment/v1
+frame: base_link
+# Split form of the legacy net [0.0055, 0.0057, 0.0445] compensation.
+vision_fk_compensation_m: [0.0055, 0.0057, 0.0065]
+gravity_sag_z_m: 0.038
+head_pose_rad: {pan: 0.0, tilt: 0.8}
+workspace_m:
+  min: [0.02, -0.09, 0.30]
+  max: [0.30, 0.10, 0.90]
+metrics:
+  sample_count: 4
+  plane_rmse_mm: 0.5

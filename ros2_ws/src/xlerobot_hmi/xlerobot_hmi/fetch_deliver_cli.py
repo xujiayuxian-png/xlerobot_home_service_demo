@@ -24,6 +24,10 @@ def argument_parser():
         '--recipient', default='nearest_person', help='recipient identifier'
     )
     parser.add_argument(
+        '--backend', choices=('act', 'centroid', 'gpd'), default='act',
+        help='grasp route (default: act)',
+    )
+    parser.add_argument(
         '--execute',
         action='store_true',
         help='request non-dry-run task execution; use only in an authorized run',
@@ -48,6 +52,7 @@ def build_goal(arguments):
     goal.object_id = fields['object_id']
     goal.source_place = fields['source']
     goal.recipient_id = fields['recipient']
+    goal.grasp_backend = arguments.backend
     goal.dry_run = not arguments.execute
     return goal
 
@@ -102,7 +107,7 @@ def run(argv=None):
         mode = 'EXECUTE' if arguments.execute else 'DRY-RUN'
         print(
             f'{mode}: object={goal.object_id} source={goal.source_place} '
-            f'recipient={goal.recipient_id}',
+            f'recipient={goal.recipient_id} backend={goal.grasp_backend}',
             flush=True,
         )
         wrapped = node.submit(goal, arguments.timeout)

@@ -6,7 +6,8 @@ import type { PerceptionState, Task } from './types'
 
 const task = (capability: string, status = 'RUNNING') => ({
   task_id: '1', object_id: '羽毛球', source_place: 'table',
-  recipient_id: 'nearest_person', dry_run: false, status,
+  recipient_id: 'nearest_person', grasp_backend: 'act', grasp_backend_used: 'act',
+  dry_run: false, status,
   current_capability: capability, phase: '', progress: 0, message: '',
   error_code: 0, created_at: '', updated_at: '', completed_at: '',
   stage_elapsed_s: 0, capability_durations: {},

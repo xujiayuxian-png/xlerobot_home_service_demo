@@ -97,7 +97,7 @@ class SpeakTextNode(Node):
         ]
         self.edge_cache_dir = Path(os.path.expandvars(os.path.expanduser(str(
             self.declare_parameter(
-                'edge_cache_dir', '$HOME/.cache/xlerobot_tts'
+                'edge_cache_dir', '.xlerobot/cache/tts'
             ).value
         ))))
         preset_directory = str(self.declare_parameter('preset_directory', '').value)
