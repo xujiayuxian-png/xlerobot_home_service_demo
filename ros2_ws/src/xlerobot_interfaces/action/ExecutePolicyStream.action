@@ -1,0 +1,20 @@
+# Starts one exclusive policy stream. The local producer supplies a unique ID;
+# the executor binds it to this accepted action and echoes it in feedback/result.
+string session_id
+string source_id
+string[] joint_names
+builtin_interfaces/Duration max_duration
+bool dry_run
+bool capture_only
+PolicyStartContext start_context
+---
+CapabilityError error
+string session_id
+uint64 accepted_chunks
+uint64 executed_samples
+---
+CapabilityProgress state
+string session_id
+uint64 accepted_chunks
+uint64 executed_samples
+float64 queued_horizon_s

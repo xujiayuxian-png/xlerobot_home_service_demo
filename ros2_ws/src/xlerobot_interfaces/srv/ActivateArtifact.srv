@@ -1,0 +1,6 @@
+string artifact_type
+string artifact_id
+string version
+---
+CapabilityError error
+string artifact_uri

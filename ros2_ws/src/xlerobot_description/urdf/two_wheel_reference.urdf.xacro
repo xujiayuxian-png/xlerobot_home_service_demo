@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<robot name="xlerobot_two_wheel_reference" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="mock_hardware" default="true"/>
+  <xacro:arg name="hardware_enabled" default="false"/>
+  <xacro:arg name="torque_enabled" default="false"/>
+  <xacro:arg name="read_only" default="false"/>
+  <xacro:arg name="include_right_bus_control" default="true"/>
+  <xacro:arg name="include_left_bus_control" default="true"/>
+  <xacro:arg name="right_bus_port" default="/dev/right_arm"/>
+  <xacro:arg name="left_bus_port" default="/dev/left_arm"/>
+  <xacro:arg name="bus_baudrate" default="1000000"/>
+  <xacro:arg name="lidar_yaw_deg" default="186.442"/>
+  <xacro:arg name="geometry_file" default="$(find xlerobot_description)/config/two_wheel_reference_geometry.yaml"/>
+  <xacro:arg name="servo_calibration_file" default="$(find xlerobot_description)/config/two_wheel_reference_servos.yaml"/>
+
+  <xacro:include filename="$(find xlerobot_description)/urdf/macros/materials.xacro"/>
+  <xacro:include filename="$(find xlerobot_description)/urdf/macros/mobile_base.xacro"/>
+  <xacro:include filename="$(find xlerobot_description)/urdf/macros/lidar.xacro"/>
+  <xacro:include filename="$(find xlerobot_description)/urdf/macros/so101_arm.xacro"/>
+  <xacro:include filename="$(find xlerobot_description)/urdf/macros/head.xacro"/>
+  <xacro:include filename="$(find xlerobot_description)/urdf/macros/d455.xacro"/>
+  <xacro:include filename="$(find xlerobot_description)/urdf/macros/wrist_camera.xacro"/>
+  <xacro:include filename="$(find xlerobot_description)/urdf/macros/base_ros2_control.xacro"/>
+
+  <xacro:property name="geometry"
+    value="${xacro.load_yaml('$(arg geometry_file)')}"/>
+  <xacro:property name="base" value="${geometry['base']}"/>
+  <xacro:property name="sensors" value="${geometry['sensors']}"/>
+  <xacro:property name="right_arm" value="${geometry['right_arm']}"/>
+  <xacro:property name="left_arm" value="${geometry['left_arm']}"/>
+  <xacro:property name="mesh_root"
+    value="package://xlerobot_description/meshes/xlerobot_original"/>
+  <xacro:property name="servo_calibration"
+    value="${xacro.load_yaml('$(arg servo_calibration_file)')}"/>
+
+  <xacro:xlerobot_materials/>
+  <xacro:mobile_base
+    wheel_radius="${base['wheel_radius']}"
+    wheel_width="${base['wheel_width']}"
+    left_wheel_xyz="${base['left_wheel_xyz']}"
+    right_wheel_xyz="${base['right_wheel_xyz']}"/>
+
+  <xacro:lidar_sensor
+    parent="base_link"
+    lidar_xyz="${sensors['lidar_xyz']}"
+    lidar_roll="${sensors['lidar_roll']}"
+    lidar_yaw_deg="$(arg lidar_yaw_deg)"
+    lidar_radius="0.0285"
+    lidar_height="0.04"/>
+
+  <xacro:so101_arm
+    prefix="right_arm"
+    parent_link="base_link"
+    mesh_root="${mesh_root}"
+    shoulder_pan_lower="${right_arm['limits']['shoulder_pan'][0]}"
+    shoulder_pan_upper="${right_arm['limits']['shoulder_pan'][1]}"
+    shoulder_lift_lower="${right_arm['limits']['shoulder_lift'][0]}"
+    shoulder_lift_upper="${right_arm['limits']['shoulder_lift'][1]}"
+    elbow_flex_lower="${right_arm['limits']['elbow_flex'][0]}"
+    elbow_flex_upper="${right_arm['limits']['elbow_flex'][1]}"
+    wrist_flex_lower="${right_arm['limits']['wrist_flex'][0]}"
+    wrist_flex_upper="${right_arm['limits']['wrist_flex'][1]}"
+    wrist_roll_lower="${right_arm['limits']['wrist_roll'][0]}"
+    wrist_roll_upper="${right_arm['limits']['wrist_roll'][1]}"
+    gripper_lower="${right_arm['limits']['gripper'][0]}"
+    gripper_upper="${right_arm['limits']['gripper'][1]}">
+    <origin
+      xyz="${right_arm['mount_xyz']}"
+      rpy="${right_arm['mount_rpy']}"/>
+  </xacro:so101_arm>
+  <xacro:so101_arm
+    prefix="left_arm"
+    parent_link="base_link"
+    mesh_root="${mesh_root}"
+    shoulder_pan_lower="${left_arm['limits']['shoulder_pan'][0]}"
+    shoulder_pan_upper="${left_arm['limits']['shoulder_pan'][1]}"
+    shoulder_lift_lower="${left_arm['limits']['shoulder_lift'][0]}"
+    shoulder_lift_upper="${left_arm['limits']['shoulder_lift'][1]}"
+    elbow_flex_lower="${left_arm['limits']['elbow_flex'][0]}"
+    elbow_flex_upper="${left_arm['limits']['elbow_flex'][1]}"
+    wrist_flex_lower="${left_arm['limits']['wrist_flex'][0]}"
+    wrist_flex_upper="${left_arm['limits']['wrist_flex'][1]}"
+    wrist_roll_lower="${left_arm['limits']['wrist_roll'][0]}"
+    wrist_roll_upper="${left_arm['limits']['wrist_roll'][1]}"
+    gripper_lower="${left_arm['limits']['gripper'][0]}"
+    gripper_upper="${left_arm['limits']['gripper'][1]}">
+    <origin
+      xyz="${left_arm['mount_xyz']}"
+      rpy="${left_arm['mount_rpy']}"/>
+  </xacro:so101_arm>
+
+  <xacro:head_assembly
+    parent="base_link"
+    top_base_xyz="${base['top_base_xyz']}"/>
+  <xacro:d455_frames
+    parent="head_tilt_link"
+    head_camera_xyz="${sensors['head_camera_xyz']}"
+    head_camera_rpy="${sensors['head_camera_rpy']}"/>
+
+  <link name="right_arm_tag23_link"/>
+  <joint name="right_arm_tag23_joint" type="fixed">
+    <origin
+      xyz="${right_arm['tag23_xyz']}"
+      rpy="${right_arm['tag23_rpy']}"/>
+    <parent link="right_arm_fixed_jaw_link"/>
+    <child link="right_arm_tag23_link"/>
+  </joint>
+
+  <xacro:wrist_camera
+    prefix="right_arm"
+    parent="right_arm_fixed_jaw_link"
+    mesh_root="${mesh_root}"
+    xyz="${sensors['right_wrist_camera_xyz']}"
+    rpy="${sensors['right_wrist_camera_rpy']}"/>
+  <xacro:wrist_camera
+    prefix="left_arm"
+    parent="left_arm_fixed_jaw_link"
+    mesh_root="${mesh_root}"
+    xyz="${sensors['left_wrist_camera_xyz']}"
+    rpy="${sensors['left_wrist_camera_rpy']}"/>
+
+  <xacro:robot_bus_ros2_control
+    mock_hardware="$(arg mock_hardware)"
+    hardware_enabled="$(arg hardware_enabled)"
+    torque_enabled="$(arg torque_enabled)"
+    read_only="$(arg read_only)"
+    include_right_bus="$(arg include_right_bus_control)"
+    include_left_bus="$(arg include_left_bus_control)"
+    right_port="$(arg right_bus_port)"
+    left_port="$(arg left_bus_port)"
+    baudrate="$(arg bus_baudrate)"
+    calibration="${servo_calibration}"/>
+</robot>

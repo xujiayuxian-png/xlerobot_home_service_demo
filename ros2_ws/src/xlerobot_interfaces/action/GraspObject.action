@@ -1,0 +1,9 @@
+string object_id
+geometry_msgs/PointStamped target
+string backend
+bool dry_run
+---
+xlerobot_interfaces/CapabilityError error
+string backend_used
+---
+xlerobot_interfaces/CapabilityProgress state

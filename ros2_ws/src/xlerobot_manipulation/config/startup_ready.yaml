@@ -1,0 +1,26 @@
+startup_ready_pose:
+  ros__parameters:
+    execution_enabled: false
+    # Frozen verified prototype ready pose, shared with grasp and handover.
+    arm_joint_names:
+      - right_arm_shoulder_pan
+      - right_arm_shoulder_lift
+      - right_arm_elbow_flex
+      - right_arm_wrist_flex
+      - right_arm_wrist_roll
+    arm_ready_positions: [-0.11505, 1.62142, 1.62602, 0.50621, 0.00153]
+    gripper_joint: right_arm_gripper
+    gripper_ready_position: 0.0
+    head_joint_names: [head_pan_joint, head_tilt_joint]
+    head_ready_positions: [0.0, 0.0]
+    arm_duration_s: 5.0
+    gripper_duration_s: 2.0
+    head_duration_s: 2.0
+    joint_state_timeout_s: 10.0
+    controller_wait_s: 20.0
+    result_margin_s: 5.0
+    arrival_tolerance_rad: 0.12
+    joint_state_topic: /joint_states
+    arm_action: /right_arm_controller/follow_joint_trajectory
+    gripper_action: /right_gripper_controller/follow_joint_trajectory
+    head_action: /head_controller/follow_joint_trajectory

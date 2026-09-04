@@ -1,0 +1,247 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="so101_arm" params="prefix parent_link mesh_root shoulder_pan_lower shoulder_pan_upper shoulder_lift_lower shoulder_lift_upper elbow_flex_lower elbow_flex_upper wrist_flex_lower wrist_flex_upper wrist_roll_lower wrist_roll_upper gripper_lower gripper_upper *origin">
+    <material name="${prefix}_light_grey">
+      <color rgba="0.3 0.3 0.3 1.0"/>
+    </material>
+    <material name="${prefix}_motor_black">
+      <color rgba="0.1 0.1 0.1 1.0"/>
+    </material>
+
+    <joint name="${prefix}_base_joint" type="fixed">
+      <xacro:insert_block name="origin"/>
+      <parent link="${parent_link}"/>
+      <child link="${prefix}_base_link"/>
+    </joint>
+
+    <link name="${prefix}_base_link">
+      <visual>
+        <geometry>
+          <mesh filename="${mesh_root}/Base.stl"/>
+        </geometry>
+        <material name="${prefix}_light_grey"/>
+      </visual>
+      <visual>
+        <geometry>
+          <mesh filename="${mesh_root}/Base_Motor.stl"/>
+        </geometry>
+        <material name="${prefix}_motor_black"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.06 0.09 0.05"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.193"/>
+        <inertia ixx="1.37e-04" ixy="0" ixz="0" iyy="1.69e-04" iyz="0" izz="1.45e-04"/>
+      </inertial>
+    </link>
+
+    <joint name="${prefix}_shoulder_pan" type="revolute">
+      <parent link="${prefix}_base_link"/>
+      <child link="${prefix}_shoulder_pan_link"/>
+      <origin xyz="0 -0.0452 0.0165" rpy="1.5708 0 0"/>
+      <axis xyz="0 -1 0"/>
+      <limit lower="${shoulder_pan_lower}" upper="${shoulder_pan_upper}" velocity="3.0" effort="35.0"/>
+      <dynamics damping="0.1" friction="0.1"/>
+    </joint>
+
+    <link name="${prefix}_shoulder_pan_link">
+      <visual>
+        <geometry>
+          <mesh filename="${mesh_root}/Rotation_Pitch.stl"/>
+        </geometry>
+        <material name="${prefix}_light_grey"/>
+      </visual>
+      <visual>
+        <geometry>
+          <mesh filename="${mesh_root}/Rotation_Pitch_Motor.stl"/>
+        </geometry>
+        <material name="${prefix}_motor_black"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.05 0.11 0.07"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.119"/>
+        <origin xyz="0 0.059 0.031"/>
+        <inertia ixx="5.9e-05" ixy="0" ixz="0" iyy="3.2e-05" iyz="0" izz="5.9e-05"/>
+      </inertial>
+    </link>
+
+    <joint name="${prefix}_shoulder_lift" type="revolute">
+      <parent link="${prefix}_shoulder_pan_link"/>
+      <child link="${prefix}_shoulder_lift_link"/>
+      <origin xyz="0 0.1025 0.0306" rpy="0.0708 0 0"/>
+      <axis xyz="-1 0 0"/>
+      <limit lower="${shoulder_lift_lower}" upper="${shoulder_lift_upper}" velocity="3.0" effort="35.0"/>
+      <dynamics damping="0.1" friction="0.1"/>
+    </joint>
+
+    <link name="${prefix}_shoulder_lift_link">
+      <visual>
+        <geometry>
+          <mesh filename="${mesh_root}/Upper_Arm.stl"/>
+        </geometry>
+        <material name="${prefix}_light_grey"/>
+      </visual>
+      <visual>
+        <geometry>
+          <mesh filename="${mesh_root}/Upper_Arm_Motor.stl"/>
+        </geometry>
+        <material name="${prefix}_motor_black"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.05 0.15 0.07"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.162"/>
+        <origin xyz="0 0.070 0.003"/>
+        <inertia ixx="1.67e-04" ixy="0" ixz="0" iyy="7.0e-05" iyz="0" izz="2.13e-04"/>
+      </inertial>
+    </link>
+
+    <joint name="${prefix}_elbow_flex" type="revolute">
+      <parent link="${prefix}_shoulder_lift_link"/>
+      <child link="${prefix}_elbow_flex_link"/>
+      <origin xyz="0 0.11257 0.028" rpy="-0.0708 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="${elbow_flex_lower}" upper="${elbow_flex_upper}" velocity="3.0" effort="35.0"/>
+      <dynamics damping="0.1" friction="0.1"/>
+    </joint>
+
+    <link name="${prefix}_elbow_flex_link">
+      <visual>
+        <geometry>
+          <mesh filename="${mesh_root}/Lower_Arm.stl"/>
+        </geometry>
+        <material name="${prefix}_light_grey"/>
+      </visual>
+      <visual>
+        <geometry>
+          <mesh filename="${mesh_root}/Lower_Arm_Motor.stl"/>
+        </geometry>
+        <material name="${prefix}_motor_black"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.05 0.05 0.15"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.148"/>
+        <origin xyz="-0.0034 0.0014 0.0768"/>
+        <inertia ixx="1.05e-04" ixy="0" ixz="0" iyy="1.39e-04" iyz="0" izz="5.09e-05"/>
+      </inertial>
+    </link>
+
+    <joint name="${prefix}_wrist_flex" type="revolute">
+      <parent link="${prefix}_elbow_flex_link"/>
+      <child link="${prefix}_wrist_flex_link"/>
+      <origin xyz="0 0.0052 0.1349" rpy="-1.5708 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="${wrist_flex_lower}" upper="${wrist_flex_upper}" velocity="3.0" effort="35.0"/>
+      <dynamics damping="0.1" friction="0.1"/>
+    </joint>
+
+    <link name="${prefix}_wrist_flex_link">
+      <visual>
+        <geometry>
+          <mesh filename="${mesh_root}/Wrist_Pitch_Roll.stl"/>
+        </geometry>
+        <material name="${prefix}_light_grey"/>
+      </visual>
+      <visual>
+        <geometry>
+          <mesh filename="${mesh_root}/Wrist_Pitch_Roll_Motor.stl"/>
+        </geometry>
+        <material name="${prefix}_motor_black"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.05 0.06 0.05"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.066"/>
+        <origin xyz="-0.0085 -0.0352 0"/>
+        <inertia ixx="1.96e-05" ixy="0" ixz="0" iyy="2.38e-05" iyz="0" izz="3.45e-05"/>
+      </inertial>
+    </link>
+
+    <joint name="${prefix}_wrist_roll" type="revolute">
+      <parent link="${prefix}_wrist_flex_link"/>
+      <child link="${prefix}_fixed_jaw_link"/>
+      <origin xyz="0 -0.0601 0" rpy="0 1.5708 0"/>
+      <axis xyz="0 -1 0"/>
+      <limit lower="${wrist_roll_lower}" upper="${wrist_roll_upper}" velocity="3.0" effort="35.0"/>
+      <dynamics damping="0.1" friction="0.1"/>
+    </joint>
+
+    <link name="${prefix}_fixed_jaw_link">
+      <visual>
+        <geometry>
+          <mesh filename="${mesh_root}/Fixed_Jaw.stl"/>
+        </geometry>
+        <material name="${prefix}_light_grey"/>
+      </visual>
+      <visual>
+        <geometry>
+          <mesh filename="${mesh_root}/Fixed_Jaw_Motor.stl"/>
+        </geometry>
+        <material name="${prefix}_motor_black"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.05 0.08 0.04"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.093"/>
+        <origin xyz="0.0055 -0.0280 0.0005"/>
+        <inertia ixx="4.33e-05" ixy="0" ixz="0" iyy="3.04e-05" iyz="0" izz="5.02e-05"/>
+      </inertial>
+    </link>
+
+    <joint name="${prefix}_gripper" type="revolute">
+      <parent link="${prefix}_fixed_jaw_link"/>
+      <child link="${prefix}_moving_jaw_link"/>
+      <origin xyz="-0.0202 -0.0244 0" rpy="3.1416 0 3.33"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="${gripper_lower}" upper="${gripper_upper}" velocity="3.0" effort="10.0"/>
+      <dynamics damping="0.05" friction="0.05"/>
+    </joint>
+
+    <link name="${prefix}_moving_jaw_link">
+      <visual>
+        <geometry>
+          <mesh filename="${mesh_root}/Moving_Jaw.stl"/>
+        </geometry>
+        <material name="${prefix}_light_grey"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.03 0.06 0.025"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.020"/>
+        <origin xyz="-0.0016 -0.0303 0.0004"/>
+        <inertia ixx="1.11e-05" ixy="0" ixz="0" iyy="3.04e-06" iyz="0" izz="8.99e-06"/>
+      </inertial>
+    </link>
+
+    <joint name="${prefix}_ee_joint" type="fixed">
+      <parent link="${prefix}_fixed_jaw_link"/>
+      <child link="${prefix}_ee_link"/>
+      <origin xyz="0.0 -0.097 0.0" rpy="0 0 0"/>
+    </joint>
+
+    <link name="${prefix}_ee_link"/>
+  </xacro:macro>
+</robot>

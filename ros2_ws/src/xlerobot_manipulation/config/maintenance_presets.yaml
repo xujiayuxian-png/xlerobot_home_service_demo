@@ -1,0 +1,23 @@
+maintenance_preset_server:
+  ros__parameters:
+    execution_enabled: false
+    action_name: /maintenance_preset
+    arm_action: /right_arm_controller/follow_joint_trajectory
+    head_action: /head_controller/follow_joint_trajectory
+    gripper_action: /right_gripper_controller/follow_joint_trajectory
+    arm_joint_names:
+      - right_arm_shoulder_pan
+      - right_arm_shoulder_lift
+      - right_arm_elbow_flex
+      - right_arm_wrist_flex
+      - right_arm_wrist_roll
+    head_joint_names: [head_pan_joint, head_tilt_joint]
+    gripper_joint_names: [right_arm_gripper]
+    arm_ready_positions: [-0.11505, 1.62142, 1.62602, 0.50621, 0.00153]
+    head_ready_positions: [0.0, 0.0]
+    gripper_open_positions: [1.64]
+    arm_duration_s: 5.0
+    head_duration_s: 1.5
+    gripper_duration_s: 1.5
+    controller_wait_s: 5.0
+    result_margin_s: 5.0

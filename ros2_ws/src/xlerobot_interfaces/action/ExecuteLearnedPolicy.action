@@ -1,0 +1,17 @@
+# Run one backend-specific learned policy through the local streaming executor.
+string policy_id
+string object_id
+builtin_interfaces/Duration max_duration
+bool dry_run
+PolicyStartContext start_context
+---
+CapabilityError error
+string executor_session_id
+uint64 accepted_chunks
+uint64 executed_samples
+---
+CapabilityProgress state
+string executor_session_id
+uint64 accepted_chunks
+uint64 executed_samples
+float64 queued_horizon_s

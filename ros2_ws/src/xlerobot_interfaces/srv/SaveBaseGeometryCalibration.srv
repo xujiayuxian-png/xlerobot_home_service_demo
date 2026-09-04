@@ -1,0 +1,13 @@
+string unit_id
+float64 nominal_wheel_radius_m
+float64 nominal_wheel_separation_m
+float64[] straight_commanded_m
+float64[] straight_actual_m
+float64[] rotation_commanded_rad
+float64[] rotation_actual_rad
+---
+CapabilityError error
+string draft_uri
+bool quality_passed
+string[] metric_names
+float64[] metric_values

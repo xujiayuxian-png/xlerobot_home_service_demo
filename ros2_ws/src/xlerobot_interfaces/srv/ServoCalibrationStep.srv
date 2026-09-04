@@ -1,0 +1,16 @@
+uint8 SCAN=0
+uint8 RELEASE_TORQUE=1
+uint8 CAPTURE_ZERO=2
+uint8 START_RANGE=3
+uint8 FINISH_RANGE=4
+uint8 FINALIZE=5
+
+uint8 command
+string group
+string joint
+---
+CapabilityError error
+string phase
+string[] joint_names
+int32[] raw_positions
+string result_uri

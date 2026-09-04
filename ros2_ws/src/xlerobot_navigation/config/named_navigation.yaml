@@ -1,0 +1,49 @@
+named_navigation_server:
+  ros__parameters:
+    # A non-dry-run goal is rejected unless this independent key is true.
+    execution_enabled: false
+    map_frame: map
+    base_frame: base_link
+    dock_cmd_vel_topic: cmd_vel_dock
+    server_timeout_s: 8.0
+    nav_timeout_s: 120.0
+    # Give Nav2's own 10 s progress checker and recovery tree enough time to
+    # back up and replan. The server adds only one final BackUp + fresh retry.
+    nav_attempt_timeout_s: 35.0
+    nav_cancel_timeout_s: 2.0
+    backup_distance_m: 0.20
+    backup_speed_mps: 0.08
+    backup_timeout_s: 5.0
+    # Used only when the caller has already confirmed trustworthy localization.
+    already_reached_position_tolerance_m: 0.08
+    already_reached_yaw_tolerance_rad: 0.08
+    spin_timeout_s: 15.0
+    spin_threshold_rad: 0.15
+    tf_timeout_s: 1.0
+    dock_control_rate_hz: 20.0
+    dock_timeout_s: 28.0
+    max_initial_distance_m: 0.60
+    stop_publish_count: 5
+
+    # Verified two-wheel reference place. It is meaningful only with the local
+    # map used to record it; teaching deployments should override this config.
+    place_ids: [table]
+    places.table.frame_id: map
+    places.table.x: 1.0289052299603214
+    places.table.y: 1.3800527706169978
+    places.table.yaw: -0.9068150357051303
+    places.table.nav_offset_m: 0.4
+    places.table.dock: true
+    dock.position_tolerance_m: 0.010
+    dock.lateral_tolerance_m: 0.08
+    dock.yaw_tolerance_rad: 0.025
+    dock.max_linear_speed_mps: 0.035
+    dock.max_angular_speed_radps: 0.16
+    dock.linear_kp: 0.45
+    dock.angular_kp: 0.9
+    dock.angular_deadband_rad: 0.006
+    dock.yaw_align_release_rad: 0.018
+    dock.yaw_align_stable_s: 0.35
+    dock.yaw_realign_threshold_rad: 0.025
+    dock.angular_sign_change_deadband_rad: 0.04
+    dock.max_angular_accel_radps2: 0.28

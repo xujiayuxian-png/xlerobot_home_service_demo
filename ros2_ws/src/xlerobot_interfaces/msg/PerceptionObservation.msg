@@ -1,0 +1,13 @@
+builtin_interfaces/Time stamp
+string observation_id
+string kind
+string label
+string camera_id
+uint32 image_width
+uint32 image_height
+float32 bbox_x1
+float32 bbox_y1
+float32 bbox_x2
+float32 bbox_y2
+float32 confidence
+geometry_msgs/PointStamped target

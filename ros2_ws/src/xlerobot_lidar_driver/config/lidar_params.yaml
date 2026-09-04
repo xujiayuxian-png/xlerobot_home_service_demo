@@ -1,0 +1,38 @@
+lidar_node:
+  ros__parameters:
+    # Safe teaching defaults. Real serial access needs both values overridden.
+    mock_hardware: true
+    hardware_enabled: false
+    port_name: "/dev/lidar"
+    frame_id: "laser"
+    mock:
+      scan_rate: 7.0
+      range: 2.0
+    scan:
+      size: 720
+      range_min: 0.05
+      range_max: 8.0
+      # Fallback only. Published LaserScan.scan_time is measured from scan boundaries.
+      scan_time: 0.14285714285714285
+    filter:
+      enabled: true
+      radius: 0.10
+      # Number of other nearby points required to keep a point.
+      min_neighbors: 1
+    mask:
+      enabled: true
+      # Fixed body-post sectors refined from lidar_mask_check on 2026-05-26.
+      # Mask is applied after the driver mirrors raw angles into /scan bins.
+      # Raw clusters around 50-73 deg and 282-299 deg become /scan sectors
+      # around 287-310 deg and 61-78 deg.
+      angle_ranges_deg: [59.0, 80.0, 285.0, 312.0]
+      # <=0 masks the full ray by leaving those /scan bins as +inf.
+      max_range: 0.0
+      auto_body_posts:
+        enabled: false
+        min_range: 0.12
+        max_range: 0.35
+        padding_deg: 3.0
+        cluster_gap_deg: 4.0
+        max_clusters: 4
+        min_cluster_points: 1

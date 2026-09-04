@@ -1,0 +1,18 @@
+# Record one immutable raw episode using a repository-owned collection profile.
+string dataset_id
+string episode_id
+string collection_profile_id
+string language_instruction
+string object_label
+builtin_interfaces/Duration max_duration
+---
+CapabilityError error
+string episode_uri
+string[] topic_names
+uint64[] message_counts
+float64 duration_s
+---
+CapabilityProgress state
+uint64 frame_count
+float64 elapsed_s
+bool required_topics_ready

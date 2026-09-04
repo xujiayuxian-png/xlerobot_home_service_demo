@@ -1,0 +1,11 @@
+# Execute one bounded maintenance pose through the normal controllers.
+string ARM_READY=arm_ready
+string HEAD_READY=head_ready
+string GRIPPER_OPEN=gripper_open
+
+string preset
+bool dry_run
+---
+CapabilityError error
+---
+CapabilityProgress state

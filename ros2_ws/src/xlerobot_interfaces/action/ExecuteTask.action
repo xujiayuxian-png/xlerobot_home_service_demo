@@ -1,0 +1,10 @@
+string object_id
+string source_place
+string recipient_id
+bool dry_run
+---
+xlerobot_interfaces/CapabilityError error
+string completed_object_id
+---
+string current_capability
+xlerobot_interfaces/CapabilityProgress state

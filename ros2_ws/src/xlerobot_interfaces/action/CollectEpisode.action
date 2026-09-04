@@ -1,0 +1,20 @@
+# Orchestrate one operator-facing demonstration collection workflow.
+string PICK=pick
+string MANUAL=manual
+
+string template_id
+string dataset_id
+string episode_id
+string collection_profile_id
+string object_id
+string language_instruction
+float64 max_duration_s
+bool dry_run
+---
+CapabilityError error
+string episode_uri
+bool quality_passed
+---
+CapabilityProgress state
+uint64 frame_count
+float64 elapsed_s

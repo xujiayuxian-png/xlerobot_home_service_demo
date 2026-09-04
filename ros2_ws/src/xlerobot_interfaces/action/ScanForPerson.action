@@ -1,0 +1,9 @@
+string recipient_id
+bool dry_run
+---
+xlerobot_interfaces/CapabilityError error
+geometry_msgs/PointStamped person
+float32 distance_m
+xlerobot_interfaces/PerceptionObservation observation
+---
+xlerobot_interfaces/CapabilityProgress state

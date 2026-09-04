@@ -1,0 +1,8 @@
+geometry_msgs/PointStamped target
+float32 standoff_m
+bool dry_run
+---
+xlerobot_interfaces/CapabilityError error
+geometry_msgs/PoseStamped reached_pose
+---
+xlerobot_interfaces/CapabilityProgress state

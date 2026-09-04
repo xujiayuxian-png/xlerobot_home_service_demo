@@ -1,0 +1,13 @@
+# External Leader attachment calibration migrated from the frozen verified
+# prototype tag prototype-fetch-deliver-verified-20260709.
+# Source: ros2_ws/src/xlerobot_manipulation/config/master_arm_calibration.yaml
+# This is intentionally separate from the robot Follower calibration.
+schema: xlerobot_servo_calibration/v1
+attachment: right_leader
+joints:
+  shoulder_pan: {servo_id: 1, offset: 2136, direction: 1, raw_min: 1099, raw_max: 3146, limit_min: -2.05, limit_max: 2.05}
+  shoulder_lift: {servo_id: 2, offset: 2070, direction: -1, raw_min: 870, raw_max: 3236, limit_min: -1.40, limit_max: 1.70}
+  elbow_flex: {servo_id: 3, offset: 1987, direction: 1, raw_min: 866, raw_max: 3130, limit_min: -1.65, limit_max: 1.40}
+  wrist_flex: {servo_id: 4, offset: 2145, direction: 1, raw_min: 928, raw_max: 3201, limit_min: -1.75, limit_max: 1.75}
+  wrist_roll: {servo_id: 5, offset: 2036, direction: -1, raw_min: 121, raw_max: 3972, limit_min: -3.09, limit_max: 3.09}
+  gripper: {servo_id: 6, offset: 1305, direction: 1, raw_min: 1305, raw_max: 2806, limit_min: 0.05, limit_max: 1.65}

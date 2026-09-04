@@ -1,0 +1,52 @@
+format: xlerobot_act_adapter_config/v1
+policy_id: act_xlerobot_box_wrist_only
+provenance:
+  source: prototype-fetch-deliver-verified-20260709
+  evidence: docs/runbooks/fetch_deliver_runtime_20260707.md
+observation:
+  head_topic: /xlerobot/d455/color/image_raw
+  wrist_topic: /right_wrist_camera/image_raw
+  joint_state_topic: /joint_states
+  request_width: 640
+  jpeg_quality: 95
+action:
+  joint_names:
+    - right_arm_shoulder_pan
+    - right_arm_shoulder_lift
+    - right_arm_elbow_flex
+    - right_arm_wrist_flex
+    - right_arm_wrist_roll
+    - right_arm_gripper
+  control_hz: 30.0
+  request_hz: 3.0
+  raw_chunk_mode: true
+  freeze_shoulder_pan: true
+  queued_action_steps: 60
+  realtime_refill_threshold_steps: 15
+  realtime_blend_steps: 10
+  executor_split_samples: 10
+start_contract:
+  producer: GraspObject
+  context_required_for_execution: true
+  context_joint_names:
+    - right_arm_shoulder_pan
+    - right_arm_shoulder_lift
+    - right_arm_elbow_flex
+    - right_arm_wrist_flex
+    - right_arm_wrist_roll
+    - right_arm_gripper
+  max_context_age_s: 5.0
+  position_tolerance_rad: 0.05
+  capture_only_mode_default: false
+gripper_governor:
+  open_floor: 1.0
+  closed_value: 0.0
+  raw_close_threshold: 0.30
+  close_confirm_steps: 1
+  close_lookahead_steps: 100
+  near_bottom_margin_rad: 0.08
+  bottom_lookahead_steps: 30
+  min_close_delay_s: 0.8
+  close_ramp_s: 0.25
+  close_hold_s: 1.0
+  lock_closed: true

@@ -1,0 +1,12 @@
+string HEAD_CAMERA=head_camera
+string RIGHT_HANDEYE=right_handeye
+
+string workflow_id
+uint32 pose_index
+bool dry_run
+---
+CapabilityError error
+string pose_name
+uint32 pose_count
+---
+CapabilityProgress state

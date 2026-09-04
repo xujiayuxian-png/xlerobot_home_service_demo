@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="d455_frames" params="parent head_camera_xyz head_camera_rpy">
+    <!--
+      head_camera_link is the D455 mounting reference on the head tilt frame.
+      d455_head_camera_link is the RealSense wrapper base_frame_id. The wrapper
+      publishes the calibrated RGB/depth/infra internal frames below it.
+    -->
+    <link name="head_camera_link"/>
+    <joint name="head_camera_joint" type="fixed">
+      <origin rpy="${head_camera_rpy}" xyz="${head_camera_xyz}"/>
+      <parent link="${parent}"/>
+      <child link="head_camera_link"/>
+    </joint>
+
+    <link name="d455_head_camera_link"/>
+    <joint name="d455_head_camera_joint" type="fixed">
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <parent link="head_camera_link"/>
+      <child link="d455_head_camera_link"/>
+    </joint>
+  </xacro:macro>
+</robot>

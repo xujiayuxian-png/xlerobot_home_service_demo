@@ -1,0 +1,80 @@
+grasp_object_server:
+  ros__parameters:
+    execution_enabled: false
+    action_name: grasp_object
+    prepare_action_name: prepare_grasp
+    policy_id: act_xlerobot_box_wrist_only
+    base_frame: base_link
+    arm_group: right_arm
+    ee_link: right_arm_ee_link
+    pregrasp_offset_m: 0.08
+    # Migrated from the verified prototype's 2026-06-14 right-arm calibration.
+    vision_fk_compensation_m: [0.0055, 0.0057, 0.0445]
+    top_grasp_orientation_xyzw: [0.70710678, 0.0, 0.0, 0.70710678]
+    tf_timeout_s: 1.0
+    service_timeout_s: 5.0
+    planning_timeout_s: 5.0
+    # Match the verified prototype: do not add a second 30% MoveIt slowdown
+    # before the unchanged ACT stream starts from measured pregrasp state.
+    planning_velocity_scale: 1.0
+    planning_acceleration_scale: 1.0
+    controller_timeout_s: 12.0
+    policy_timeout_s: 25.0
+    policy_duration_s: 20.0
+    verification_timeout_s: 10.0
+    joint_state_timeout_s: 0.50
+    head_move_duration_s: 1.5
+    pregrasp_gripper_duration_s: 2.0
+    # Proven prototype contract: execute the planned final joint target as one
+    # four-second position trajectory on the low-cost servo arm.
+    pregrasp_move_duration_s: 4.0
+    return_ready_duration_s: 4.0
+    pregrasp_settle_timeout_s: 4.0
+    pregrasp_settle_hold_s: 0.10
+    pregrasp_arrival_tolerance_rad: 0.12
+    pregrasp_arrival_velocity_tolerance_radps: 0.20
+    head_ready_positions: [0.0, 0.0]
+    gripper_joint: right_arm_gripper
+    pregrasp_gripper_position: 1.64
+    gripper_lower_position: 0.0
+    gripper_upper_position: 1.65
+    # An empty close currently settles near 0.01 rad on the reference robot.
+    # Retry only when this mechanical signal and the single wrist VLM check
+    # both report an empty grasp.
+    gripper_closed_position: 0.0
+    empty_gripper_tolerance_rad: 0.05
+    head_lower_positions: [-1.57, -0.76]
+    head_upper_positions: [1.57, 1.45]
+    ready_positions: [-0.11505, 1.62142, 1.62602, 0.50621, 0.00153]
+    # Verified prototype order: base-X opening, demo neutral, then target radial.
+    wrist_roll_seeds: [0.06981317, 0.03067962]
+    include_radial_wrist_roll_seed: true
+    pregrasp_seed_positions: [-0.10278, -0.53076, -0.56450, 1.20, 0.03068]
+    pregrasp_wrist_flex_range: [0.65, 1.75]
+    workspace_min: [-0.8, -0.8, 0.0]
+    workspace_max: [0.8, 0.8, 1.6]
+    joint_names:
+      - right_arm_shoulder_pan
+      - right_arm_shoulder_lift
+      - right_arm_elbow_flex
+      - right_arm_wrist_flex
+      - right_arm_wrist_roll
+    policy_joint_names:
+      - right_arm_shoulder_pan
+      - right_arm_shoulder_lift
+      - right_arm_elbow_flex
+      - right_arm_wrist_flex
+      - right_arm_wrist_roll
+      - right_arm_gripper
+    lower_positions: [-2.05, -1.40, -1.65, -1.75, -3.09]
+    upper_positions: [2.05, 1.85, 1.70, 1.75, 3.09]
+    plan_max_duration_s: 10.0
+    plan_start_tolerance_rad: 0.05
+    joint_state_topic: /joint_states
+    ik_service: /compute_ik
+    plan_service: /plan_kinematic_path
+    head_action: /head_controller/follow_joint_trajectory
+    arm_action: /right_arm_controller/follow_joint_trajectory
+    gripper_action: /right_gripper_controller/follow_joint_trajectory
+    policy_action: /execute_learned_policy
+    verification_action: /verify_grasp

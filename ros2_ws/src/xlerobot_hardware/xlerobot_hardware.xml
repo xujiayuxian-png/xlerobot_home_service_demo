@@ -1,0 +1,24 @@
+<library path="xlerobot_hardware">
+  <class
+    name="xlerobot_hardware/RightBusSystem"
+    type="xlerobot_hardware::RightBusSystem"
+    base_class_type="hardware_interface::SystemInterface">
+    <description>
+      Mock-safe sole owner of right arm servos 1-6 and wheel servos 9-10.
+    </description>
+  </class>
+  <class
+    name="xlerobot_hardware/LeftBusSystem"
+    type="xlerobot_hardware::LeftBusSystem"
+    base_class_type="hardware_interface::SystemInterface">
+    <description>
+      Mock-safe sole owner of left arm servos 1-6 and head servos 7-8.
+    </description>
+  </class>
+  <class
+    name="xlerobot_hardware/LeaderBusSystem"
+    type="xlerobot_hardware::LeaderBusSystem"
+    base_class_type="hardware_interface::SystemInterface">
+    <description>Independent Leader attachment owner with runtime torque command interface.</description>
+  </class>
+</library>

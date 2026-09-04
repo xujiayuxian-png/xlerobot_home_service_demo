@@ -1,0 +1,8 @@
+string site_id
+string place_id
+geometry_msgs/PoseStamped pose
+float32 nav_offset_m
+bool dock
+---
+CapabilityError error
+string artifact_uri

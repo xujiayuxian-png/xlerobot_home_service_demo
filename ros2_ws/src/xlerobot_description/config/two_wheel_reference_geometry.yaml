@@ -1,0 +1,44 @@
+# Geometry and kinematic limits imported from the frozen verified prototype.
+# Evidence: prototype-fetch-deliver-verified-20260709.
+base:
+  wheel_radius: 0.0635
+  wheel_width: 0.04
+  wheel_separation: 0.52
+  left_wheel_xyz: "0 0.26 0.0635"
+  right_wheel_xyz: "0 -0.26 0.0635"
+  top_base_xyz: "-0.15 0 0.73"
+
+sensors:
+  lidar_xyz: "-0.03 0 0.36"
+  lidar_roll: 3.141592653589793
+  lidar_yaw_deg: 186.442
+  head_camera_xyz: "0.0311 0.0477 0.0341"
+  head_camera_rpy: "-0.0049 0.0173 -0.0141"
+  right_wrist_camera_xyz: "0 -0.022 0.05"
+  right_wrist_camera_rpy: "1.5707963 0.0000037 -1.5708"
+  left_wrist_camera_xyz: "0 -0.021 0.05"
+  left_wrist_camera_rpy: "1.5707963 0.0000037 -1.5708"
+
+right_arm:
+  mount_xyz: "-0.2956 -0.1466 0.7734"
+  mount_rpy: "0.1219 0.0331 1.5280"
+  tag23_xyz: "0.0021 -0.0473 0.0253"
+  tag23_rpy: "0.0841 0.0087 0.0358"
+  limits:
+    shoulder_pan: [-2.05, 2.05]
+    shoulder_lift: [-1.40, 1.85]
+    elbow_flex: [-1.65, 1.70]
+    wrist_flex: [-1.75, 1.75]
+    wrist_roll: [-3.09, 3.09]
+    gripper: [0.0, 1.65]
+
+left_arm:
+  mount_xyz: "-0.285 0.133 0.760"
+  mount_rpy: "0 0 1.5708"
+  limits:
+    shoulder_pan: [-2.05, 2.05]
+    shoulder_lift: [-1.45, 1.78]
+    elbow_flex: [-1.50, 1.70]
+    wrist_flex: [-1.75, 1.75]
+    wrist_roll: [-3.09, 3.09]
+    gripper: [0.0, 1.65]

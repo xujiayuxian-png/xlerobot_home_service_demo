@@ -1,0 +1,21 @@
+/leader/controller_manager:
+  ros__parameters:
+    update_rate: 50
+    enforce_command_limits: true
+    leader_joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+    leader_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    leader_torque_controller:
+      type: xlerobot_leader_teleop/LeaderTorqueController
+
+/leader/leader_arm_controller:
+  ros__parameters:
+    joints: [leader_shoulder_pan, leader_shoulder_lift, leader_elbow_flex, leader_wrist_flex, leader_wrist_roll, leader_gripper]
+    command_interfaces: [position]
+    state_interfaces: [position, velocity]
+    allow_partial_joints_goal: false
+
+/leader/leader_torque_controller:
+  ros__parameters:
+    enable_lease_s: 1.0

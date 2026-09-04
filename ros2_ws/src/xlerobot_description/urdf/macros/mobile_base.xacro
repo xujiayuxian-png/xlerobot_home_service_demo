@@ -1,0 +1,181 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="mobile_base" params="wheel_radius wheel_width left_wheel_xyz right_wheel_xyz">
+<link name="base_link">
+    <collision>
+      <origin rpy="0 0 0" xyz="-0.15 0.198 0.73"/>
+      <geometry>
+        <box size="0.315 0.009 0.09"/>
+      </geometry>
+      <material name="olive_yellow">
+      </material>
+    </collision>
+
+    <collision>
+      <origin rpy="0 0 0" xyz="-0.15 -0.198 0.73"/>
+      <geometry>
+        <box size="0.315 0.009 0.09"/>
+      </geometry>
+      <material name="olive_yellow">
+      </material>
+    </collision>
+
+    <collision>
+      <origin rpy="0 0 0" xyz="0.003 0 0.73"/>
+      <geometry>
+        <box size="0.009 0.405 0.09"/>
+      </geometry>
+      <material name="olive_yellow">
+      </material>
+    </collision>
+
+
+    <collision>
+      <origin rpy="0 0 0" xyz="-0.303 0 0.73"/>
+      <geometry>
+        <box size="0.009 0.405 0.09"/>
+      </geometry>
+      <material name="olive_yellow">
+      </material>
+    </collision>
+
+
+
+
+    <visual name="raskog">
+      <origin
+        xyz="-0.16668 0.502 0.895"
+        rpy="1.5708 0 0" />
+      <geometry>
+        <mesh filename="package://xlerobot_description/meshes/xlerobot_original/raskogbody.stl" scale="0.0009 0.001 0.0009" />
+      </geometry>
+      <material name="blue">
+      </material>
+    </visual>
+
+    <visual name="raskogwheel1">
+      <origin
+        xyz="-0.16668 0.502 0.895"
+        rpy="1.5708 0 0" />
+      <geometry>
+        <mesh filename="package://xlerobot_description/meshes/xlerobot_original/raskogwheel1.stl" scale="0.0009 0.001 0.0009" />
+      </geometry>
+      <material name="grey">
+      </material>
+    </visual>
+
+    <visual name="raskogwheel2">
+      <origin
+        xyz="-0.16668 0.502 0.895"
+        rpy="1.5708 0 0" />
+      <geometry>
+        <mesh filename="package://xlerobot_description/meshes/xlerobot_original/raskogwheel2.stl" scale="0.0009 0.001 0.0009" />
+      </geometry>
+      <material name="motor">
+      </material>
+    </visual>
+
+
+    <collision>
+      <origin rpy="0 0 0" xyz="-0.15 0 0.05"/>
+      <geometry>
+        <box size="0.3913 0.459 0.1"/>
+      </geometry>
+    </collision>
+
+    <collision>
+      <origin rpy="0 0 0" xyz="-0.15 0 0.395"/>
+      <geometry>
+        <box size="0.315 0.405 0.59"/>
+      </geometry>
+    </collision>
+
+    <collision>
+      <origin rpy="0 0 0" xyz="-0.15 -0.216 0.44"/>
+      <geometry>
+        <box size="0.09 0.036 0.68"/>
+      </geometry>
+    </collision>
+
+    <collision>
+      <origin rpy="0 0 0" xyz="-0.15 0.216 0.44"/>
+      <geometry>
+        <box size="0.09 0.036 0.68"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Keep base_link as the public odometry frame while moving inertia off the KDL root. -->
+  <link name="base_inertia_link">
+    <inertial>
+      <origin rpy="0 0 0" xyz="-0.15 0.0 0.38"/>
+      <mass value="70.1294"/>
+      <inertia ixx="1.225" ixy="0.0099" ixz="0.0062" iyy="1.2853" iyz="-0.0034" izz="0.987"/>
+    </inertial>
+  </link>
+
+  <joint name="base_inertia_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="base_inertia_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+
+  <!-- Real two-wheel base draft. Initial placement is for RViz alignment only. -->
+  <link name="left_wheel">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+      </geometry>
+      <material name="motor"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1"/>
+      <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.01"/>
+    </inertial>
+  </link>
+
+  <link name="right_wheel">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+      </geometry>
+      <material name="motor"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1"/>
+      <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.01"/>
+    </inertial>
+  </link>
+
+  <joint name="left_wheel_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="left_wheel"/>
+    <origin xyz="${left_wheel_xyz}" rpy="1.5707963 0 3.1415927"/>
+    <axis xyz="0 0 1"/>
+  </joint>
+
+  <joint name="right_wheel_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="right_wheel"/>
+    <origin xyz="${right_wheel_xyz}" rpy="1.5707963 0 3.1415927"/>
+    <axis xyz="0 0 1"/>
+  </joint>
+  </xacro:macro>
+</robot>

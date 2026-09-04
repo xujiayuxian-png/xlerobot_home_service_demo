@@ -1,0 +1,9 @@
+string unit_id
+string workflow_id
+string source_uri
+---
+CapabilityError error
+string draft_uri
+bool quality_passed
+string[] metric_names
+float64[] metric_values

@@ -1,0 +1,36 @@
+streaming_joint_executor:
+  ros__parameters:
+    execution_enabled: false
+    action_name: execute_policy_stream
+    chunk_topic: policy_joint_chunks
+    command_topic: /right_policy_controller/joint_trajectory
+    joint_state_topic: /joint_states
+    controller_manager: /controller_manager
+    policy_controller: right_policy_controller
+    normal_controllers: [right_arm_controller, right_gripper_controller]
+    joint_names:
+      - right_arm_shoulder_pan
+      - right_arm_shoulder_lift
+      - right_arm_elbow_flex
+      - right_arm_wrist_flex
+      - right_arm_wrist_roll
+      - right_arm_gripper
+    lower_positions: [-2.05, -1.40, -1.65, -1.75, -3.09, 0.0]
+    upper_positions: [2.05, 1.85, 1.70, 1.75, 3.09, 1.65]
+    position_setpoint_joints: [right_arm_gripper]
+    min_sample_period_s: 0.02
+    max_sample_period_s: 0.10
+    max_command_age_s: 0.25
+    max_future_skew_s: 0.05
+    max_queue_horizon_s: 2.0
+    input_watchdog_s: 0.50
+    joint_state_timeout_s: 0.25
+    controller_switch_timeout_s: 2.0
+    controller_check_period_s: 0.25
+    max_session_duration_s: 30.0
+    max_start_context_age_s: 5.0
+    start_context_future_tolerance_s: 0.10
+    start_context_tolerance_rad: 0.05
+    start_context_velocity_tolerance_radps: 0.05
+    start_context_wait_s: 0.25
+    loop_rate_hz: 200.0

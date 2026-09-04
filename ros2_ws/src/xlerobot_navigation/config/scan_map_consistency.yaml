@@ -1,0 +1,14 @@
+scan_map_consistency:
+  ros__parameters:
+    map_topic: /map
+    scan_topic: /scan
+    output_topic: /localization/scan_map_consistency
+    occupied_threshold: 65
+    match_radius_m: 0.18
+    score_threshold: 0.35
+    min_evaluated_beams: 20
+    beam_stride: 3
+    smoothing_window: 3
+    max_range_margin_m: 0.03
+    evaluation_period_s: 0.20
+    tf_timeout_s: 0.15

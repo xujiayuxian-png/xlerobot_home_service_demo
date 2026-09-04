@@ -1,0 +1,28 @@
+robot_description_planning:
+  joint_limits:
+    right_arm_shoulder_pan: &arm_slow
+      has_velocity_limits: true
+      max_velocity: 1.0
+      has_acceleration_limits: true
+      max_acceleration: 1.5
+    right_arm_shoulder_lift: *arm_slow
+    right_arm_elbow_flex: *arm_slow
+    right_arm_wrist_flex: &wrist
+      has_velocity_limits: true
+      max_velocity: 1.2
+      has_acceleration_limits: true
+      max_acceleration: 2.0
+    right_arm_wrist_roll: *wrist
+    right_arm_gripper: &gripper
+      has_velocity_limits: true
+      max_velocity: 1.0
+      has_acceleration_limits: true
+      max_acceleration: 2.0
+    left_arm_shoulder_pan: *arm_slow
+    left_arm_shoulder_lift: *arm_slow
+    left_arm_elbow_flex: *arm_slow
+    left_arm_wrist_flex: *wrist
+    left_arm_wrist_roll: *wrist
+    left_arm_gripper: *gripper
+    head_pan_joint: *arm_slow
+    head_tilt_joint: *arm_slow

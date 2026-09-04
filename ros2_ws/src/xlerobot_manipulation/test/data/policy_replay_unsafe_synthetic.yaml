@@ -1,0 +1,22 @@
+format: xlerobot_policy_replay/v1
+provenance:
+  kind: synthetic_fault_fixture
+  note: Deliberate position-limit violation; never send to a controller.
+session_id: offline-unsafe-fixture
+source_id: synthetic-policy
+joint_names:
+  - right_arm_shoulder_pan
+  - right_arm_shoulder_lift
+  - right_arm_elbow_flex
+  - right_arm_wrist_flex
+  - right_arm_wrist_roll
+  - right_arm_gripper
+start_positions: [0.0, 0.0, 0.0, 0.0, 0.0, 0.50]
+start_velocities: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+chunks:
+  - sequence: 0
+    age_s: 0.01
+    sample_period_s: 0.05
+    final_chunk: true
+    positions:
+      - [9.0, 0.0, 0.0, 0.0, 0.0, 0.50]

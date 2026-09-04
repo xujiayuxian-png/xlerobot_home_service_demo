@@ -1,0 +1,62 @@
+speak_text_server:
+  ros__parameters:
+    backend_enabled: false
+    backend: hybrid
+    command_argv: [spd-say, -w]
+    voice_id: zh-CN-XiaoxiaoNeural
+    audio_player_argv: [mpg123, -q]
+    # Set to plughw:0,0 in headless deployment; empty preserves desktop default.
+    audio_player_device: ''
+    edge_tts_argv: [python3, -m, edge_tts]
+    edge_cache_dir: $HOME/.cache/xlerobot_tts
+    hybrid_prefix_texts: [好的，我去拿]
+    preset_directory: ''
+    preset_texts:
+      - 我在
+      - 叮
+      - 好的，我去拿
+      - 羽毛球
+      - 剪刀
+      - 我没有听清要拿什么东西
+      - 任务失败了
+      - 给你
+      - 自动定位失败
+      - 导航到桌边失败
+      - 物体识别失败
+      - 抓取失败
+      - 寻找人员失败
+      - 接近人员失败
+      - 递送失败
+      - 任务参数无效
+      - 对应服务没有启动
+      - 执行超时
+      - 没有找到目标
+      - 当前运动条件不满足
+      - 后端服务执行异常
+      - 系统内部发生错误
+    preset_files:
+      - wake_ack_short_zh.mp3
+      - listening_cue_zh.mp3
+      - task_accepted_zh.mp3
+      - shuttlecock_zh.mp3
+      - scissors_zh.mp3
+      - parse_failed_zh.mp3
+      - task_failed_zh.mp3
+      - handover_zh.mp3
+      - failure_localization_zh.mp3
+      - failure_navigation_zh.mp3
+      - failure_detection_zh.mp3
+      - failure_grasp_zh.mp3
+      - failure_person_scan_zh.mp3
+      - failure_approach_zh.mp3
+      - failure_handover_zh.mp3
+      - failure_invalid_goal_zh.mp3
+      - failure_unavailable_zh.mp3
+      - failure_timeout_zh.mp3
+      - failure_not_found_zh.mp3
+      - failure_safety_rejected_zh.mp3
+      - failure_backend_zh.mp3
+      - failure_internal_zh.mp3
+    max_characters: 256
+    timeout_s: 15.0
+    terminate_grace_s: 0.5

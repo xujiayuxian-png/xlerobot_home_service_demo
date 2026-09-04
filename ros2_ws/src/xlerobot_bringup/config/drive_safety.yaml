@@ -1,0 +1,16 @@
+drive_safety:
+  ros__parameters:
+    navigation_topic: cmd_vel_nav
+    docking_topic: cmd_vel_dock
+    teleop_topic: cmd_vel_teleop
+    output_topic: /base_controller/cmd_vel
+    frame_id: base_link
+    navigation_has_priority: true
+    navigation_timeout_s: 0.5
+    docking_timeout_s: 0.35
+    teleop_timeout_s: 0.35
+    publish_rate_hz: 30.0
+    max_linear_mps: 0.15
+    max_angular_radps: 0.6
+    max_linear_accel_mps2: 0.35
+    max_angular_accel_radps2: 1.2

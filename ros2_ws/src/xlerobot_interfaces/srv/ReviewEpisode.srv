@@ -1,0 +1,9 @@
+string dataset_id
+string episode_id
+string status
+string failure_reason
+string notes
+string operator_id
+---
+CapabilityError error
+string review_uri

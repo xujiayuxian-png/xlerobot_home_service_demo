@@ -1,0 +1,9 @@
+# Move the follower arm to the canonical measured pregrasp state.
+string object_id
+geometry_msgs/PointStamped target
+bool dry_run
+---
+CapabilityError error
+PolicyStartContext start_context
+---
+CapabilityProgress state

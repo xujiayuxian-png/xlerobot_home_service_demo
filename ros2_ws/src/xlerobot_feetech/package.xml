@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>xlerobot_feetech</name>
+  <version>0.1.0</version>
+  <description>Project-owned adapter for the pinned Feetech SCServo SDK.</description>
+  <maintainer email="lisa@example.com">lisa</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>xlerobot_interfaces</depend>
+
+  <test_depend>ament_cmake_pytest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

@@ -1,0 +1,12 @@
+# Validate the configured localization plan without invoking AMCL or Nav2 Spin.
+bool dry_run
+---
+xlerobot_interfaces/CapabilityError error
+geometry_msgs/PoseWithCovarianceStamped pose
+float64 position_stddev_m
+float64 yaw_stddev_rad
+---
+xlerobot_interfaces/CapabilityProgress state
+float64 rotated_rad
+float64 position_stddev_m
+float64 yaw_stddev_rad

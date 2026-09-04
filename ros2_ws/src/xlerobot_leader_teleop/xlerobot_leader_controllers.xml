@@ -1,0 +1,8 @@
+<library path="xlerobot_leader_controllers">
+  <class
+    name="xlerobot_leader_teleop/LeaderTorqueController"
+    type="xlerobot_leader_teleop::LeaderTorqueController"
+    base_class_type="controller_interface::ControllerInterface">
+    <description>Typed Leader torque service owning the torque_enable interface.</description>
+  </class>
+</library>

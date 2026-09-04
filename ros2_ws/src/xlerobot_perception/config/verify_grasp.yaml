@@ -1,0 +1,12 @@
+verify_grasp_vlm:
+  ros__parameters:
+    backend_enabled: false
+    dry_run_mode: contract_only
+    image_topic: /right_wrist_camera/image_raw
+    sensor_timeout_s: 3.0
+    max_sensor_age_s: 1.0
+    success_confidence: 0.70
+    vlm_base_url: http://127.0.0.1:1234
+    vlm_model: qwen/qwen3-vl-4b
+    vlm_timeout_s: 10.0
+    vlm_jpeg_quality: 90

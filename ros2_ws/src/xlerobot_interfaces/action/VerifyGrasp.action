@@ -1,0 +1,9 @@
+string object_id
+bool dry_run
+---
+xlerobot_interfaces/CapabilityError error
+bool grasped
+float32 confidence
+string reason
+---
+xlerobot_interfaces/CapabilityProgress state

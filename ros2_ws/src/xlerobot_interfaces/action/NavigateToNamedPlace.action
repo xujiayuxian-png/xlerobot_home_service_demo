@@ -1,0 +1,10 @@
+string place_id
+bool dry_run
+# Set only when the caller has already established trustworthy localization.
+# The server still verifies the live pose against the named-place tolerance.
+bool skip_if_already_reached
+---
+xlerobot_interfaces/CapabilityError error
+geometry_msgs/PoseStamped reached_pose
+---
+xlerobot_interfaces/CapabilityProgress state

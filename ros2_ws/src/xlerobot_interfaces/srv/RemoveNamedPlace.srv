@@ -1,0 +1,5 @@
+string site_id
+string place_id
+---
+CapabilityError error
+string artifact_uri

@@ -1,0 +1,19 @@
+# Verified D455 runtime profile from prototype-fetch-deliver-verified-20260709.
+enable_color: true
+enable_depth: true
+enable_infra: false
+enable_infra1: false
+enable_infra2: false
+enable_gyro: false
+enable_accel: false
+enable_motion: false
+enable_sync: true
+enable_rgbd: false
+align_depth.enable: true
+pointcloud.enable: false
+publish_tf: true
+initial_reset: false
+reconnect_timeout: 6.0
+base_frame_id: head_camera_link
+rgb_camera.color_profile: 640x480x15
+depth_module.depth_profile: 640x480x15

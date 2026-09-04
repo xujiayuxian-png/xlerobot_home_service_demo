@@ -1,0 +1,7 @@
+string object_id
+string recipient_id
+bool dry_run
+---
+xlerobot_interfaces/CapabilityError error
+---
+xlerobot_interfaces/CapabilityProgress state

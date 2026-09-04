@@ -1,0 +1,20 @@
+# Run one versioned, operator-assisted calibration workflow.
+string SERVO=servo
+string BASE_GEOMETRY=base_geometry
+string HEAD_CAMERA=head_camera
+string RIGHT_HANDEYE=right_handeye
+
+string unit_id
+string workflow_id
+bool automatic
+bool dry_run
+---
+CapabilityError error
+string artifact_uri
+bool quality_passed
+---
+CapabilityProgress state
+uint32 sample_count
+uint32 target_sample_count
+string[] metric_names
+float64[] metric_values

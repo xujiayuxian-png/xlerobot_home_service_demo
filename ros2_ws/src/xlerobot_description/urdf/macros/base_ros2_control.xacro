@@ -1,0 +1,98 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="calibrated_position_joint" params="name calibration initial_value:=0.0">
+    <joint name="${name}">
+      <command_interface name="position">
+        <param name="min">${calibration['limit_min']}</param>
+        <param name="max">${calibration['limit_max']}</param>
+      </command_interface>
+      <state_interface name="position">
+        <param name="initial_value">${initial_value}</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <param name="servo_id">${calibration['servo_id']}</param>
+      <param name="offset">${calibration['offset']}</param>
+      <param name="direction">${calibration['direction']}</param>
+      <param name="raw_min">${calibration['raw_min']}</param>
+      <param name="raw_max">${calibration['raw_max']}</param>
+      <param name="limit_min">${calibration['limit_min']}</param>
+      <param name="limit_max">${calibration['limit_max']}</param>
+    </joint>
+  </xacro:macro>
+
+  <xacro:macro name="bus_hardware_parameters"
+    params="plugin mock_hardware hardware_enabled torque_enabled read_only port baudrate">
+    <plugin>xlerobot_hardware/${plugin}</plugin>
+    <param name="mock_hardware">${'true' if mock_hardware else 'false'}</param>
+    <param name="hardware_enabled">${'true' if hardware_enabled else 'false'}</param>
+    <param name="torque_enabled">${'true' if torque_enabled else 'false'}</param>
+    <param name="read_only">${'true' if read_only else 'false'}</param>
+    <param name="port">${port}</param>
+    <param name="baudrate">${baudrate}</param>
+    <param name="position_speed">500</param>
+    <param name="position_acceleration">50</param>
+    <param name="mock_position_step_millirad">50</param>
+  </xacro:macro>
+
+  <xacro:macro name="robot_bus_ros2_control"
+    params="mock_hardware hardware_enabled torque_enabled read_only include_right_bus include_left_bus right_port left_port baudrate calibration">
+    <xacro:property name="right" value="${calibration['right_arm']['joints']}"/>
+    <xacro:property name="left" value="${calibration['left_arm']['joints']}"/>
+    <xacro:property name="head" value="${calibration['head']['joints']}"/>
+
+    <!-- One physical serial device has exactly one ros2_control owner. -->
+    <xacro:if value="${include_right_bus}">
+    <ros2_control name="right_bus_system" type="system">
+      <hardware>
+        <xacro:bus_hardware_parameters plugin="RightBusSystem" mock_hardware="${mock_hardware}"
+          hardware_enabled="${hardware_enabled}" torque_enabled="${torque_enabled}"
+          read_only="${read_only}"
+          port="${right_port}" baudrate="${baudrate}"/>
+        <param name="invert_left_wheel">true</param>
+        <param name="invert_right_wheel">false</param>
+        <param name="feedback_invert_left_wheel">true</param>
+        <param name="feedback_invert_right_wheel">false</param>
+        <param name="max_raw_velocity">3000</param>
+        <param name="wheel_acceleration">254</param>
+      </hardware>
+      <joint name="left_wheel_joint">
+        <command_interface name="velocity"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <param name="servo_id">9</param>
+      </joint>
+      <joint name="right_wheel_joint">
+        <command_interface name="velocity"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <param name="servo_id">10</param>
+      </joint>
+      <xacro:calibrated_position_joint name="right_arm_shoulder_pan" calibration="${right['shoulder_pan']}"/>
+      <xacro:calibrated_position_joint name="right_arm_shoulder_lift" calibration="${right['shoulder_lift']}"/>
+      <xacro:calibrated_position_joint name="right_arm_elbow_flex" calibration="${right['elbow_flex']}"/>
+      <xacro:calibrated_position_joint name="right_arm_wrist_flex" calibration="${right['wrist_flex']}"/>
+      <xacro:calibrated_position_joint name="right_arm_wrist_roll" calibration="${right['wrist_roll']}"/>
+      <xacro:calibrated_position_joint name="right_arm_gripper" calibration="${right['gripper']}" initial_value="0.0"/>
+    </ros2_control>
+    </xacro:if>
+
+    <xacro:if value="${include_left_bus}">
+    <ros2_control name="left_bus_system" type="system">
+      <hardware>
+        <xacro:bus_hardware_parameters plugin="LeftBusSystem" mock_hardware="${mock_hardware}"
+          hardware_enabled="${hardware_enabled}" torque_enabled="${torque_enabled}"
+          read_only="${read_only}"
+          port="${left_port}" baudrate="${baudrate}"/>
+      </hardware>
+      <xacro:calibrated_position_joint name="head_pan_joint" calibration="${head['pan']}"/>
+      <xacro:calibrated_position_joint name="head_tilt_joint" calibration="${head['tilt']}"/>
+      <xacro:calibrated_position_joint name="left_arm_shoulder_pan" calibration="${left['shoulder_pan']}"/>
+      <xacro:calibrated_position_joint name="left_arm_shoulder_lift" calibration="${left['shoulder_lift']}"/>
+      <xacro:calibrated_position_joint name="left_arm_elbow_flex" calibration="${left['elbow_flex']}"/>
+      <xacro:calibrated_position_joint name="left_arm_wrist_flex" calibration="${left['wrist_flex']}"/>
+      <xacro:calibrated_position_joint name="left_arm_wrist_roll" calibration="${left['wrist_roll']}"/>
+      <xacro:calibrated_position_joint name="left_arm_gripper" calibration="${left['gripper']}" initial_value="0.05"/>
+    </ros2_control>
+    </xacro:if>
+  </xacro:macro>
+</robot>

@@ -1,0 +1,63 @@
+<?xml version="1.0"?>
+<robot name="xlerobot_leader_attachment" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="mock_hardware" default="true"/>
+  <xacro:arg name="hardware_enabled" default="false"/>
+  <xacro:arg name="port" default="/dev/right_master_arm"/>
+  <xacro:arg name="calibration_file" default="$(find xlerobot_description)/config/two_wheel_reference_leader_servos.yaml"/>
+  <xacro:property name="calibration" value="${xacro.load_yaml('$(arg calibration_file)')}"/>
+  <xacro:property name="right" value="${calibration['joints']}"/>
+
+  <link name="leader_base"/>
+  <xacro:macro name="leader_joint" params="name parent child calibration">
+    <link name="${child}"/>
+    <joint name="${name}" type="revolute">
+      <parent link="${parent}"/><child link="${child}"/>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/><axis xyz="0 0 1"/>
+      <limit lower="${calibration['limit_min']}" upper="${calibration['limit_max']}" velocity="3" effort="35"/>
+    </joint>
+  </xacro:macro>
+  <xacro:leader_joint name="leader_shoulder_pan" parent="leader_base" child="leader_link_1" calibration="${right['shoulder_pan']}"/>
+  <xacro:leader_joint name="leader_shoulder_lift" parent="leader_link_1" child="leader_link_2" calibration="${right['shoulder_lift']}"/>
+  <xacro:leader_joint name="leader_elbow_flex" parent="leader_link_2" child="leader_link_3" calibration="${right['elbow_flex']}"/>
+  <xacro:leader_joint name="leader_wrist_flex" parent="leader_link_3" child="leader_link_4" calibration="${right['wrist_flex']}"/>
+  <xacro:leader_joint name="leader_wrist_roll" parent="leader_link_4" child="leader_link_5" calibration="${right['wrist_roll']}"/>
+  <xacro:leader_joint name="leader_gripper" parent="leader_link_5" child="leader_gripper_link" calibration="${right['gripper']}"/>
+
+  <ros2_control name="leader_bus_system" type="system">
+    <hardware>
+      <plugin>xlerobot_hardware/LeaderBusSystem</plugin>
+      <param name="mock_hardware">$(arg mock_hardware)</param>
+      <param name="hardware_enabled">$(arg hardware_enabled)</param>
+      <param name="torque_enabled">false</param>
+      <param name="runtime_torque_control">true</param>
+      <param name="read_only">false</param>
+      <param name="port">$(arg port)</param>
+      <param name="baudrate">1000000</param>
+      <param name="position_speed">500</param>
+      <param name="position_acceleration">50</param>
+    </hardware>
+    <xacro:macro name="control_joint" params="name calibration initial_value:=0.0">
+      <joint name="${name}">
+        <command_interface name="position">
+          <param name="min">${calibration['limit_min']}</param><param name="max">${calibration['limit_max']}</param>
+        </command_interface>
+        <state_interface name="position"><param name="initial_value">${initial_value}</param></state_interface>
+        <state_interface name="velocity"/>
+        <param name="servo_id">${calibration['servo_id']}</param>
+        <param name="offset">${calibration['offset']}</param>
+        <param name="direction">${calibration['direction']}</param>
+        <param name="raw_min">${calibration['raw_min']}</param>
+        <param name="raw_max">${calibration['raw_max']}</param>
+        <param name="limit_min">${calibration['limit_min']}</param>
+        <param name="limit_max">${calibration['limit_max']}</param>
+      </joint>
+    </xacro:macro>
+    <xacro:control_joint name="leader_shoulder_pan" calibration="${right['shoulder_pan']}"/>
+    <xacro:control_joint name="leader_shoulder_lift" calibration="${right['shoulder_lift']}"/>
+    <xacro:control_joint name="leader_elbow_flex" calibration="${right['elbow_flex']}"/>
+    <xacro:control_joint name="leader_wrist_flex" calibration="${right['wrist_flex']}"/>
+    <xacro:control_joint name="leader_wrist_roll" calibration="${right['wrist_roll']}"/>
+    <xacro:control_joint name="leader_gripper" calibration="${right['gripper']}" initial_value="0.05"/>
+    <gpio name="leader_bus"><command_interface name="torque_enable"/></gpio>
+  </ros2_control>
+</robot>

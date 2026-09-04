@@ -1,0 +1,22 @@
+scan_for_person_detector:
+  ros__parameters:
+    backend_enabled: false
+    dry_run_mode: contract_only
+    supported_recipient: nearest_person
+    target_frame: map
+    base_frame: base_link
+    color_topic: /xlerobot/d455/color/image_raw
+    depth_topic: /xlerobot/d455/aligned_depth_to_color/image_raw
+    camera_info_topic: /xlerobot/d455/color/camera_info
+    rgbd_sync_tolerance_s: 0.20
+    sensor_timeout_s: 8.0
+    max_sensor_age_s: 1.0
+    tf_timeout_s: 3.0
+    min_depth_m: 0.20
+    max_depth_m: 5.0
+    # The delivery image supplies this asset outside Git. Empty resolves to
+    # $XLEROBOT_MODEL_DIR/yolov8n.pt or ~/.cache/xlerobot_models/yolov8n.pt.
+    model_path: ''
+    yolo_conf: 0.60
+    yolo_imgsz: 480
+    yolo_device: cpu

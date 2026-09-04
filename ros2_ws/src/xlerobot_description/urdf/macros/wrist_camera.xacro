@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="wrist_camera" params="prefix parent mesh_root xyz rpy">
+    <link name="${prefix}_wrist_camera_link">
+      <visual>
+        <origin xyz="-0.015 -0.026 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="${mesh_root}/XLeRobot_camera1.stl" scale="0.001 0.001 0.001"/>
+        </geometry>
+        <material name="motor"/>
+      </visual>
+      <visual>
+        <origin xyz="-0.015 -0.026 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="${mesh_root}/XLeRobot_camera2.stl" scale="0.001 0.001 0.001"/>
+        </geometry>
+        <material name="motor"/>
+      </visual>
+      <inertial>
+        <mass value="0.02"/>
+        <inertia ixx="1e-06" ixy="0" ixz="0" iyy="1e-06" iyz="0" izz="1e-06"/>
+      </inertial>
+    </link>
+    <joint name="${prefix}_wrist_camera_joint" type="fixed">
+      <origin xyz="${xyz}" rpy="${rpy}"/>
+      <parent link="${parent}"/>
+      <child link="${prefix}_wrist_camera_link"/>
+    </joint>
+    <link name="${prefix}_wrist_camera_rgb_frame"/>
+    <joint name="${prefix}_wrist_camera_rgb_joint" type="fixed">
+      <origin xyz="-0.015 -0.026 0" rpy="0 0 0"/>
+      <parent link="${prefix}_wrist_camera_link"/>
+      <child link="${prefix}_wrist_camera_rgb_frame"/>
+    </joint>
+    <link name="${prefix}_wrist_camera_rgb_optical_frame"/>
+    <joint name="${prefix}_wrist_camera_rgb_optical_joint" type="fixed">
+      <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708"/>
+      <parent link="${prefix}_wrist_camera_rgb_frame"/>
+      <child link="${prefix}_wrist_camera_rgb_optical_frame"/>
+    </joint>
+  </xacro:macro>
+</robot>

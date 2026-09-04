@@ -1,0 +1,7 @@
+string site_id
+string map_name
+string source_map_yaml
+---
+CapabilityError error
+string artifact_uri
+string version

@@ -1,0 +1,33 @@
+handover_object_server:
+  ros__parameters:
+    execution_enabled: false
+    joint_names:
+      - right_arm_shoulder_pan
+      - right_arm_shoulder_lift
+      - right_arm_elbow_flex
+      - right_arm_wrist_flex
+      - right_arm_wrist_roll
+    # Collision-checked forward handover pose. The end effector is about
+    # x=0.119 m, y=-0.041 m, z=0.970 m in base_link instead of hanging at the
+    # robot's right side (the former pose was x=0.000 m, y=-0.223 m).
+    handover_positions: [-0.3344, -0.0952, -0.4458, 0.5291, 0.0]
+    ready_positions: [-0.11505, 1.62142, 1.62602, 0.50621, 0.00153]
+    lower_positions: [-2.05, -1.40, -1.65, -1.75, -3.09]
+    upper_positions: [2.05, 1.85, 1.70, 1.75, 3.09]
+    gripper_joint: right_arm_gripper
+    gripper_lower: 0.0
+    gripper_upper: 1.65
+    gripper_open_position: 1.35
+    gripper_closed_position: 0.0
+    held_max_position: 0.15
+    handover_duration_s: 2.5
+    release_wait_s: 0.5
+    gripper_open_duration_s: 1.5
+    ready_duration_s: 4.0
+    gripper_close_duration_s: 1.0
+    service_timeout_s: 5.0
+    controller_timeout_margin_s: 5.0
+    joint_state_timeout_s: 0.50
+    arm_action: /right_arm_controller/follow_joint_trajectory
+    gripper_action: /right_gripper_controller/follow_joint_trajectory
+    joint_state_topic: /joint_states

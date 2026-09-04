@@ -1,0 +1,63 @@
+voice_assistant:
+  ros__parameters:
+    audio_enabled: false
+    intent_backend_enabled: false
+    task_dry_run: true
+    speech_enabled: false
+    speech_dry_run: true
+
+    kws_model_dir: $HOME/.cache/xlerobot_models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20
+    kws_tokens: ''
+    kws_encoder: ''
+    kws_decoder: ''
+    kws_joiner: ''
+    kws_keywords_file: ''
+    kws_num_threads: 1
+    kws_provider: cpu
+    kws_max_active_paths: 4
+    kws_num_trailing_blanks: 1
+    # A modest recall bias for the reference phrase. Keep these values here as
+    # the single tuning source; the generated token file must not override them.
+    kws_keywords_score: 2.5
+    kws_keywords_threshold: 0.15
+
+    audio_sample_rate: 16000
+    audio_chunk_sec: 0.1
+    # Resolve a real ALSA capture device and reject virtual null/monitor inputs.
+    audio_input_device: auto
+    command_record_timeout_s: 4.0
+    command_silence_timeout_s: 0.65
+    command_min_record_sec: 0.5
+    # Measured on the reference laptop: idle mean 0.0181, peak 0.0265.
+    command_start_rms: 0.035
+    command_silence_rms: 0.025
+    command_audio_debug_enabled: true
+    command_audio_debug_dir: $HOME/.ros/xlerobot_voice/commands
+    command_audio_debug_max_files: 20
+    whisper_model: small
+    whisper_compute_type: int8
+    whisper_beam_size: 3
+    whisper_cpu_threads: 4
+    whisper_num_workers: 1
+    # Bias recurring demo vocabulary without restricting open-vocabulary tasks.
+    whisper_hotwords: 羽毛球
+    whisper_initial_prompt: 这是家庭服务机器人取物命令，常见物体名称包括羽毛球。
+    whisper_min_language_probability: 0.50
+    whisper_min_average_log_probability: -0.80
+    whisper_max_no_speech_probability: 0.60
+
+    lmstudio_url: http://127.0.0.1:1234
+    lmstudio_model: qwen/qwen3-vl-4b
+    lmstudio_timeout_s: 6.0
+    intent_confidence_threshold: 0.60
+
+    execute_task_action: /execute_task
+    speak_text_action: /speak_text
+    task_timeout_s: 360.0
+    speech_timeout_s: 8.0
+    wake_ack_text: 我在
+    listening_cue_text: 叮
+    accepted_text_template: 好的，我去拿{object_id}
+    # The recorder opens immediately after the prerecorded cue finishes.
+    post_wake_ack_listen_delay_s: 0.0
+    parse_failed_text: 我没有听清要拿什么东西

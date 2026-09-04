@@ -1,0 +1,44 @@
+fetch_deliver_task:
+  ros__parameters:
+    # Leave one additional grasp-attempt budget when wrist VLM explicitly
+    # reports that the detected object was not retained.
+    task_timeout_s: 360.0
+    child_cancel_timeout_s: 3.0
+    # AutoLocalize owns a 60 s motion budget. Leave enough time for action
+    # startup, convergence hold, cancellation and result propagation.
+    localization_timeout_s: 70.0
+    # Named navigation can legitimately consume Nav2 120 s, Spin 15 s and
+    # precise dock 28 s. The task layer must not terminate the child early.
+    navigation_timeout_s: 180.0
+    detection_timeout_s: 20.0
+    grasp_timeout_s: 90.0
+    person_scan_timeout_s: 180.0
+    # ApproachTarget owns a 125 s Nav2 budget.
+    approach_timeout_s: 130.0
+    handover_timeout_s: 30.0
+    speech_timeout_s: 10.0
+    localization_position_stddev_m: 0.20
+    localization_yaw_stddev_rad: 0.20
+    # Covariance alone can remain falsely confident after the robot is carried.
+    # Require a recent lidar endpoint match against the active occupancy map.
+    scan_map_max_age_s: 1.0
+    scan_map_settle_timeout_s: 3.0
+    joint_state_max_age_s: 0.5
+    camera_max_age_s: 1.0
+    diagnostic_max_age_s: 3.0
+    head_camera_topic: /xlerobot/d455/color/image_raw
+    head_depth_topic: /xlerobot/d455/aligned_depth_to_color/image_raw
+    head_camera_info_topic: /xlerobot/d455/color/camera_info
+    wrist_camera_topic: /right_wrist_camera/image_raw
+    handover_text: 给你
+    # Prefer the original demo's close handover distance. ApproachTarget retries
+    # farther path-valid candidates if the 0.5 m goal is obstructed at runtime.
+    standoff_m: 0.5
+    # Grounding starts only after measured head arrival; the subsequent
+    # DetectObject action additionally requires a newly captured RGBD tuple.
+    detection_head_positions: [0.0, 0.8]
+    detection_head_move_s: 1.5
+    detection_head_tolerance_rad: 0.06
+    detection_head_settle_timeout_s: 3.5
+    detection_head_stable_duration_s: 0.5
+    detection_head_post_settle_s: 0.25

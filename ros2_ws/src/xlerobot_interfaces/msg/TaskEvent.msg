@@ -1,0 +1,11 @@
+builtin_interfaces/Time stamp
+string task_id
+string object_id
+string source_place
+string recipient_id
+bool dry_run
+string status
+string current_capability
+xlerobot_interfaces/CapabilityProgress state
+xlerobot_interfaces/CapabilityError error
+xlerobot_interfaces/PerceptionObservation observation

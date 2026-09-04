@@ -1,0 +1,20 @@
+detect_object_vlm:
+  ros__parameters:
+    backend_enabled: false
+    dry_run_mode: contract_only
+    color_topic: /xlerobot/d455/color/image_raw
+    depth_topic: /xlerobot/d455/aligned_depth_to_color/image_raw
+    camera_info_topic: /xlerobot/d455/color/camera_info
+    rgbd_sync_tolerance_s: 0.20
+    sensor_timeout_s: 8.0
+    max_sensor_age_s: 1.0
+    tf_timeout_s: 3.0
+    min_depth_m: 0.10
+    max_depth_m: 4.0
+    vlm_base_url: http://127.0.0.1:1234
+    vlm_model: qwen/qwen3-vl-4b
+    vlm_timeout_s: 30.0
+    vlm_bbox_format: norm1000
+    vlm_jpeg_quality: 90
+    # Verified prototype grounding upscales 640x480 to a 1280-pixel long edge.
+    vlm_request_long_edge_px: 1280

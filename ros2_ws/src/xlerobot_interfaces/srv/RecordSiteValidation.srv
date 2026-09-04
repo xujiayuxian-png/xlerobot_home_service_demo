@@ -1,0 +1,13 @@
+string site_id
+string place_id
+bool localization_passed
+bool navigation_passed
+bool dock_passed
+float32 position_error_m
+float32 yaw_error_rad
+float32 duration_s
+string message
+---
+CapabilityError error
+string artifact_uri
+bool site_ready

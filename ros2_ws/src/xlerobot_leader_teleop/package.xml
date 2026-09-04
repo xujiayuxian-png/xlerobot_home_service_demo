@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>xlerobot_leader_teleop</name>
+  <version>0.1.0</version>
+  <description>Freshness and limit checked Leader to Follower trajectory bridge.</description>
+  <maintainer email="lisa@example.com">lisa</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>controller_interface</depend>
+  <depend>pluginlib</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>trajectory_msgs</depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>hardware_interface</test_depend>
+  <test_depend>lifecycle_msgs</test_depend>
+  <test_depend>rclpy</test_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>
