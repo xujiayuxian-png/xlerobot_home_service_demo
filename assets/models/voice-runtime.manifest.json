@@ -1,0 +1,28 @@
+{
+  "schema": "xlerobot_voice_models/v1",
+  "kws": {
+    "model_id": "sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20",
+    "license": "unresolved-model-terms",
+    "bundled": false,
+    "download_requires": "tools/setup robot --with-kws-model",
+    "source_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2",
+    "files": {
+      "tokens.txt": "2d3f32311f9b692b964da3c90e830258d3e78e013cb0c992dbfb15cd5a1a71b0",
+      "encoder-epoch-13-avg-2-chunk-16-left-64.int8.onnx": "408bbd740838c42d5bf6d1c5b80b3c88b616c7860b92d980328b5b068c76ae48",
+      "decoder-epoch-13-avg-2-chunk-16-left-64.onnx": "63a22dd60f40fff082ac3e09afa507f6787da36df76ded2fbe145fa233e22c21",
+      "joiner-epoch-13-avg-2-chunk-16-left-64.int8.onnx": "190d4067b4cc20b72a42a1916e69d92052000fb7051a427ebb1bc72a69207dc1"
+    }
+  },
+  "whisper": {
+    "repo_id": "Systran/faster-whisper-small",
+    "license": "MIT",
+    "bundled": false,
+    "revision": "536b0662742c02347bc0e980a01041f333bce120",
+    "files": {
+      "config.json": "b55496ac7940a7ae47d2c01eab40edfd8701feec1229d9cce3b40014383fb828",
+      "model.bin": "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671",
+      "tokenizer.json": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab",
+      "vocabulary.txt": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913"
+    }
+  }
+}

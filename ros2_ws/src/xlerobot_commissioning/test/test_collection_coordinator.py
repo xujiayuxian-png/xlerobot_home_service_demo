@@ -380,9 +380,12 @@ def test_pick_recorder_admission_precedes_prepare_grasp_motion(monkeypatch):
     node.detect = ReadyAction()
     node.prepare = ReadyAction()
 
-    def action(client, *_args, **_kwargs):
+    def action(client, child_goal, *_args, **_kwargs):
         if client is node.detect:
             events.append('detect')
+            assert child_goal.target_frame == 'base_link'
+            assert child_goal.grasp_backend == 'act'
+            assert child_goal.dry_run is False
             detected = DetectObject.Result()
             detected.error.code = CapabilityError.NONE
             return detected

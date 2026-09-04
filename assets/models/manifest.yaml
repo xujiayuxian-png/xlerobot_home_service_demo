@@ -1,0 +1,109 @@
+schema: xlerobot_model_assets/v1
+
+# Model binaries are deliberately not stored in Git. A release URL may be
+# added only after redistribution rights are recorded and the published files
+# match every checksum below.
+models:
+  xlerobot_act_local_grasp_v1:
+    role: default_grasp_policy
+    required_for: act
+    bundled: false
+    repo_id: xujiayuxian-png/xlerobot-act-local-grasp-v1
+    revision: null  # Filled with the immutable Hub commit after publication.
+    public_download: pending-upload
+    license: Apache-2.0
+    framework: lerobot-0.5.1
+    training_data:
+      repo_id: xujiayuxian-png/xlerobot-glue-stick-grasp-30
+      demonstrations: 30
+      object: yellow_glue_stick
+      license: CC-BY-4.0
+    checkpoint_contract:
+      image_features:
+        observation.images.wrist: [3, 480, 640]
+      state: [6]
+      action: [6]
+    files:
+      config.json: fbd3987a0c093ce01b36dd3fae38be3e7c6455079f22dd0401d1e8249d71537f
+      model.safetensors: e667f36bedb7039c1a04acc782b105447336406273b3c762ce701b97f120378d
+      policy_postprocessor.json: 648b415125a183dfd6cbc47c1dc04ab3f2d912654ef22a12ca5e8b93d7d85cdd
+      policy_preprocessor.json: 07ca6943c04ae1a10d8e2148b6f2c85f1a2b542b5c6cc4d435665911a5672dcb
+      policy_preprocessor_step_3_normalizer_processor.safetensors: ffa95725529428da10fb6b5e020507c04ed919c3b9759d019121ee890ef0d6d2
+      policy_postprocessor_step_0_unnormalizer_processor.safetensors: ffa95725529428da10fb6b5e020507c04ed919c3b9759d019121ee890ef0d6d2
+      train_config.json: 9118db69f46055dfe1a4740423609f8989e7086b1da580f5b3775d012af69bf7
+    download_manifest: xlerobot-act-local-grasp-v1.manifest.json
+
+  qwen3_vl_4b:
+    role: object_and_intent_grounding
+    required_for: [act, classical, voice]
+    bundled: false
+    public_download: hf://lmstudio-community/Qwen3-VL-4B-Instruct-GGUF@9eaf9988fe9b5e33541dc614622c36d5e90dd509
+    license: Apache-2.0
+    served_as: qwen/qwen3-vl-4b
+    api: openai-compatible
+    lm_studio:
+      version: 0.4.12+1
+      model_revision: 4
+      descriptor_sha256: e8869e92a4e59986e9aeac41fb91491d4267ab7b13aa0dbe3d7fd7c6da8e3db3
+    concrete_artifact:
+      repo_id: lmstudio-community/Qwen3-VL-4B-Instruct-GGUF
+      revision: 9eaf9988fe9b5e33541dc614622c36d5e90dd509
+      quantization: Q4_K_M
+    files:
+      Qwen3-VL-4B-Instruct-Q4_K_M.gguf: aa18af1fdda59081005319536eebff9406d556ce8a753d9a3aa81cf635eadde7
+      mmproj-Qwen3-VL-4B-Instruct-F16.gguf: 1b70e983d69dd424eb16e0ed2104d0b2a58bf01d866657f4de5da6c963620f19
+    file_sizes:
+      Qwen3-VL-4B-Instruct-Q4_K_M.gguf: 2497281568
+      mmproj-Qwen3-VL-4B-Instruct-F16.gguf: 836180160
+
+  sam2_1_hiera_tiny:
+    role: prompt_segmentation
+    required_for: [classical]
+    bundled: false
+    public_download: hf://facebook/sam2.1-hiera-tiny@de431c4043854a71d8101e17995dfe596bf101a5
+    license: Apache-2.0
+    code:
+      repository: https://github.com/facebookresearch/sam2.git
+      revision: 2b90b9f5ceec907a1c18123530e92e794ad901a4
+    files:
+      sam2.1_hiera_tiny.pt: 7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69
+
+  voice_kws:
+    role: local_wake_word
+    required_for: voice
+    bundled: false
+    public_download: https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2
+    license: unresolved-model-terms
+    model_id: sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20
+    runtime: sherpa-onnx-1.13.4
+    files:
+      tokens.txt: 2d3f32311f9b692b964da3c90e830258d3e78e013cb0c992dbfb15cd5a1a71b0
+      encoder-epoch-13-avg-2-chunk-16-left-64.int8.onnx: 408bbd740838c42d5bf6d1c5b80b3c88b616c7860b92d980328b5b068c76ae48
+      decoder-epoch-13-avg-2-chunk-16-left-64.onnx: 63a22dd60f40fff082ac3e09afa507f6787da36df76ded2fbe145fa233e22c21
+      joiner-epoch-13-avg-2-chunk-16-left-64.int8.onnx: 190d4067b4cc20b72a42a1916e69d92052000fb7051a427ebb1bc72a69207dc1
+
+  faster_whisper_small:
+    role: local_speech_recognition
+    required_for: voice
+    bundled: false
+    public_download: hf://Systran/faster-whisper-small@536b0662742c02347bc0e980a01041f333bce120
+    license: MIT
+    runtime: faster-whisper-1.2.1
+    files:
+      config.json: b55496ac7940a7ae47d2c01eab40edfd8701feec1229d9cce3b40014383fb828
+      model.bin: 3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671
+      tokenizer.json: fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab
+      vocabulary.txt: 34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913
+
+  person_detector:
+    role: nearest_person_detection
+    required_for: full_demo
+    bundled: false
+    public_download: https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.pt
+    license: AGPL-3.0
+    optional_extra: true
+    expected_filename: yolov8n.pt
+    files:
+      yolov8n.pt: f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36
+    file_sizes:
+      yolov8n.pt: 6549796

@@ -1,0 +1,11 @@
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+# Key versions read from the verified Ubuntu 24.04 / WSL2 ACT host.
+accelerate==1.14.0
+datasets==4.8.5
+huggingface-hub==1.20.1
+lerobot==0.5.1
+numpy==2.2.6
+safetensors==0.8.0
+torch==2.10.0+cu128
+torchvision==0.25.0+cu128

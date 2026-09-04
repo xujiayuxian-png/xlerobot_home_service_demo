@@ -1,0 +1,17 @@
+{
+  "schema": "xlerobot_model_download/v1",
+  "model_id": "xlerobot-act-local-grasp-v1",
+  "repo_id": "xujiayuxian-png/xlerobot-act-local-grasp-v1",
+  "revision": null,
+  "availability": "pending-upload",
+  "license": "Apache-2.0",
+  "files": {
+    "config.json": "fbd3987a0c093ce01b36dd3fae38be3e7c6455079f22dd0401d1e8249d71537f",
+    "model.safetensors": "e667f36bedb7039c1a04acc782b105447336406273b3c762ce701b97f120378d",
+    "policy_postprocessor.json": "648b415125a183dfd6cbc47c1dc04ab3f2d912654ef22a12ca5e8b93d7d85cdd",
+    "policy_preprocessor.json": "07ca6943c04ae1a10d8e2148b6f2c85f1a2b542b5c6cc4d435665911a5672dcb",
+    "policy_preprocessor_step_3_normalizer_processor.safetensors": "ffa95725529428da10fb6b5e020507c04ed919c3b9759d019121ee890ef0d6d2",
+    "policy_postprocessor_step_0_unnormalizer_processor.safetensors": "ffa95725529428da10fb6b5e020507c04ed919c3b9759d019121ee890ef0d6d2",
+    "train_config.json": "9118db69f46055dfe1a4740423609f8989e7086b1da580f5b3775d012af69bf7"
+  }
+}

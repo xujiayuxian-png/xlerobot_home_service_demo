@@ -3,6 +3,7 @@ from pathlib import Path
 
 from launch import LaunchContext
 from launch.actions import IncludeLaunchDescription
+import pytest
 
 
 ROOT = Path(__file__).parents[1]
@@ -45,29 +46,49 @@ def test_collection_profile_isolated_leader_and_no_act_executor_or_imu():
 
     context = LaunchContext()
     context.launch_configurations.update({
+        'hardware_enabled': 'true',
         'right_bus': '/dev/test-right',
         'left_bus': '/dev/test-left',
         'lidar_port': '/dev/test-lidar',
         'd455_serial': 'head-serial',
         'control_enable_lease_s': '1.4',
+        'grasp_alignment_file': '/tmp/grasp-alignment.yaml',
     })
     actions = _load_launch(launch_path).runtime(context)
     platform = _include_arguments(actions, 'platform_runtime.launch.py')
     leader_runtime = _include_arguments(actions, 'leader_runtime.launch.py')
     sensors = _include_arguments(actions, 'sensors.launch.py')
+    grasp = _include_arguments(actions, 'grasp_object.launch.py')
+    assert platform['hardware_enabled'] == 'true'
+    assert leader_runtime['hardware_enabled'] == 'true'
     assert platform['right_bus'].perform(context) == '/dev/test-right'
     assert platform['left_bus'].perform(context) == '/dev/test-left'
     assert sensors['lidar_port'].perform(context) == '/dev/test-lidar'
     assert sensors['d455_serial'].perform(context) == 'head-serial'
     assert (
+        grasp['grasp_alignment_file'].perform(context)
+        == '/tmp/grasp-alignment.yaml'
+    )
+    assert (
         leader_runtime['control_enable_lease_s'].perform(context) == '1.4'
     )
     source = launch_path.read_text(encoding='utf-8')
     assert "'unit_id': LaunchConfiguration('unit_id')" in source
+    assert "'default_dataset_id': LaunchConfiguration('dataset_id')" in source
+    assert "DeclareLaunchArgument(\n            'dataset_id'" in source
     assert (
         "'calibration_version': LaunchConfiguration("
         in source
     )
+
+
+def test_collection_fails_closed_without_explicit_hardware_consent():
+    module = _load_launch(ROOT / 'launch/act_collection.launch.py')
+    context = LaunchContext()
+    context.launch_configurations['hardware_enabled'] = 'false'
+
+    with pytest.raises(RuntimeError, match='no device was opened'):
+        module.runtime(context)
 
 
 def test_collection_control_lease_is_shared_by_both_backends_and_coordinator():

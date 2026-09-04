@@ -2,7 +2,10 @@ import json
 from pathlib import Path
 
 import xlerobot_dataset_tools.convert_accepted as convert_accepted
-from xlerobot_dataset_tools.convert_accepted import accepted_episode_paths
+from xlerobot_dataset_tools.convert_accepted import (
+    accepted_episode_paths,
+    selection_plan,
+)
 from xlerobot_dataset_tools.record_episode_node import load_profile
 
 
@@ -45,6 +48,10 @@ def test_batch_conversion_atomically_publishes_lerobot_and_card(
         convert_accepted, 'load_episode',
         lambda path, **_kwargs: type('Episode', (), {'name': path.name})(),
     )
+    monkeypatch.setattr(convert_accepted, 'validate_raw_episode', lambda *_: None)
+    monkeypatch.setattr(convert_accepted, 'conversion_plan', lambda episodes: {
+        'episode_count': len(episodes),
+    })
 
     def fake_convert(_episodes, *, output_root, repo_id):
         assert repo_id == 'local/test'
@@ -61,3 +68,58 @@ def test_batch_conversion_atomically_publishes_lerobot_and_card(
     assert manifest['outputs'] == {'lerobot_v3': 'lerobot'}
     assert 'Follower next-state' in (output / 'DATASET_CARD.md').read_text()
     assert not list((dataset / 'derived').glob('.v1.incomplete-*'))
+
+
+def test_public_candidate_plan_reports_30_accepted_and_excluded_states(
+    tmp_path: Path, monkeypatch, capsys,
+):
+    dataset = tmp_path / 'xlerobot-glue-stick-grasp-30'
+    (dataset / 'raw').mkdir(parents=True)
+    (dataset / 'reviews').mkdir()
+    accepted = [f'episode-{index:03d}' for index in range(30)]
+    for episode_id in accepted:
+        (dataset / 'raw' / episode_id).mkdir()
+        (dataset / 'reviews' / f'{episode_id}.json').write_text(json.dumps({
+            'schema': 'xlerobot_episode_review/v1',
+            'episode_id': episode_id,
+            'status': 'accepted',
+        }))
+    (dataset / 'raw/rejected-episode').mkdir()
+    (dataset / 'reviews/rejected-episode.json').write_text(json.dumps({
+        'schema': 'xlerobot_episode_review/v1',
+        'episode_id': 'rejected-episode',
+        'status': 'rejected',
+    }))
+    (dataset / 'reviews/lost-rejected.json').write_text(json.dumps({
+        'schema': 'xlerobot_episode_review/v1',
+        'episode_id': 'lost-rejected',
+        'status': 'rejected',
+    }))
+    (dataset / 'raw/unreviewed-episode').mkdir()
+
+    paths, plan = selection_plan(dataset)
+    assert len(paths) == 30
+    assert plan['episode_count'] == 30
+    assert plan['rejected_count'] == 2
+    assert plan['missing_raw'] == ['lost-rejected']
+    assert plan['missing_review'] == ['unreviewed-episode']
+
+    monkeypatch.setattr(convert_accepted, 'validate_raw_episode', lambda *_: None)
+    monkeypatch.setattr(
+        convert_accepted, 'load_episode',
+        lambda path, **_kwargs: type('Episode', (), {'name': path.name})(),
+    )
+    monkeypatch.setattr(convert_accepted, 'conversion_plan', lambda episodes: {
+        'episode_count': len(episodes),
+    })
+    assert convert_accepted.main([
+        '--dataset', str(dataset), '--version', 'v1',
+        '--repo-id', 'xujiayuxian-png/xlerobot-glue-stick-grasp-30',
+        '--dry-run',
+    ]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report['episode_count'] == 30
+    assert report['accepted_only'] is True
+    assert report['rejected_count'] == 2
+    assert report['missing_raw_count'] == 1
+    assert report['missing_review_count'] == 1

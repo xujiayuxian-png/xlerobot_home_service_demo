@@ -21,7 +21,7 @@ class ReviewNode(Node):
     def __init__(self):
         super().__init__('episode_review')
         self.root = Path(str(self.declare_parameter(
-            'artifact_root', '/var/lib/xlerobot'
+            'artifact_root', '.xlerobot/artifacts'
         ).value)).expanduser().resolve()
         self.create_service(ReviewEpisode, '/episodes/review', self.review)
 

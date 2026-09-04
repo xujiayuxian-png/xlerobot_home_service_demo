@@ -54,7 +54,7 @@ class RecordEpisodeNode(Node):
     def __init__(self):
         super().__init__('record_episode')
         root = Path(str(self.declare_parameter(
-            'artifact_root', '/var/lib/xlerobot'
+            'artifact_root', '.xlerobot/artifacts'
         ).value)).expanduser().resolve()
         self.dataset_root = root / 'datasets'
         default_profiles = Path(get_package_share_directory(

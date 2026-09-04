@@ -17,9 +17,14 @@ def include(package, name, arguments=None):
 
 
 def runtime(context):
+    if LaunchConfiguration('hardware_enabled').perform(context) != 'true':
+        raise RuntimeError(
+            'ACT collection requires hardware_enabled:=true; no device was opened'
+        )
     enabled = 'true'
     actions = [
         include('xlerobot_bringup', 'platform_runtime.launch.py', {
+            'hardware_enabled': enabled,
             'geometry_file': LaunchConfiguration('geometry_file'),
             'servo_calibration_file': LaunchConfiguration('servo_calibration_file'),
             'controllers_file': LaunchConfiguration('controllers_file'),
@@ -27,6 +32,7 @@ def runtime(context):
             'left_bus': LaunchConfiguration('left_bus'),
         }),
         include('xlerobot_bringup', 'leader_runtime.launch.py', {
+            'hardware_enabled': enabled,
             'leader_port': LaunchConfiguration('leader_port'),
             'control_enable_lease_s': LaunchConfiguration(
                 'control_enable_lease_s'
@@ -84,6 +90,7 @@ def runtime(context):
                 'artifact_root': LaunchConfiguration('artifact_root'),
                 'release_id': LaunchConfiguration('release_id'),
                 'unit_id': LaunchConfiguration('unit_id'),
+                'default_dataset_id': LaunchConfiguration('dataset_id'),
                 'workspace': 'collection', 'enable_engineering_tools': True,
             }],
         ),
@@ -98,6 +105,7 @@ def runtime(context):
         }),
         include('xlerobot_manipulation', 'grasp_object.launch.py', {
             'execution_enabled': enabled,
+            'grasp_alignment_file': LaunchConfiguration('grasp_alignment_file'),
         }),
         Node(
             package='xlerobot_bringup', executable='wrist_camera_node',
@@ -113,9 +121,16 @@ def runtime(context):
 
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument('artifact_root', default_value='/var/lib/xlerobot'),
+        DeclareLaunchArgument(
+            'hardware_enabled', default_value='false', choices=['true', 'false'],
+            description='Explicit consent for live Leader/Follower collection.',
+        ),
+        DeclareLaunchArgument('artifact_root', default_value='.xlerobot/artifacts'),
         DeclareLaunchArgument('release_id', default_value='development'),
         DeclareLaunchArgument('unit_id', default_value='reference-two-wheel'),
+        DeclareLaunchArgument(
+            'dataset_id', default_value='xlerobot-glue-stick-grasp-30'
+        ),
         DeclareLaunchArgument('calibration_version', default_value=''),
         DeclareLaunchArgument('right_bus', default_value='/dev/right_arm'),
         DeclareLaunchArgument('left_bus', default_value='/dev/left_arm'),
@@ -137,6 +152,7 @@ def generate_launch_description():
             FindPackageShare('xlerobot_bringup'), 'config',
             'platform_controllers.yaml',
         ])),
+        DeclareLaunchArgument('grasp_alignment_file', default_value=''),
         DeclareLaunchArgument('leader_port', default_value='/dev/right_master_arm'),
         DeclareLaunchArgument('control_enable_lease_s', default_value='1.0'),
         DeclareLaunchArgument(

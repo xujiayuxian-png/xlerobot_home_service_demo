@@ -734,7 +734,12 @@ class CollectionNode(Node):
             positions = None
             if goal.template_id == 'pick':
                 self._feedback(handle, 'DETECT_OBJECT', 0.08, 'detecting object once')
-                detect_goal = DetectObject.Goal(object_id=goal.object_id, dry_run=False)
+                detect_goal = DetectObject.Goal(
+                    object_id=goal.object_id,
+                    target_frame='base_link',
+                    grasp_backend='act',
+                    dry_run=False,
+                )
                 detected = self._action(
                     self.detect,
                     detect_goal,

@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# shellcheck source=tools/lib/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tools/act collect --hardware [--config PATH]
+  tools/act convert [--dataset PATH] [--version ID] [--repo-id ID] [--dry-run]
+  tools/act train [--dataset PATH] [--repo-id ID] [--output PATH] [--resume] [--dry-run]
+  tools/act evaluate [--checkpoint PATH] [--output PATH]
+  tools/act download [--output PATH]
+
+Collect demonstrations on the Robot, convert and train them on the GPU,
+qualify a local checkpoint, or fetch the manifest-pinned public checkpoint.
+Collection is live Leader/Follower motion and requires literal --hardware.
+EOF
+}
+
+command_name=''
+if (($#)) && [[ $1 != -* ]]; then
+  command_name=$1
+  shift
+fi
+forward=()
+while (($#)); do
+  case $1 in
+    --config)
+      (($# >= 2)) || die '--config requires a path'
+      XLEROBOT_CONFIG=$2
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *) forward+=("$1"); shift ;;
+  esac
+done
+set -- "${forward[@]}"
+
+case $command_name in
+  collect|convert|train|evaluate|download|_check|_serve) ;;
+  '') usage >&2; exit 2 ;;
+  *) usage >&2; exit 2 ;;
+esac
+
+load_local_env
+
+act_python() {
+  local python="$repo_root/.xlerobot/venvs/act/bin/python"
+  [[ -x $python ]] || die 'ACT GPU environment missing; run tools/setup gpu'
+  printf '%s\n' "$python"
+}
+
+verify_checkpoint() {
+  local checkpoint=$1
+  verify_act_checkpoint "$checkpoint"
+}
+
+service_check() {
+  require_config
+  local python checkpoint
+  python=$(act_python)
+  checkpoint=$(absolute_from_repo "$(config_get models.act_checkpoint '')")
+  [[ -n ${XLEROBOT_ACT_TOKEN:-} && ${XLEROBOT_ACT_TOKEN} != replace-* ]] || die \
+    'set a non-placeholder XLEROBOT_ACT_TOKEN in .env'
+  verify_checkpoint "$checkpoint"
+  "$python" - <<'PY'
+from importlib.metadata import version
+import torch
+assert torch.cuda.is_available(), 'PyTorch cannot see CUDA'
+print(f'ACT environment OK: torch={torch.__version__}, lerobot={version("lerobot")}')
+PY
+}
+
+collect() {
+  local hardware=false
+  while (($#)); do
+    case $1 in
+      --hardware) hardware=true; shift ;;
+      *) die "unsupported collect option: $1" ;;
+    esac
+  done
+  $hardware || die \
+    'ACT collection requires the explicit --hardware flag; no device was opened'
+  require_config
+  verify_calibration_runtime >/dev/null
+  source_robot_workspace
+
+  local state_root unit runtime active version artifact_root
+  state_root=$(absolute_from_repo "$(config_get calibration.state_root .xlerobot)")
+  unit=$(config_get calibration.unit demo-01)
+  runtime="$state_root/units/$unit/runtime"
+  active="$state_root/units/$unit/active"
+  version=$(basename "$(readlink -f "$active")")
+  artifact_root=$(absolute_from_repo "$(config_get data.collection_root .xlerobot/artifacts)")
+  mkdir -p "$artifact_root"
+  note 'starting LIVE ACT collection: Leader input can move the right Follower arm'
+  exec ros2 launch xlerobot_bringup act_collection.launch.py \
+    hardware_enabled:=true \
+    artifact_root:="$artifact_root" \
+    unit_id:="$(config_get robot.unit_id demo-01)" \
+    dataset_id:="$(config_get data.dataset_id xlerobot-glue-stick-grasp-30)" \
+    calibration_version:="$version" \
+    right_bus:="$(config_get robot.devices.right_arm /dev/right_arm)" \
+    left_bus:="$(config_get robot.devices.left_arm /dev/left_arm)" \
+    leader_port:="$(config_get robot.devices.leader_arm /dev/right_master_arm)" \
+    lidar_port:="$(config_get robot.devices.lidar /dev/lidar)" \
+    d455_serial:="$(config_get robot.devices.head_camera_serial '')" \
+    wrist_camera_device:="$(config_get robot.devices.wrist_camera '')" \
+    vlm_base_url:="$(config_get services.lm_studio_url '')" \
+    web_port:="$(config_get demo.web_port 8080)" \
+    geometry_file:="$runtime/geometry.yaml" \
+    servo_calibration_file:="$runtime/servos.yaml" \
+    controllers_file:="$runtime/controllers.yaml" \
+    grasp_alignment_file:="$runtime/grasp_alignment.yaml"
+}
+
+convert_dataset() {
+  require_config
+  local python dataset version repo_id dry_run=false
+  python=$(act_python)
+  dataset=$(absolute_from_repo "$(config_get data.dataset_root '')")
+  version=$(config_get data.conversion_version v1)
+  repo_id=$(config_get data.repo_id xujiayuxian-png/xlerobot-glue-stick-grasp-30)
+  while (($#)); do
+    case $1 in
+      --dataset)
+        (($# >= 2)) || die '--dataset requires a path'
+        dataset=$(absolute_from_repo "$2")
+        shift 2
+        ;;
+      --version)
+        (($# >= 2)) || die '--version requires an ID'
+        version=$2
+        shift 2
+        ;;
+      --repo-id)
+        (($# >= 2)) || die '--repo-id requires an ID'
+        repo_id=$2
+        shift 2
+        ;;
+      --dry-run) dry_run=true; shift ;;
+      *) die "unsupported convert option: $1" ;;
+    esac
+  done
+  [[ -n $dataset && -n $version && -n $repo_id ]] || die \
+    'convert requires dataset, version, and repo ID values'
+  local arguments=(
+    --dataset "$dataset" --version "$version" --repo-id "$repo_id"
+  )
+  $dry_run && arguments+=(--dry-run)
+  export PYTHONPATH="$repo_root/ros2_ws/src/xlerobot_dataset_tools${PYTHONPATH:+:$PYTHONPATH}"
+  exec "$python" -m xlerobot_dataset_tools.convert_accepted "${arguments[@]}"
+}
+
+run_workflow() {
+  local public_command=$1
+  shift
+  require_config
+  export XLEROBOT_ACT_DATASET_ROOT
+  export XLEROBOT_ACT_DATASET_REPO_ID
+  export XLEROBOT_ACT_OUTPUT
+  export XLEROBOT_ACT_CHECKPOINT
+  export XLEROBOT_ACT_MANIFEST
+  local dataset_root conversion_version
+  dataset_root=$(absolute_from_repo "$(config_get data.dataset_root '')")
+  conversion_version=$(config_get data.conversion_version v1)
+  XLEROBOT_ACT_DATASET_ROOT="$dataset_root/derived/$conversion_version/lerobot"
+  XLEROBOT_ACT_DATASET_REPO_ID=$(config_get \
+    data.repo_id xujiayuxian-png/xlerobot-glue-stick-grasp-30)
+  XLEROBOT_ACT_OUTPUT=$(absolute_from_repo "$(config_get models.act_training_output '')")
+  XLEROBOT_ACT_CHECKPOINT=$(absolute_from_repo "$(config_get models.act_checkpoint '')")
+  XLEROBOT_ACT_MANIFEST=$(absolute_from_repo "$(config_get models.act_manifest '')")
+  cd "$repo_root"
+  exec "$(act_python)" -m services.act.workflow "$public_command" "$@"
+}
+
+download_checkpoint() {
+  local arguments=()
+  local output=''
+  while (($#)); do
+    case $1 in
+      --output)
+        (($# >= 2)) || die '--output requires a path'
+        output=$(absolute_from_repo "$2")
+        arguments+=(--output "$output")
+        shift 2
+        ;;
+      *) die "unsupported download option: $1" ;;
+    esac
+  done
+  require_config
+  local installed_manifest
+  if [[ -n $output ]]; then
+    installed_manifest="$output/model-manifest.json"
+  else
+    installed_manifest=$(absolute_from_repo "$(config_get models.act_manifest '')")
+  fi
+  run_workflow download \
+    --manifest "$repo_root/assets/models/xlerobot-act-local-grasp-v1.manifest.json" \
+    --installed-manifest "$installed_manifest" \
+    "${arguments[@]}"
+}
+
+case $command_name in
+  collect) collect "$@" ;;
+  convert) convert_dataset "$@" ;;
+  train) run_workflow train "$@" ;;
+  evaluate) run_workflow evaluate "$@" ;;
+  download) download_checkpoint "$@" ;;
+  _check) service_check ;;
+  _serve)
+    service_check
+    checkpoint=$(absolute_from_repo "$(config_get models.act_checkpoint '')")
+    bind_host=$(config_get services.bind_host 0.0.0.0)
+    cd "$repo_root"
+    exec "$(act_python)" -m services.act.server \
+      --checkpoint "$checkpoint" --host "$bind_host" --port 8766 --device cuda
+    ;;
+esac

@@ -1,0 +1,13 @@
+schema: xlerobot_data_assets/v1
+
+datasets:
+  xlerobot_glue_stick_grasp_30:
+    repo_id: xujiayuxian-png/xlerobot-glue-stick-grasp-30
+    revision: null  # Filled with the immutable Hub commit after publication.
+    public_download: pending-upload
+    license: CC-BY-4.0
+    bundled: false
+    demonstrations: 30
+    object: yellow_glue_stick
+    format: lerobot-v3
+    card: glue-stick-grasp-30.md
