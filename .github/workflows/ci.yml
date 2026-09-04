@@ -1,0 +1,253 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Install lightweight checks
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          python3-numpy python3-opencv python3-pytest python3-scipy python3-yaml
+          ripgrep shellcheck
+      - name: Check shell entry points
+        shell: bash
+        run: |
+          shellcheck tools/setup tools/doctor tools/calibrate tools/act tools/run tools/lib/*.sh
+          shellcheck services/classical/install_gpd.sh
+          tools/setup --help
+          tools/doctor --help
+          tools/calibrate --help
+          tools/act --help
+          tools/run --help
+      - name: Validate public YAML
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import yaml
+          paths = [
+              Path('config/local.example.yaml'),
+              Path('assets/models/manifest.yaml'),
+              Path('assets/data/manifest.yaml'),
+              Path('services/classical/manifest.yaml'),
+          ]
+          for path in paths:
+              data = yaml.safe_load(path.read_text(encoding='utf-8'))
+          assert isinstance(data, dict) and data.get('schema'), path
+          config = yaml.safe_load(paths[0].read_text(encoding='utf-8'))
+          assert config['robot']['unit_id'] == config['calibration']['unit']
+          assert 'gpu' not in config
+          assert 'active_pointer' not in config['calibration']
+          assert 'act_manifest' in config['models']
+          assert set(config['transfer']) == {
+              'ssh_host', 'ssh_user', 'remote_repo_path'
+          }
+          for removed in ('act_repo_id', 'act_revision', 'sam2_repo_id', 'sam2_revision'):
+              assert removed not in config['models']
+          data_config = config['data']
+          assert data_config['dataset_root'] == (
+              f"{data_config['collection_root'].rstrip('/')}/datasets/"
+              f"{data_config['dataset_id']}"
+          )
+          model_manifest = yaml.safe_load(paths[1].read_text(encoding='utf-8'))
+          for model_id, record in model_manifest['models'].items():
+              assert record.get('license'), model_id
+              for digest in record.get('files', {}).values():
+                  assert len(digest) == 64 and set(digest) <= set('0123456789abcdef')
+          data_manifest = yaml.safe_load(paths[2].read_text(encoding='utf-8'))
+          for dataset_id, record in data_manifest['datasets'].items():
+              assert record.get('license'), dataset_id
+          download = __import__('json').loads(Path(
+              'assets/models/xlerobot-act-local-grasp-v1.manifest.json'
+          ).read_text(encoding='utf-8'))
+          assert download['schema'] == 'xlerobot_model_download/v1'
+          for digest in download['files'].values():
+              assert len(digest) == 64 and set(digest) <= set('0123456789abcdef')
+          voice = __import__('json').loads(Path(
+              'assets/models/voice-runtime.manifest.json'
+          ).read_text(encoding='utf-8'))
+          assert voice['schema'] == 'xlerobot_voice_models/v1'
+          for name in ('kws', 'whisper'):
+              for digest in voice[name]['files'].values():
+                  assert len(digest) == 64 and set(digest) <= set('0123456789abcdef')
+          assert len(voice['whisper']['revision']) == 40
+          assert model_manifest['models']['sam2_1_hiera_tiny']['license'] == 'Apache-2.0'
+          assert model_manifest['models']['faster_whisper_small']['license'] == 'MIT'
+          person = model_manifest['models']['person_detector']
+          assert person['file_sizes']['yolov8n.pt'] == 6549796
+          assert data_manifest['datasets']['xlerobot_glue_stick_grasp_30']['demonstrations'] == 30
+          PY
+      - name: Test external service contracts
+        run: |
+          python3 -m unittest discover -s services/act/tests -t . -v
+          python3 tools/lib/test_voice_models.py
+          python3 -m py_compile tools/lib/person_model.py tools/lib/voice_models.py tools/lib/verify_model_files.py
+          python3 tools/lib/person_model.py --help
+          if test -d services/classical/test; then
+            python3 -m pytest -q services/classical/test
+          fi
+      - name: Test calibration replays
+        shell: bash
+        run: |
+          if test -f examples/calibration/head-camera/expected.yaml; then
+            tools/calibrate replay head-camera
+          fi
+          if test -f examples/calibration/right-handeye/expected.yaml; then
+            tools/calibrate replay right-handeye
+          fi
+      - name: Reject private and large runtime assets
+        shell: bash
+        run: |
+          ! git grep -n -E 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{20,}|hf_[A-Za-z0-9]{20,}'
+          ! git grep -n -E '10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|192\.168\.[0-9]{1,3}\.[0-9]{1,3}|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]{1,3}\.[0-9]{1,3}'
+          ! git grep -n -E '(^|[^[:alnum:]_.-])/(home|Users)/[A-Za-z0-9._-]+'
+          ! git ls-files | grep -E '\.(bag|db3|mcap|onnx|pt|pth|safetensors|mp3)$'
+          while IFS= read -r path; do
+            test "$(stat -c %s "$path")" -le 5242880 || {
+              echo "tracked file exceeds 5 MiB: $path" >&2
+              exit 1
+            }
+          done < <(git ls-files)
+      - name: Check publication contracts
+        shell: bash
+        run: |
+          temporary_root=$(mktemp -d)
+          printf 'XLEROBOT_CONFIG=from-dotenv.yaml\n' >"$temporary_root/.env"
+          override=$(XLEROBOT_CONFIG=from-cli.yaml bash -c '
+            source tools/lib/common.sh
+            repo_root=$1
+            load_local_env
+            printf "%s" "$XLEROBOT_CONFIG"
+          ' _ "$temporary_root")
+          test "$override" = "$temporary_root/from-cli.yaml"
+          ! rg -n 'tools/run (robot|task)|tools/act (check|serve|health|test)|tools/(setup|doctor) all|act-shuttlecock' README.md README.zh-CN.md docs assets examples services
+          rg -q 'collect.*convert.*train.*evaluate.*download' <(tr '\n' ' ' < <(tools/act --help))
+          rg -q 'gpu.*mapping.*grasp.*demo' <(tr '\n' ' ' < <(tools/run --help))
+          rg -q 'da2ed3acab00a9da69dedff914b4c69e89e93aa8' THIRD_PARTY_NOTICES.md
+          rg -q '6327f20eabfcba41a05fdd2e2ba408153dc2e958' THIRD_PARTY_NOTICES.md
+          rg -q '2b90b9f5ceec907a1c18123530e92e794ad901a4' THIRD_PARTY_NOTICES.md
+          mesh_digest=$(
+            find ros2_ws/src/xlerobot_description/meshes/xlerobot_original \
+              -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
+          )
+          test "$mesh_digest" = bf4fc39f0fd019ca2df367016a44b1965a4f5bf0ae6066ee09ee8bc0eaeafb29
+          rg -q '"integrity": "sha512-' ros2_ws/src/xlerobot_hmi/web/package-lock.json
+          rg -Fxq 'torch==2.10.0+cu128' services/act/requirements.lock.txt
+          rg -Fxq 'torchvision==0.25.0+cu128' services/act/requirements.lock.txt
+          for command in \
+            'tools/run mapping' \
+            'tools/run grasp act' \
+            'tools/run demo' \
+            'tools/calibrate capture servo' \
+            'tools/act collect'; do
+            if bash -c "$command" >refusal.log 2>&1; then
+              echo "hardware command unexpectedly succeeded: $command" >&2
+              exit 1
+            fi
+            rg -q 'no device was opened' refusal.log
+          done
+          ! tools/setup all
+          ! tools/doctor all --config config/local.example.yaml
+          ! tools/act check
+          ! tools/run robot
+          ! XLEROBOT_CONFIG=config/local.example.yaml tools/act download --manifest /tmp/override.json
+          ! XLEROBOT_CONFIG=config/local.example.yaml tools/run gpu --phase build
+          for command in \
+            'tools/setup' \
+            'tools/doctor' \
+            'tools/calibrate' \
+            'tools/act' \
+            'tools/run' \
+            'tools/doctor robot --config' \
+            'tools/calibrate status --config' \
+            'tools/act train --config' \
+            'tools/run gpu --config' \
+            'tools/run grasp --backend' \
+            'tools/run mapping --phase'; do
+            if timeout 5 bash -c "$command" >/dev/null 2>&1; then
+              echo "missing-argument command unexpectedly succeeded: $command" >&2
+              exit 1
+            fi
+          done
+          for mutation in unit dataset; do
+            temporary=$(mktemp --suffix=.yaml)
+            python3 - "$mutation" "$temporary" <<'PY'
+          from pathlib import Path
+          import sys
+          import yaml
+
+          document = yaml.safe_load(Path('config/local.example.yaml').read_text())
+          if sys.argv[1] == 'unit':
+              document['calibration']['unit'] = 'different-unit'
+          else:
+              document['data']['dataset_root'] = '.xlerobot/wrong-dataset'
+          Path(sys.argv[2]).write_text(yaml.safe_dump(document), encoding='utf-8')
+          PY
+            if XLEROBOT_CONFIG="$temporary" bash -c \
+                'source tools/lib/common.sh; load_local_env; require_config'; then
+              echo "invalid $mutation identity unexpectedly passed" >&2
+              exit 1
+            fi
+            rm -f "$temporary"
+          done
+
+  ros-build-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    container:
+      image: ros:jazzy-ros-base
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Install ROS and web dependencies
+        shell: bash
+        run: |
+          apt-get update
+          apt-get install -y npm python3-pytest python3-rosdep
+          rosdep update
+          rosdep install --from-paths ros2_ws/src --ignore-src -r -y
+      - name: Build and test web console
+        shell: bash
+        working-directory: ros2_ws/src/xlerobot_hmi/web
+        run: |
+          npm ci
+          npm test
+          npm run build
+      - name: Build ROS workspace
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          env -u AMENT_TRACE_SETUP_FILES bash -u -c '
+            source tools/lib/common.sh
+            source_environment /opt/ros/jazzy/setup.bash
+            test "$ROS_DISTRO" = jazzy
+            case $- in *u*) exit 0 ;; *) exit 1 ;; esac
+          '
+          cd ros2_ws
+          colcon build --symlink-install
+      - name: Test ROS packages in isolated package processes
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          cd ros2_ws
+          source install/setup.bash
+          colcon test --event-handlers console_cohesion+
+          colcon test-result --verbose

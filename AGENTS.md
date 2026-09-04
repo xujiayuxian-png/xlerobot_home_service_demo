@@ -15,4 +15,3 @@ framework or a teaching platform.
   controller commands remain on the robot computer.
 - Use `apply_patch` for source edits. Build from `ros2_ws`, and add the smallest
   relevant software-only test for behavior changes.
-

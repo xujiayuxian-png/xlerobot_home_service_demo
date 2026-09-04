@@ -86,4 +86,3 @@ def validate_actions(actions) -> list[list[float]]:
         finite_vector(row, size=STATE_DIMENSION, field=f'action[{index}]')
         for index, row in enumerate(actions)
     ]
-

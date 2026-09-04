@@ -1,2 +1,1 @@
 """ACT service tests."""
-

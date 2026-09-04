@@ -1,2 +1,1 @@
 """ACT inference service package."""
-
