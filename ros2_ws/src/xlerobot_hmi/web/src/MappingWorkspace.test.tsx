@@ -111,6 +111,36 @@ describe('mapping joystick input', () => {
 })
 
 describe('mapping workflow', () => {
+  it('requires confirmation to reset, preserves saved-place feedback, and blocks reset while armed', async () => {
+    const reset = vi.spyOn(api, 'resetMap').mockResolvedValue({
+      status: 'reset', saved_assets_preserved: true, mapping: { ...state, map: null },
+    })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<MappingWorkspace state={state} phase="build" initialSiteId="home" onError={vi.fn()} />)
+    await screen.findByText('用当前位置更新地点')
+    const button = screen.getByRole('button', { name: '清除当前地图并重建' })
+    fireEvent.click(screen.getByText('开启遥控'))
+    expect((button as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByText('停车并结束遥控'))
+    fireEvent.click(button)
+    expect(confirm).toHaveBeenCalled()
+    expect(reset).not.toHaveBeenCalled()
+    confirm.mockReturnValue(true)
+    fireEvent.click(button)
+    await waitFor(() => expect(reset).toHaveBeenCalledTimes(1))
+    expect(screen.getByRole('list', { name: '已保存地点' }).textContent).toContain('table')
+    expect(screen.getByRole('status').textContent).toContain('已保存的地图和地点保持不变')
+    expect(TestSocket.instances).toHaveLength(0)
+  })
+  it('reports reset failure and never claims that the map was cleared', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.spyOn(api, 'resetMap').mockRejectedValue(new Error('SLAM reset unavailable'))
+    const error = vi.fn()
+    render(<MappingWorkspace state={state} phase="build" initialSiteId="home" onError={error} />)
+    fireEvent.click(screen.getByRole('button', { name: '清除当前地图并重建' }))
+    await waitFor(() => expect(error).toHaveBeenCalledWith('Error: SLAM reset unavailable'))
+    expect(screen.getByRole('status').textContent).toBe('')
+  })
   it('keeps one held command through parent updates and the five-second site refresh', async () => {
     vi.useFakeTimers()
     const view = render(<MappingWorkspace state={state} phase="build" initialSiteId="home" onError={vi.fn()} />)
@@ -219,6 +249,7 @@ describe('mapping workflow', () => {
     expect((screen.getByText('2. 导航并验证地点') as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByText('3. 激活场地草稿') as HTMLButtonElement).disabled).toBe(true)
     expect(TestSocket.instances).toHaveLength(0)
+    expect(screen.queryByText('清除当前地图并重建')).toBeNull()
   })
 })
 

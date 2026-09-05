@@ -43,7 +43,7 @@ from rclpy.qos import (
 )
 from rclpy.time import Time
 from sensor_msgs.msg import Image, LaserScan
-from slam_toolbox.srv import SaveMap
+from slam_toolbox.srv import Reset, SaveMap
 from std_msgs.msg import Bool, String
 from std_srvs.srv import SetBool
 from tf2_ros import Buffer, TransformException, TransformListener
@@ -499,6 +499,7 @@ class OperatorConsoleNode(Node):
             )
         if self._mapping_enabled():
             self.map_saver = self.create_client(SaveMap, '/slam_toolbox/save_map')
+            self.map_resetter = self.create_client(Reset, '/slam_toolbox/reset')
         if self._mapping_validation_enabled():
             self.localize_client = ActionClient(
                 self, AutoLocalize, '/auto_localize'
@@ -962,6 +963,19 @@ class OperatorConsoleNode(Node):
             return None
         with self._mapping_lock:
             return json.loads(json.dumps(self._mapping_state))
+
+    def reset_mapping_preview(self) -> None:
+        """Discard only live visualization caches after a successful SLAM reset."""
+        with self._mapping_lock:
+            self._mapping_state.update({
+                'map': None, 'pose': None, 'scan': None, 'path': None,
+                'slam': 'WAITING',
+                'reset_notice': '当前地图已清除，正在重新建图。已保存的地图和地点未删除；'
+                                '重建后请重新确认或记录地点，再保存新地图。',
+            })
+        self.events.publish('mapping', {
+            'kind': 'reset', 'state': self.mapping_snapshot(),
+        })
 
     def command_teleop(self, linear: float, angular: float, armed: bool) -> None:
         if self._teleop_publisher is None:
@@ -1798,6 +1812,7 @@ class ConsoleApplication:
             web.get('/api/v1/mapping/state', self.mapping_state),
             web.get('/api/v1/sites', self.sites),
             web.post('/api/v1/mapping/sessions', self.save_mapping_session),
+            web.post('/api/v1/mapping/reset', self.reset_mapping),
             web.post('/api/v1/sites/{site_id}/places', self.set_place),
             web.delete(
                 '/api/v1/sites/{site_id}/places/{place_id}', self.remove_place
@@ -2411,6 +2426,37 @@ class ConsoleApplication:
                 )),
             },
         })
+
+    async def reset_mapping(self, request):
+        self._require_engineering_workspace(request)
+        self._require_workspace('mapping')
+        if str(self.node.parameter('mapping_phase')) != 'build':
+            raise web.HTTPNotFound(text='map reset is available only while building a map')
+        payload = await request.json()
+        if not isinstance(payload, dict) or payload.get('confirm') is not True:
+            raise web.HTTPBadRequest(text='explicit confirm=true is required to reset the live map')
+        if self.node.task_active():
+            raise web.HTTPConflict(text='wait for the active task to finish')
+        # Excludes teleop and other manual operations, including a second tab.
+        owner = self.node.manual_control.begin_action()
+        if owner is None:
+            raise web.HTTPConflict(text='end teleoperation and wait for other manual operations first')
+        try:
+            response = await self._call_service(
+                self.node.map_resetter, Reset.Request(pause_new_measurements=False), 10.0,
+            )
+            if response.result != Reset.Response.RESULT_SUCCESS:
+                raise web.HTTPConflict(text='SLAM rejected the map reset; no success was confirmed')
+            self.node.reset_mapping_preview()
+            self.node.history.audit('operator', 'mapping.reset', 'success', {
+                'scope': 'live_slam_only', 'saved_assets_preserved': True,
+            })
+            return web.json_response({
+                'status': 'reset', 'saved_assets_preserved': True,
+                'mapping': self.node.mapping_snapshot(),
+            })
+        finally:
+            self.node.manual_control.finish_action(owner)
 
     async def save_mapping_session(self, request):
         self._require_engineering_workspace(request)

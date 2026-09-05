@@ -80,6 +80,7 @@ export interface CollectionState {
 
 export interface MappingState {
   slam: string
+  reset_notice?: string
   map: null | {
     frame_id: string
     width: number

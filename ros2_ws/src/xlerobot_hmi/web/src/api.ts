@@ -69,6 +69,9 @@ export const api = {
       method: 'POST', body: JSON.stringify({ preset }),
     }),
   mappingState: () => request<MappingState>('/api/v1/mapping/state'),
+  resetMap: () => request<{ status: 'reset', saved_assets_preserved: boolean, mapping: MappingState }>(
+    '/api/v1/mapping/reset', { method: 'POST', body: JSON.stringify({ confirm: true }) },
+  ),
   site: (siteId: string) => request<SiteSummary>(
     `/api/v1/sites?site_id=${encodeURIComponent(siteId)}`,
   ),

@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 from rclpy.qos import DurabilityPolicy, ReliabilityPolicy
 from sensor_msgs.msg import Image
+from slam_toolbox.srv import Reset
 from xlerobot_hmi.operator_console import (
     _diagnostic_level_for_readiness,
     _image_array,
@@ -38,6 +39,86 @@ from xlerobot_interfaces.msg import CapabilityError, PerceptionObservation, Task
 from xlerobot_interfaces.srv import FinalizeEpisode, ReviewEpisode, ServoCalibrationStep
 import yaml
 from xlerobot_assets import ArtifactCatalog
+
+
+@pytest.mark.parametrize('failure', ['', 'rejected', 'timeout', 'unavailable'])
+def test_reset_live_map_only_after_slam_success_and_preserve_saved_files(tmp_path, failure):
+    saved = tmp_path / 'saved_map.yaml'
+    saved.write_text('image: map.pgm\n')
+    events, audits, calls = [], [], []
+    values = {'enable_engineering_tools': True, 'workspace': 'mapping', 'mapping_phase': 'build'}
+    node = SimpleNamespace(
+        parameter=lambda name: values[name], task_active=lambda: False,
+        manual_control=ManualControlCoordinator(), map_resetter=object(),
+        _mapping_lock=threading.Lock(),
+        _mapping_state={'map': {'old': True}, 'pose': {}, 'scan': {}, 'path': {}, 'slam': 'MAPPING'},
+        events=SimpleNamespace(publish=lambda *args: events.append(args)),
+        history=SimpleNamespace(audit=lambda *args: audits.append(args)),
+    )
+    node.mapping_snapshot = lambda: OperatorConsoleNode.mapping_snapshot(node)
+    node.reset_mapping_preview = lambda: OperatorConsoleNode.reset_mapping_preview(node)
+    app = ConsoleApplication(node)
+
+    async def call(client, request, timeout):
+        assert node.manual_control.action_active()
+        assert client is node.map_resetter
+        calls.append(request)
+        if failure == 'timeout':
+            raise web.HTTPGatewayTimeout()
+        if failure == 'unavailable':
+            raise web.HTTPServiceUnavailable()
+        return Reset.Response(result=1 if failure else Reset.Response.RESULT_SUCCESS)
+
+    class Request:
+        async def json(self):
+            return {'confirm': True}
+
+    app._call_service = call
+
+    async def exercise():
+        if failure:
+            with pytest.raises(web.HTTPException):
+                await app.reset_mapping(Request())
+            assert node._mapping_state['map'] == {'old': True}
+            assert not events and not audits
+        else:
+            result = json.loads((await app.reset_mapping(Request())).text)
+            assert result['saved_assets_preserved'] is True
+            assert all(result['mapping'][key] is None for key in ('map', 'pose', 'scan', 'path'))
+            assert events[0][1]['kind'] == 'reset'
+            assert audits[0][1] == 'mapping.reset'
+        assert calls[0].pause_new_measurements is False
+        assert not node.manual_control.action_active()
+        assert saved.read_text() == 'image: map.pgm\n'
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize('case', ['operator', 'validate', 'unconfirmed', 'teleop', 'busy', 'task'])
+def test_reset_map_rejects_wrong_phase_or_busy_control_before_service_call(case):
+    values = {'enable_engineering_tools': True, 'workspace': 'mapping', 'mapping_phase': 'build'}
+    if case == 'operator':
+        values['workspace'] = 'operator'
+    if case == 'validate':
+        values['mapping_phase'] = 'validate'
+    control = ManualControlCoordinator()
+    if case == 'teleop':
+        control.claim_teleop(object(), task_active=False)
+    if case == 'busy':
+        control.begin_action()
+    node = SimpleNamespace(parameter=lambda name: values[name], manual_control=control,
+                           task_active=lambda: case == 'task')
+
+    class Request:
+        async def json(self):
+            return {'confirm': case != 'unconfirmed'}
+
+    async def exercise():
+        with pytest.raises(web.HTTPException):
+            # No service client: an incorrectly accepted request will fail the test.
+            await ConsoleApplication(node).reset_mapping(Request())
+
+    asyncio.run(exercise())
 
 
 def test_site_summary_reads_draft_without_activating_or_modifying_it(tmp_path):

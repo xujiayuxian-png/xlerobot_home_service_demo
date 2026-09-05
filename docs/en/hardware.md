@@ -112,6 +112,12 @@ hardware operations:
 Run these phases separately, never concurrently. If using `--config`, use the
 same file for both phases. In the web workspace:
 
+To start mapping over, end teleoperation, wait until stationary, then confirm
+“清除当前地图并重建” (clear the live map and rebuild). This resets live SLAM only;
+saved maps, places and Demo configuration are untouched. Unsaved mapping cannot
+be recovered. New scans rebuild the map; recheck or record place coordinates
+before saving the replacement map.
+
 1. Enable teleoperation and hold/drag the joystick to cover the site. Up/down
    drives forward/backward; left/right turns, including simultaneous driving
    and turning. Release sends zero; leaving the window ends teleoperation.

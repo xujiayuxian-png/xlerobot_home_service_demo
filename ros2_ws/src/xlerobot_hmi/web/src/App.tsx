@@ -118,6 +118,7 @@ export function App() {
         setHistory(update.data.tasks)
       } else if (update.type === 'mapping') {
         setMapping(current => {
+          if (update.data.kind === 'reset') return update.data.state
           if (!current) return current
           const next = { ...current }
           if (update.data.kind === 'map') next.map = update.data.map
@@ -623,6 +624,14 @@ export function MappingWorkspace({ state, phase, initialSiteId, onError }: {
       setSaved('地图已保存为草稿，尚未替换 Demo 地图。继续建图后请再次保存。')
     })
   }
+  const resetMap = async () => {
+    if (!window.confirm('清除当前正在构建的地图并重新建图？未保存的建图结果无法恢复。'
+      + '已保存的地图、地点和 Demo 配置不会删除；重建后请重新确认或记录地点。')) return
+    await perform('清除当前地图中…', async () => {
+      await api.resetMap()
+      setSaved('当前地图已清除，等待新扫描重新生成。已保存的地图和地点保持不变。')
+    })
+  }
   const savePlace = async () => {
     const id = placeId.trim()
     if (site?.draft.places.some(place => place.id === id)
@@ -668,6 +677,7 @@ export function MappingWorkspace({ state, phase, initialSiteId, onError }: {
       <div className="map-heading"><div><p className="section-label">LIVE SLAM</p>
         <h2>场地地图</h2></div><strong>{state?.slam || 'WAITING'}</strong></div>
       <MapCanvas state={state} places={places} />
+      {state?.reset_notice && <p className="hint">{state.reset_notice}</p>}
       <div className="map-stats">
         <span>分辨率 <b>{state?.map?.resolution.toFixed(3) || '—'} m</b></span>
         <span>尺寸 <b>{state?.map ? `${state.map.width} × ${state.map.height}` : '—'}</b></span>
@@ -703,6 +713,7 @@ export function MappingWorkspace({ state, phase, initialSiteId, onError }: {
           <label className="site-field">地图名<input aria-label="地图名" disabled={!!pending} value={mapName}
             onChange={event => setMapName(event.target.value)} /></label>
           <button className="primary block" disabled={armed || !!pending || !state?.map || !validId(mapName)} onClick={save}>保存当前地图</button>
+          <button className="danger block" disabled={armed || !!pending} onClick={resetMap}>清除当前地图并重建</button>
           <p className="hint">先停车并结束遥控，等机器人停稳再保存。保存不会结束建图；结束前再保存一次。</p>
         </>}
         <label className="site-field">地点 ID<input aria-label="地点 ID" disabled={!!pending} value={placeId}

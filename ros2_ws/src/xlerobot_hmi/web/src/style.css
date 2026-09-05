@@ -239,6 +239,7 @@ button.danger { border-color: #88474f; color: #ff9da7; background: rgba(96, 31, 
 .joystick-pad .joystick-knob { width: 56px; height: 56px; top: calc(50% - 28px); left: calc(50% - 28px); border: 2px solid var(--green); border-radius: 50%; background: #306b58; box-shadow: 0 3px 14px #0008; }
 .stop-drive { color: var(--red); }
 .site-field { display: grid; gap: 6px; margin: 12px 0; font-size: .8rem; }
+.site-card button.danger { margin-top: 8px; }
 .saved-places { list-style: none; padding: 0; display: grid; gap: 8px; }
 .saved-places button { width: 100%; text-align: left; }.saved-places button[aria-pressed="true"] { border-color: var(--green); }
 .saved-places small { display: block; margin-top: 5px; color: var(--text-soft); }
