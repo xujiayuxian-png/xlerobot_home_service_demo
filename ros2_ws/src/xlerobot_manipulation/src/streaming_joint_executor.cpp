@@ -484,6 +484,12 @@ private:
       publish_feedback(goal_handle, session, "complete", 1.0F, terminal_message);
       goal_handle->succeed(result);
     } else {
+      RCLCPP_ERROR(
+        get_logger(), "Policy session %s stopped: code=%u accepted_chunks=%llu "
+        "executed_samples=%llu reason=%s", session->id.c_str(),
+        static_cast<unsigned int>(terminal_code),
+        static_cast<unsigned long long>(result->accepted_chunks),
+        static_cast<unsigned long long>(result->executed_samples), terminal_message.c_str());
       goal_handle->abort(result);
     }
   }

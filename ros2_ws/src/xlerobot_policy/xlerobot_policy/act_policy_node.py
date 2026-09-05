@@ -137,6 +137,7 @@ class ExecutorFeedback:
         self.condition = threading.Condition()
         self.session_id = session_id
         self.protocol_error = ''
+        self.terminal_error = None
         self.ready = False
         self.accepted_chunks = 0
         self.executed_samples = 0
@@ -159,6 +160,38 @@ class ExecutorFeedback:
             self.executed_samples = int(feedback.executed_samples)
             self.queued_horizon_s = float(feedback.queued_horizon_s)
             self.condition.notify_all()
+
+    def finish(self, future):
+        """Wake queue waits on termination, preserving the executor's cause."""
+        with self.condition:
+            try:
+                wrapped = future.result()
+                result = wrapped.result
+                if result.session_id != self.session_id:
+                    self.protocol_error = 'executor result changed the session ID'
+                elif result.error.code != CapabilityError.NONE:
+                    self.terminal_error = PolicyFailure(
+                        result.error.code, result.error.message
+                    )
+                elif wrapped.status != GoalStatus.STATUS_SUCCEEDED:
+                    self.terminal_error = PolicyFailure(
+                        CapabilityError.BACKEND_FAILURE,
+                        'executor terminated without a successful result',
+                    )
+                else:
+                    self.accepted_chunks = int(result.accepted_chunks)
+                    self.executed_samples = int(result.executed_samples)
+            except Exception as exc:
+                self.terminal_error = PolicyFailure(
+                    CapabilityError.BACKEND_FAILURE, f'executor result failed: {exc}'
+                )
+            self.condition.notify_all()
+
+    def raise_if_failed(self):
+        if self.protocol_error:
+            raise PolicyFailure(CapabilityError.BACKEND_FAILURE, self.protocol_error)
+        if self.terminal_error is not None:
+            raise self.terminal_error
 
 
 class ActPolicyNode(Node):
@@ -614,16 +647,14 @@ class ActPolicyNode(Node):
         handle = self._wait_future(outer_goal, future, self.executor_timeout_s)
         if handle is None or not handle.accepted:
             raise PolicyFailure(CapabilityError.BACKEND_FAILURE, 'executor rejected policy goal')
+        handle.get_result_async().add_done_callback(state.finish)
         return handle
 
     def _wait_executor_ready(self, outer_goal, executor_handle, state):
         deadline = time.monotonic() + self.executor_timeout_s
         with state.condition:
             while not state.ready:
-                if state.protocol_error:
-                    raise PolicyFailure(
-                        CapabilityError.BACKEND_FAILURE, state.protocol_error
-                    )
+                state.raise_if_failed()
                 self._check_cancel(outer_goal, executor_handle)
                 if time.monotonic() >= deadline:
                     raise PolicyFailure(
@@ -668,6 +699,8 @@ class ActPolicyNode(Node):
         request_period_s = 1.0 / self.request_hz
         max_samples = math.floor(requested_duration * self.control_hz)
         while rclpy.ok():
+            with state.condition:
+                state.raise_if_failed()
             self._check_cancel(outer_goal, executor_handle)
             if time.monotonic() >= deadline:
                 raise PolicyFailure(
@@ -787,10 +820,7 @@ class ActPolicyNode(Node):
     def _wait_queue_room(self, outer_goal, executor_handle, state, deadline):
         with state.condition:
             while state.queued_horizon_s > self.queue_threshold_s:
-                if state.protocol_error:
-                    raise PolicyFailure(
-                        CapabilityError.BACKEND_FAILURE, state.protocol_error
-                    )
+                state.raise_if_failed()
                 self._check_cancel(outer_goal, executor_handle)
                 if time.monotonic() >= deadline:
                     raise PolicyFailure(CapabilityError.TIMEOUT, 'executor queue did not drain')
@@ -800,10 +830,7 @@ class ActPolicyNode(Node):
         deadline = time.monotonic() + self.executor_timeout_s
         with state.condition:
             while state.accepted_chunks < count:
-                if state.protocol_error:
-                    raise PolicyFailure(
-                        CapabilityError.BACKEND_FAILURE, state.protocol_error
-                    )
+                state.raise_if_failed()
                 self._check_cancel(outer_goal, executor_handle)
                 if time.monotonic() >= deadline:
                     raise PolicyFailure(CapabilityError.TIMEOUT, 'policy chunk was not accepted')
