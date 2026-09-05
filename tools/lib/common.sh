@@ -68,7 +68,7 @@ require_config() {
   [[ -f $XLEROBOT_CONFIG ]] || die \
     "missing $XLEROBOT_CONFIG; copy config/local.example.yaml to config/local.yaml"
   local schema
-  schema=$(config_get schema '') || die 'PyYAML is required; run tools/setup first'
+  schema=$(config_get schema '') || die 'configuration could not be loaded; see the error above'
   [[ $schema == xlerobot_demo/v1 ]] || die \
     "unsupported config schema '${schema:-missing}' (expected xlerobot_demo/v1)"
   local robot_unit calibration_unit collection_root dataset_id dataset_root expected

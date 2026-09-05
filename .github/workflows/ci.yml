@@ -97,6 +97,7 @@ jobs:
         run: |
           python3 -m unittest discover -s services/act/tests -t . -v
           python3 tools/lib/test_voice_models.py
+          python3 tools/lib/test_public_tools.py
           python3 -m py_compile tools/lib/person_model.py tools/lib/voice_models.py tools/lib/verify_model_files.py
           python3 tools/lib/person_model.py --help
           if test -d services/classical/test; then

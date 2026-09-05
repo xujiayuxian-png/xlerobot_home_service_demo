@@ -52,37 +52,13 @@ check_python_versions() {
     return
   fi
   local result
-  if result=$("$python" - "$expected_python" "$@" <<'PY' 2>&1
-from importlib.metadata import PackageNotFoundError, version
-from importlib import import_module
-import platform
-import sys
-
-expected_python = sys.argv[1]
-items = sys.argv[2:]
-errors = []
-if expected_python and platform.python_version() != expected_python:
-    errors.append(
-        f"python={platform.python_version()} (expected {expected_python})"
-    )
-for package, expected in zip(items[::2], items[1::2], strict=True):
-    try:
-        actual = (
-            import_module(package).__version__
-            if package in ('torch', 'torchvision') else version(package)
-        )
-    except PackageNotFoundError:
-        errors.append(f"{package}=missing (expected {expected})")
-    else:
-        if actual != expected:
-            errors.append(f"{package}={actual} (expected {expected})")
-if errors:
-    raise SystemExit("; ".join(errors))
-PY
-  ); then
+  if result=$("$python" "$repo_root/tools/lib/python_versions.py" \
+      "$expected_python" "$@" 2>&1); then
     ok "$label package versions match the published environment"
   else
-    fail "$label version mismatch: $result"
+    local repair="tools/setup $role"
+    [[ $label != 'optional AGPL person detector' ]] || repair+=' --with-person-detector'
+    fail "$label dependency check failed: $result; rerun $repair"
   fi
 }
 
