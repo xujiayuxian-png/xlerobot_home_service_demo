@@ -21,7 +21,7 @@ class GpdError(RuntimeError):
 
 
 def _gpd_root() -> Path:
-    return Path(os.environ.get("GPD_ROOT", SERVICE_ROOT / "vendor" / "gpd"))
+    return Path(os.environ.get("GPD_ROOT", SERVICE_ROOT.parents[1] / ".xlerobot/vendor/gpd"))
 
 
 def _binary(root: Path) -> Path:

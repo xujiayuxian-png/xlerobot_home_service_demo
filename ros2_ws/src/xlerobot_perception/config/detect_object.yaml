@@ -20,8 +20,7 @@ detect_object_vlm:
     vlm_request_long_edge_px: 1280
     # Prompted SAM2 and GPD share this service on the GPU workstation.
     classical_base_url: http://127.0.0.1:8765
-    # Required for centroid/GPD; ACT remains independent of these files.
-    transforms_file: ''
+    # Same active alignment as ACT; extrinsics always come from live robot TF.
     grasp_alignment_file: ''
     classical_timeout_s: 90.0
     gpd_timeout_s: 120.0

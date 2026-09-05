@@ -203,7 +203,6 @@ def _runtime(context):
                     'dry_run_mode': perception_mode,
                     'vlm_base_url': LaunchConfiguration('vlm_base_url'),
                     'classical_base_url': LaunchConfiguration('classical_base_url'),
-                    'transforms_file': LaunchConfiguration('transforms_file'),
                     'grasp_alignment_file': LaunchConfiguration('grasp_alignment_file'),
                 },
             ),
@@ -317,10 +316,6 @@ def generate_launch_description() -> LaunchDescription:
                 default_value='act',
                 choices=['act', 'centroid', 'gpd'],
                 description='Backend used by voice requests that do not name one.',
-            ),
-            DeclareLaunchArgument(
-                'transforms_file', default_value='',
-                description='Activated runtime transforms; required by centroid/GPD.',
             ),
             DeclareLaunchArgument(
                 'grasp_alignment_file', default_value='',

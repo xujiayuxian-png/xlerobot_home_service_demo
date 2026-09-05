@@ -62,6 +62,17 @@ def test_health_names_each_backend(monkeypatch):
     ]
 
 
+def test_gpd_checkout_is_machine_local_and_accepts_verified_binary_name(tmp_path, monkeypatch):
+    monkeypatch.delenv('GPD_ROOT', raising=False)
+    monkeypatch.delenv('GPD_BINARY', raising=False)
+    assert server.gpd_wrapper._gpd_root() == ROOT.parents[1] / '.xlerobot/vendor/gpd'
+    build = tmp_path / 'build'
+    build.mkdir()
+    binary = build / 'detect_grasps_json'
+    binary.touch()
+    assert server.gpd_wrapper._binary(tmp_path) == binary
+
+
 def test_gpd_failure_never_returns_a_centroid_candidate(monkeypatch):
     payload = encoded_payload(width=12, height=10)
     payload.update({

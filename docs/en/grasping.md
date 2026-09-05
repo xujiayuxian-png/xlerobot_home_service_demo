@@ -5,6 +5,18 @@ pregrasp planning, robot-local controller path, and grasp verification. The
 choice is carried explicitly in `ExecuteTask.grasp_backend`; there is no silent
 fallback from one route to another.
 
+ACT is the main demo backend; centroid and GPD are alternative grasp backends,
+not separate robot stacks. All use the same active geometry/servo calibration,
+timestamped TF, grasp alignment and robot-local execution workspace. Classical
+perception does not require another head-camera or hand-eye solver export.
+Calibration sample bounds record where the fit was measured; they are not a
+second runtime workspace. Same-unit imported calibration retains its provenance
+without claiming newly measured accuracy, particularly at contact height.
+
+GPD runs in the GPU computer's Ubuntu/WSL environment, alongside SAM2 on port
+8765. Its native checkout/build is local state under `.xlerobot/vendor/gpd`;
+`./tools/setup gpu --with-gpd` builds the pinned revision for a clean install.
+
 ## Classical RGB-D route
 
 The classical service on port 8765 combines VLM grounding, prompted SAM 2

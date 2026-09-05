@@ -354,12 +354,20 @@ private:
         }
       }
       const auto metrics = document["metrics"];
-      if (!metrics.IsMap() || !metrics["sample_count"] || !metrics["plane_rmse_mm"] ||
+      const bool existing_runtime =
+        document["validation"].as<std::string>("") == "existing_unit_runtime" &&
+        document["provenance"].IsMap();
+      if (!existing_runtime &&
+        (!metrics.IsMap() || !metrics["sample_count"] || !metrics["plane_rmse_mm"] ||
         metrics["sample_count"].as<double>() <= 0.0 ||
         !std::isfinite(metrics["plane_rmse_mm"].as<double>()) ||
-        metrics["plane_rmse_mm"].as<double>() < 0.0)
+        metrics["plane_rmse_mm"].as<double>() < 0.0))
       {
         throw std::invalid_argument("grasp alignment metrics are incomplete");
+      }
+      if (existing_runtime) {
+        RCLCPP_WARN(get_logger(),
+            "using this unit's imported grasp alignment; no new calibration quality claim");
       }
       grasp_alignment_ready_ = true;
     } catch (const YAML::Exception & error) {
@@ -753,10 +761,10 @@ private:
     }
     execute_classical_pose(
       goal_handle, plan.pregrasp, wrist_seeds, dry_run,
-      "pregrasp", 0.28F, true, false);
+      "pregrasp", 0.28F, true);
     execute_classical_pose(
       goal_handle, plan.grasp, wrist_seeds, dry_run,
-      "grasp_descent", 0.52F, false, true);
+      "grasp_descent", 0.52F, false);
     if (!dry_run) {
       publish_feedback(goal_handle, "close_gripper", 0.66F, "closing gripper on object");
       send_named_trajectory(
@@ -765,7 +773,7 @@ private:
     }
     execute_classical_pose(
       goal_handle, plan.lift, wrist_seeds, dry_run,
-      "lift", 0.82F, true, false);
+      "lift", 0.82F, true);
   }
 
   void execute_classical_pose(
@@ -775,13 +783,12 @@ private:
     bool dry_run,
     const std::string & label,
     float progress,
-    bool apply_gravity_sag,
-    bool enforce_calibration_envelope)
+    bool apply_gravity_sag)
   {
     check_parent(goal_handle);
     const auto measured = wait_for_measured_state(goal_handle);
     const auto command_pose = transform_classical_pose(
-      measured_pose, apply_gravity_sag, enforce_calibration_envelope);
+      measured_pose, apply_gravity_sag);
     publish_feedback(
       goal_handle, label + "_ik", progress - 0.10F,
       "solving collision-aware IK for " + label);
@@ -813,8 +820,7 @@ private:
 
   geometry_msgs::msg::PoseStamped transform_classical_pose(
     const geometry_msgs::msg::PoseStamped & input,
-    bool apply_gravity_sag,
-    bool enforce_calibration_envelope)
+    bool apply_gravity_sag)
   {
     geometry_msgs::msg::PoseStamped transformed;
     if (input.header.frame_id == base_frame_) {
@@ -832,22 +838,9 @@ private:
       }
     }
     transformed.header.frame_id = base_frame_;
-    if (enforce_calibration_envelope) {
-      const double measured_values[3] = {
-        transformed.pose.position.x,
-        transformed.pose.position.y,
-        transformed.pose.position.z,
-      };
-      for (size_t index = 0; index < 3; ++index) {
-        if (measured_values[index] < calibration_workspace_min_[index] ||
-          measured_values[index] > calibration_workspace_max_[index])
-        {
-          throw GraspFailure(
-                  CapabilityError::SAFETY_REJECTED,
-                  "classical grasp is outside the calibrated workspace envelope");
-        }
-      }
-    }
+    // Like ACT, validate commanded poses against the shared runtime workspace
+    // below. The historical fit's sample region is provenance, not a separate
+    // backend workspace or a claim of contact accuracy outside that region.
     transformed.pose.position.x += vision_fk_compensation_m_[0];
     transformed.pose.position.y += vision_fk_compensation_m_[1];
     transformed.pose.position.z += vision_fk_compensation_m_[2] +

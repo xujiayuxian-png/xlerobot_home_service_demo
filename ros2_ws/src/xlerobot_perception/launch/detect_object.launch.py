@@ -21,7 +21,6 @@ def generate_launch_description():
     dry_run_mode = LaunchConfiguration('dry_run_mode')
     vlm_base_url = LaunchConfiguration('vlm_base_url')
     classical_base_url = LaunchConfiguration('classical_base_url')
-    transforms_file = LaunchConfiguration('transforms_file')
     grasp_alignment_file = LaunchConfiguration('grasp_alignment_file')
     return LaunchDescription(
         [
@@ -43,7 +42,6 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 'classical_base_url', default_value='http://127.0.0.1:8765'
             ),
-            DeclareLaunchArgument('transforms_file', default_value=''),
             DeclareLaunchArgument('grasp_alignment_file', default_value=''),
             Node(
                 package='xlerobot_perception',
@@ -59,7 +57,6 @@ def generate_launch_description():
                         'dry_run_mode': dry_run_mode,
                         'vlm_base_url': vlm_base_url,
                         'classical_base_url': classical_base_url,
-                        'transforms_file': transforms_file,
                         'grasp_alignment_file': grasp_alignment_file,
                     },
                 ],

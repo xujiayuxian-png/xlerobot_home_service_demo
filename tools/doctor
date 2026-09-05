@@ -54,6 +54,7 @@ check_python_versions() {
   local result
   if result=$("$python" - "$expected_python" "$@" <<'PY' 2>&1
 from importlib.metadata import PackageNotFoundError, version
+from importlib import import_module
 import platform
 import sys
 
@@ -66,7 +67,10 @@ if expected_python and platform.python_version() != expected_python:
     )
 for package, expected in zip(items[::2], items[1::2], strict=True):
     try:
-        actual = version(package)
+        actual = (
+            import_module(package).__version__
+            if package in ('torch', 'torchvision') else version(package)
+        )
     except PackageNotFoundError:
         errors.append(f"{package}=missing (expected {expected})")
     else:
@@ -127,7 +131,10 @@ check_d455_inventory() {
 }
 
 check_audio_inventory() {
-  if [[ -r /proc/asound/pcm && -s /proc/asound/pcm ]]; then
+  local pcm=''
+  # procfs reports size zero even when the PCM inventory contains devices.
+  if [[ -r /proc/asound/pcm ]] && IFS= read -r pcm < /proc/asound/pcm \
+      && [[ -n $pcm ]]; then
     ok 'audio PCM endpoints present in read-only ALSA inventory'
   else
     fail 'no PCM endpoint found in /proc/asound/pcm; check the configured USB audio device'
@@ -242,7 +249,7 @@ doctor_gpu() {
   else
     fail 'LM Studio/Qwen artifact config differs from the public manifest'
   fi
-  if command -v nvidia-smi >/dev/null && nvidia-smi >/dev/null 2>&1; then
+  if gpu_driver_available; then
     ok 'NVIDIA GPU available'
   else
     fail 'NVIDIA GPU unavailable'
@@ -307,7 +314,9 @@ doctor_gpu() {
       fail 'classical Python environment or CUDA check failed'
     fi
   fi
-  if [[ -x $repo_root/services/classical/vendor/gpd/build/gpd_detect_grasps_json ]]; then
+  local gpd_root=${GPD_ROOT:-$repo_root/.xlerobot/vendor/gpd}
+  if [[ -x ${GPD_BINARY:-$gpd_root/build/gpd_detect_grasps_json} || \
+        -x $gpd_root/build/detect_grasps_json ]]; then
     ok 'optional GPD native backend built'
   else
     warn 'optional GPD backend absent; centroid remains available (tools/setup gpu --with-gpd)'

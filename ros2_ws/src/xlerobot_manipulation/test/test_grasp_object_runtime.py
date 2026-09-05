@@ -398,6 +398,38 @@ class GraspObjectRuntimeTest(unittest.TestCase):
                     self.fake.events, ['ik', 'plan', 'ik', 'plan', 'ik', 'plan']
                 )
 
+    def test_01d_classical_uses_shared_workspace_not_calibration_sample_region(self):
+        for x, succeeds in ((0.10, True), (0.85, False)):
+            with self.subTest(x=x):
+                goal = self._goal(dry_run=True)
+                goal.backend = 'centroid'
+                plan = goal.grasp_plan
+                plan.valid = True
+                plan.observation_id = 'shared-runtime-workspace'
+                plan.backend = 'centroid'
+                plan.method = 'sam2_rgbd_top_centroid'
+                plan.score = 0.9
+                plan.table_height_m = 0.70
+                plan.object_height_m = 0.04
+                plan.grasp_width_m = 0.03
+                plan.wrist_yaw_min_rad = -3.0
+                plan.wrist_yaw_max_rad = 3.0
+                plan.selection_reason = 'same runtime workspace as ACT'
+                for pose, z in ((plan.pregrasp, 0.82), (plan.grasp, 0.73),
+                                (plan.lift, 0.84)):
+                    pose.header.frame_id = 'base_link'
+                    pose.pose.position.x = x
+                    pose.pose.position.y = -0.05
+                    pose.pose.position.z = z
+                    pose.pose.orientation.x = 0.70710678
+                    pose.pose.orientation.w = 0.70710678
+                wrapped = self._run(goal)
+                if succeeds:
+                    self.assertEqual(wrapped.status, GoalStatus.STATUS_SUCCEEDED)
+                else:
+                    self.assertEqual(wrapped.result.error.code, CapabilityError.SAFETY_REJECTED)
+                    self.assertIn('outside workspace', wrapped.result.error.message)
+
     def test_02_live_sequence_is_pregrasp_policy_return_ready_then_head_up(self):
         self.fake.events.clear()
         self.fake.policy_contexts.clear()

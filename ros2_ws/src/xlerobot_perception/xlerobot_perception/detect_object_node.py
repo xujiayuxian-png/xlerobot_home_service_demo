@@ -38,7 +38,7 @@ from xlerobot_perception.grasp.refine_cloud import (
     refine_object_cloud,
 )
 from xlerobot_perception.grasp.runtime_calibration import (
-    load_classical_runtime_calibration,
+    load_grasp_runtime_calibration,
 )
 from xlerobot_perception.grasp.top_grasp import (
     TopGraspConfig,
@@ -112,9 +112,6 @@ class DetectObjectNode(Node):
         self.max_depth_m = float(self.declare_parameter('max_depth_m', 4.0).value)
         self.classical_base_url = str(self.declare_parameter(
             'classical_base_url', 'http://127.0.0.1:8765'
-        ).value)
-        self.transforms_file = str(self.declare_parameter(
-            'transforms_file', ''
         ).value)
         self.grasp_alignment_file = str(self.declare_parameter(
             'grasp_alignment_file', ''
@@ -535,6 +532,12 @@ class DetectObjectNode(Node):
         )
         depth_u16 = depth_to_u16_mm(depth)
         intrinsics = camera_intrinsics(info)
+        # Freeze the same timestamped TF before potentially slow GPU inference.
+        # Otherwise the captured frame can age out of the TF buffer during SAM2.
+        transform = self._lookup_transform(
+            self.planning_frame, camera_frame, depth.header.stamp
+        )
+        target_from_camera = transform_matrix(transform)
         try:
             instance = self.sam2.segment(
                 image_bgr,
@@ -547,10 +550,6 @@ class DetectObjectNode(Node):
                 CapabilityError.BACKEND_FAILURE, f'prompted SAM2 failed: {exc}'
             ) from exc
         self._check_canceled(goal_handle)
-        transform = self._lookup_transform(
-            self.planning_frame, camera_frame, depth.header.stamp
-        )
-        target_from_camera = transform_matrix(transform)
         self._feedback(
             goal_handle, 'refining_depth', 0.64,
             'fitting table plane and retaining the main 3D object body',
@@ -634,26 +633,15 @@ class DetectObjectNode(Node):
 
     def _classical_config(self):
         try:
-            calibration = load_classical_runtime_calibration(
-                self.transforms_file, self.grasp_alignment_file
-            )
+            calibration = load_grasp_runtime_calibration(self.grasp_alignment_file)
         except (OSError, ValueError) as exc:
             raise CapabilityFailure(
                 CapabilityError.UNAVAILABLE,
                 f'classical runtime calibration is unavailable: {exc}',
             ) from exc
-        return replace(
-            self.top_config,
-            workspace_x_m=(
-                calibration.workspace_min_m[0], calibration.workspace_max_m[0]
-            ),
-            workspace_y_m=(
-                calibration.workspace_min_m[1], calibration.workspace_max_m[1]
-            ),
-            workspace_z_m=(
-                calibration.workspace_min_m[2], calibration.workspace_max_m[2]
-            ),
-        ), calibration
+        # Keep the algorithm's configured ROI. A calibration sampling region is
+        # not a second motion workspace; all execution uses the shared executor.
+        return self.top_config, calibration
 
     def _plan_message(self, geometry, observation_id, frame_id, stamp):
         plan = TopGraspPlan()

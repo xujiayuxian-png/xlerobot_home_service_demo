@@ -2,7 +2,7 @@
 set -euo pipefail
 
 service_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-gpd_root="${GPD_ROOT:-${service_root}/vendor/gpd}"
+gpd_root="${GPD_ROOT:-${service_root}/../../.xlerobot/vendor/gpd}"
 gpd_commit="6327f20eabfcba41a05fdd2e2ba408153dc2e958"
 
 if [[ ! -d "${gpd_root}/.git" ]]; then

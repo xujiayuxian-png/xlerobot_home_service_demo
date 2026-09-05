@@ -65,7 +65,7 @@ require_hardware() {
 wait_for_url() {
   local label=$1 url=$2 pid=$3
   for _ in $(seq 1 60); do
-    if curl --silent --fail --max-time 1 "$url" >/dev/null 2>&1; then
+    if curl --silent --fail --max-time 5 "$url" >/dev/null 2>&1; then
       note "$label ready: $url"
       return 0
     fi
@@ -88,7 +88,9 @@ run_gpu() {
   ((${#positionals[@]} == 0)) || die 'tools/run gpu takes no positional arguments'
   ! $phase_set || die '--phase is only valid for tools/run mapping'
   local lm_url lm_model bind_host classical_python
-  local classical_pid='' act_pid=''
+  # EXIT traps can run after this function's local scope has unwound.
+  classical_pid=''
+  act_pid=''
   lm_url=$(url_join "$(config_get services.lm_studio_url '')" v1/models)
   lm_model=$(config_get models.vlm qwen/qwen3-vl-4b)
   bind_host=$(config_get services.bind_host 0.0.0.0)
@@ -193,6 +195,12 @@ run_demo() {
 
   local runtime
   runtime=$(runtime_paths)
+  local serial audio_output
+  local device_arguments=()
+  serial=$(config_get robot.devices.head_camera_serial '')
+  audio_output=$(config_get robot.devices.audio_output '')
+  [[ -z $serial ]] || device_arguments+=("d455_serial:=$serial")
+  [[ -z $audio_output ]] || device_arguments+=("audio_output_device:=$audio_output")
   mkdir -p "$repo_root/.xlerobot/artifacts"
   note 'starting LIVE demo: wheels, head, arm, and gripper may move'
   exec ros2 launch xlerobot_bringup fetch_deliver_demo.launch.py \
@@ -206,10 +214,8 @@ run_demo() {
     right_bus:="$(config_get robot.devices.right_arm /dev/right_arm)" \
     left_bus:="$(config_get robot.devices.left_arm /dev/left_arm)" \
     lidar_port:="$(config_get robot.devices.lidar /dev/lidar)" \
-    d455_serial:="$(config_get robot.devices.head_camera_serial '')" \
     wrist_camera_device:="$(config_get robot.devices.wrist_camera '')" \
     audio_input_device:="$(config_get robot.devices.audio_input auto)" \
-    audio_output_device:="$(config_get robot.devices.audio_output '')" \
     tts_cache_dir:="$repo_root/.xlerobot/cache/tts" \
     kws_model_dir:="$(voice_kws_dir)" \
     whisper_model:="$(voice_whisper_dir)" \
@@ -224,8 +230,8 @@ run_demo() {
     geometry_file:="$runtime/geometry.yaml" \
     servo_calibration_file:="$runtime/servos.yaml" \
     controllers_file:="$runtime/controllers.yaml" \
-    transforms_file:="$runtime/transforms.yaml" \
-    grasp_alignment_file:="$runtime/grasp_alignment.yaml"
+    grasp_alignment_file:="$runtime/grasp_alignment.yaml" \
+    "${device_arguments[@]}"
 }
 
 case $mode in

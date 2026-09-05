@@ -12,7 +12,7 @@ from xlerobot_perception.grasp.refine_cloud import (
     refine_object_cloud,
 )
 from xlerobot_perception.grasp.runtime_calibration import (
-    load_classical_runtime_calibration,
+    load_grasp_runtime_calibration,
 )
 from xlerobot_perception.grasp.top_grasp import (
     TablePlane,
@@ -251,39 +251,8 @@ def test_refinement_never_falls_back_to_unrefined_sam_mask():
         )
 
 
-def _transform_component(model, x_semantics, y_semantics):
-    transform = {
-        'matrix': np.eye(4).tolist(),
-        'xyz_m': [0.0, 0.0, 0.0],
-        'rpy_rad': [0.0, 0.0, 0.0],
-        'quaternion_xyzw': [0.0, 0.0, 0.0, 1.0],
-    }
-    return {
-        'schema': 'xlerobot_transform_calibration/v1',
-        'model': model,
-        'input_sha256': '0' * 64,
-        'frames': {
-            'base': 'base', 'moving': 'moving',
-            'camera': 'camera', 'target': 'target',
-        },
-        'x_semantics': x_semantics,
-        'y_semantics': y_semantics,
-        'x': transform,
-        'y': transform,
-        'metrics': {'sample_count': 12},
-    }
 
-
-def _runtime_files(tmp_path: Path):
-    transforms = {
-        'schema': 'xlerobot_runtime_transforms/v1',
-        'head_camera': _transform_component(
-            'moving_camera_fixed_target', 'mount_from_camera', 'base_from_target'
-        ),
-        'right_handeye': _transform_component(
-            'fixed_camera_moving_target', 'base_from_camera', 'gripper_from_target'
-        ),
-    }
+def _runtime_file(tmp_path: Path, *, imported=False):
     alignment = {
         'schema': 'xlerobot_grasp_alignment/v1',
         'frame': 'base_link',
@@ -293,22 +262,59 @@ def _runtime_files(tmp_path: Path):
         'workspace_m': {'min': [0.02, -0.09, 0.84], 'max': [0.10, -0.02, 0.88]},
         'metrics': {'sample_count': 4, 'plane_rmse_mm': 0.5},
     }
-    transforms_path = tmp_path / 'transforms.yaml'
-    alignment_path = tmp_path / 'grasp_alignment.yaml'
-    transforms_path.write_text(yaml.safe_dump(transforms))
-    alignment_path.write_text(yaml.safe_dump(alignment))
-    return transforms_path, alignment_path
+    if imported:
+        alignment.pop('metrics')
+        alignment.update(validation='existing_unit_runtime',
+                         provenance={'source': 'same-unit-deployment'})
+    path = tmp_path / 'grasp_alignment.yaml'
+    path.write_text(yaml.safe_dump(alignment))
+    return path
 
 
-def test_runtime_calibration_requires_both_complete_files_and_records_provenance(tmp_path):
-    transforms, alignment = _runtime_files(tmp_path)
-    loaded = load_classical_runtime_calibration(str(transforms), str(alignment))
+@pytest.mark.parametrize('imported', [False, True])
+def test_same_alignment_as_act_needs_no_duplicate_transform_solution(tmp_path, imported):
+    alignment = _runtime_file(tmp_path, imported=imported)
+    loaded = load_grasp_runtime_calibration(str(alignment))
     assert loaded.vision_fk_compensation_m == pytest.approx((0.005, 0.006, 0.007))
     assert loaded.gravity_sag_z_m == pytest.approx(0.038)
     assert loaded.provenance.startswith('runtime-calibration-sha256:')
+    expected_source = 'existing_unit_runtime' if imported else 'measured'
+    assert expected_source in loaded.provenance
 
-    document = yaml.safe_load(alignment.read_text())
-    del document['workspace_m']
-    alignment.write_text(yaml.safe_dump(document))
-    with pytest.raises(ValueError, match='workspace_m'):
-        load_classical_runtime_calibration(str(transforms), str(alignment))
+
+@pytest.mark.parametrize('field,value', [
+    ('schema', 'wrong'), ('frame', 'map'),
+    ('vision_fk_compensation_m', [0.0, float('nan'), 0.0]),
+    ('gravity_sag_z_m', float('inf')), ('gravity_sag_z_m', -0.01),
+    ('head_pose_rad', {'pan': False, 'tilt': 0.8}),
+    ('workspace_m', {'min': [1, 1, 1], 'max': [0, 0, 0]}),
+    ('metrics', {'sample_count': 0, 'plane_rmse_mm': 0.5}),
+])
+def test_shared_alignment_still_rejects_invalid_values(tmp_path, field, value):
+    path = _runtime_file(tmp_path)
+    document = yaml.safe_load(path.read_text())
+    document[field] = value
+    path.write_text(yaml.safe_dump(document))
+    with pytest.raises(ValueError):
+        load_grasp_runtime_calibration(str(path))
+
+
+def test_imported_alignment_requires_actual_source_provenance(tmp_path):
+    path = _runtime_file(tmp_path, imported=True)
+    document = yaml.safe_load(path.read_text())
+    document.pop('provenance')
+    path.write_text(yaml.safe_dump(document))
+    with pytest.raises(ValueError, match='provenance'):
+        load_grasp_runtime_calibration(str(path))
+
+
+def test_calibration_sample_region_does_not_replace_algorithm_roi(tmp_path):
+    from types import SimpleNamespace
+    from xlerobot_perception.detect_object_node import DetectObjectNode
+
+    path = _runtime_file(tmp_path, imported=True)
+    config = TopGraspConfig()
+    holder = SimpleNamespace(grasp_alignment_file=str(path), top_config=config)
+    actual, _ = DetectObjectNode._classical_config(holder)
+    assert actual is config
+    assert config.workspace_z_m == (0.0, 1.6)
