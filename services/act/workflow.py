@@ -25,12 +25,63 @@ SHA256 = re.compile(r"^[0-9a-f]{64}$")
 REVISION = re.compile(r"^[0-9a-f]{40}$")
 
 
+def resume_arguments(arguments: argparse.Namespace) -> list[str]:
+    """Resume the last complete checkpoint, preserving its training settings."""
+    output = Path(arguments.output).expanduser().resolve()
+    checkpoints = output / "checkpoints"
+    checkpoint = (checkpoints / "last").resolve()
+    if not checkpoint.is_dir() or checkpoint.parent != checkpoints.resolve():
+        raise ValueError(f"resume requires a local checkpoint at {checkpoints / 'last'}")
+    config_path = checkpoint / "pretrained_model/train_config.json"
+    step_path = checkpoint / "training_state/training_step.json"
+    required = [
+        config_path, checkpoint / "pretrained_model/config.json",
+        checkpoint / "pretrained_model/model.safetensors", step_path,
+        *[checkpoint / "training_state" / name for name in (
+            "optimizer_param_groups.json", "optimizer_state.safetensors",
+            "rng_state.safetensors",
+        )],
+    ]
+    for path in required:
+        if not path.is_file():
+            raise ValueError(f"resume checkpoint is incomplete: missing {path}")
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    state = json.loads(step_path.read_text(encoding="utf-8"))
+    if not isinstance(config, dict) or not isinstance(state, dict):
+        raise ValueError("resume training config and step must be JSON objects")
+    recorded_output = config.get("output_dir")
+    if (not isinstance(recorded_output, str)
+            or Path(recorded_output).expanduser().resolve() != output):
+        raise ValueError("resume output does not match the saved training directory")
+    saved_step = state.get("step")
+    total = arguments.steps if arguments.steps is not None else config.get("steps")
+    if (type(saved_step) is not int or saved_step < 0
+            or type(total) is not int or total <= saved_step):
+        raise ValueError(f"resume --steps must be a total greater than saved step {saved_step}")
+    target = checkpoints / f"{total:06d}"
+    if target.exists():
+        raise ValueError(f"resume would overwrite an existing checkpoint: {target}")
+    if config.get("scheduler") is not None:
+        scheduler = checkpoint / "training_state/scheduler_state.json"
+        if not scheduler.is_file():
+            raise ValueError(f"resume checkpoint is incomplete: missing {scheduler}")
+    arguments.steps = total
+    return [
+        f"--config_path={config_path}", "--resume=true", f"--steps={total}",
+        f"--save_freq={total}", "--policy.push_to_hub=false", "--wandb.enable=false",
+    ]
+
+
 def train_command(arguments: argparse.Namespace) -> list[str]:
     """Return the pinned LeRobot 0.5.1 command as an argv vector."""
     executable = Path(sys.executable).parent / "lerobot-train"
     command = [str(executable if executable.is_file() else sys.executable)]
     if command[0] == sys.executable:
         command += ["-m", "lerobot.scripts.train"]
+    if arguments.resume:
+        return command + resume_arguments(arguments)
+    if arguments.steps is None:
+        arguments.steps = 5000
     input_features = {
         "observation.state": {"type": "STATE", "shape": [6]},
         "observation.images.wrist": {"type": "VISUAL", "shape": [3, 480, 640]},
@@ -64,8 +115,6 @@ def train_command(arguments: argparse.Namespace) -> list[str]:
         "--policy.output_features=" + json.dumps(output_features, separators=(",", ":")),
         "--save_checkpoint=true",
     ]
-    if arguments.resume:
-        command.append("--resume=true")
     return command
 
 
@@ -273,10 +322,13 @@ def parser() -> argparse.ArgumentParser:
     )
     train.add_argument("--output", default=os.environ.get("XLEROBOT_ACT_OUTPUT", ""))
     train.add_argument("--job-name", default="xlerobot_act_local_grasp_v1")
-    train.add_argument("--steps", type=int, default=5000)
+    train.add_argument("--steps", type=int, help="total steps (new run: 5000; resume: saved target)")
     train.add_argument("--batch-size", type=int, default=8)
     train.add_argument("--chunk-size", type=int, default=100)
-    train.add_argument("--resume", action="store_true")
+    train.add_argument(
+        "--resume", action="store_true",
+        help="restore output/checkpoints/last and original training settings",
+    )
     train.add_argument("--dry-run", action="store_true")
 
     evaluate = commands.add_parser("evaluate")
@@ -306,9 +358,22 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser().parse_args(argv)
     try:
         if arguments.command == "train":
-            if not arguments.dataset or not arguments.repo_id or not arguments.output:
+            if arguments.resume:
+                supplied = sys.argv[1:] if argv is None else argv
+                overrides = {item.split("=", 1)[0] for item in supplied} & {
+                    "--dataset", "--repo-id", "--batch-size", "--chunk-size", "--job-name",
+                }
+                if overrides:
+                    raise ValueError(
+                        "resume restores original training settings; remove "
+                        + ", ".join(sorted(overrides))
+                    )
+            if not arguments.output or (
+                not arguments.resume and (not arguments.dataset or not arguments.repo_id)
+            ):
                 raise ValueError("train requires dataset root, repo ID, and output path")
-            if min(arguments.steps, arguments.batch_size, arguments.chunk_size) <= 0:
+            counts = (arguments.steps, arguments.batch_size, arguments.chunk_size)
+            if min(value for value in counts if value is not None) <= 0:
                 raise ValueError("training counts must be positive")
             command = train_command(arguments)
             training_output = Path(arguments.output).expanduser().resolve()

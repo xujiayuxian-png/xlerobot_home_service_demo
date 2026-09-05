@@ -56,6 +56,17 @@ state/action, chunk size 100, model dimension 512, feed-forward dimension 3200,
 four encoder/one decoder layers, eight heads, latent 32, ResNet-18 ImageNet V1,
 VAE on, and AMP off.
 
+Resume an interrupted run from its `checkpoints/last`, including optimizer and
+random state. Original dataset, batch size and policy settings are restored;
+do not pass those settings again. `--steps` is the total target, not extra steps:
+
+```bash
+./tools/act train --resume --output .xlerobot/outputs/xlerobot-act-local-grasp-v1 --steps 6000
+```
+
+Omit `--steps` to finish the original target after an interruption. A completed
+run needs a larger target. Weight-only downloads cannot resume training.
+
 The released model was trained on exactly 30 yellow-glue-stick demonstrations.
 The planned complete dataset is
 `xujiayuxian-png/xlerobot-glue-stick-grasp-30` under CC BY 4.0. Shuttlecock

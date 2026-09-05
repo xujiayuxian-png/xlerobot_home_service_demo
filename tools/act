@@ -16,6 +16,8 @@ Usage:
 Collect demonstrations on the Robot, convert and train them on the GPU,
 qualify a local checkpoint, or fetch the manifest-pinned public checkpoint.
 Collection is live Leader/Follower motion and requires literal --hardware.
+Train accepts --steps (total), --batch-size, and --chunk-size. With --resume,
+use --output and optionally --steps; all other training settings are restored.
 EOF
 }
 

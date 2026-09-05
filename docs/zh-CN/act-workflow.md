@@ -52,6 +52,17 @@ dry-run 会分别报告 accepted、rejected、缺 review 和缺 raw 的数量。
 RGB `3 x 480 x 640`、六维 state/action、chunk 100、model dimension 512、FF 3200、
 4 层 encoder/1 层 decoder、8 heads、latent 32、ResNet-18 ImageNet V1、VAE 开、AMP 关。
 
+续训从输出目录的 `checkpoints/last` 恢复权重、优化器、随机状态及原训练配置。
+数据集、batch size 和策略参数沿用原值，不要重复传入；`--steps` 是最终总步数，
+不是额外训练步数：
+
+```bash
+./tools/act train --resume --output .xlerobot/outputs/xlerobot-act-local-grasp-v1 --steps 6000
+```
+
+中断后可省略 `--steps`，继续完成原定目标；已完成的训练需要更大的总步数。
+仅有推理权重、没有训练状态的下载模型不能直接续训。
+
 发布模型只用 30 条黄色胶棒示教训练。计划完整公开的数据集为
 `xujiayuxian-png/xlerobot-glue-stick-grasp-30`，许可 CC BY 4.0。羽毛球效果只作为
 定性的 OOD 证据。

@@ -6,6 +6,8 @@ import unittest
 
 from services.act.workflow import (
     qualification_document,
+    main,
+    parser,
     train_command,
     write_json_atomic,
 )
@@ -13,6 +15,78 @@ from tools.lib.verify_model_files import EXPECTED_STRUCTURE, _validate_manifest,
 
 
 class WorkflowTest(unittest.TestCase):
+    def resume_fixture(self, output, step=2, total=10):
+        checkpoint = output / 'checkpoints' / f'{step:06d}'
+        model = checkpoint / 'pretrained_model'
+        state = checkpoint / 'training_state'
+        model.mkdir(parents=True)
+        state.mkdir()
+        (model / 'train_config.json').write_text(json.dumps({
+            'output_dir': str(output), 'steps': total, 'scheduler': None,
+            'batch_size': 1, 'policy': {'type': 'act'},
+        }))
+        (state / 'training_step.json').write_text(json.dumps({'step': step}))
+        for path in [model / 'config.json', model / 'model.safetensors', *[
+            state / name for name in ('optimizer_state.safetensors',
+                                     'optimizer_param_groups.json', 'rng_state.safetensors')
+        ]]:
+            path.touch()
+        (output / 'checkpoints/last').symlink_to(checkpoint.name)
+        return checkpoint
+
+    def test_resume_uses_saved_config_without_replacing_training_settings(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            checkpoint = self.resume_fixture(output)
+            args = parser().parse_args(['train', '--resume', '--output', str(output)])
+            command = train_command(args)
+            self.assertIn(f'--config_path={checkpoint}/pretrained_model/train_config.json', command)
+            self.assertIn('--resume=true', command)
+            self.assertIn('--steps=10', command)
+            self.assertIn('--policy.push_to_hub=false', command)
+            self.assertFalse(any(item.startswith(('--dataset.', '--batch_size=', '--policy.type=')) for item in command))
+            args.steps = 12
+            self.assertIn('--steps=12', train_command(args))
+
+    def test_resume_rejects_missing_or_incomplete_checkpoint_and_finished_target(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            args = parser().parse_args(['train', '--resume', '--output', str(output)])
+            with self.assertRaisesRegex(ValueError, 'resume requires a local checkpoint'):
+                train_command(args)
+            checkpoint = self.resume_fixture(output)
+            args.steps = 2
+            with self.assertRaisesRegex(ValueError, 'greater than saved step'):
+                train_command(args)
+            args.steps = 4
+            (checkpoint / 'training_state/optimizer_state.safetensors').unlink()
+            with self.assertRaisesRegex(ValueError, 'incomplete'):
+                train_command(args)
+
+    def test_resume_rejects_wrong_output_and_checkpoint_overwrite(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            checkpoint = self.resume_fixture(output)
+            args = parser().parse_args(['train', '--resume', '--output', str(output), '--steps', '3'])
+            (output / 'checkpoints/000003').mkdir()
+            with self.assertRaisesRegex(ValueError, 'overwrite'):
+                train_command(args)
+            args.steps = 4
+            config = checkpoint / 'pretrained_model/train_config.json'
+            saved = json.loads(config.read_text())
+            saved['output_dir'] = str(output / 'different-run')
+            config.write_text(json.dumps(saved))
+            with self.assertRaisesRegex(ValueError, 'does not match'):
+                train_command(args)
+
+    def test_resume_rejects_fresh_run_overrides(self):
+        with self.assertRaisesRegex(SystemExit, 'restores original training settings'):
+            main(['train', '--resume', '--batch-size=2', '--dry-run'])
+
+    def test_new_train_keeps_5000_step_default(self):
+        args = parser().parse_args(['train'])
+        self.assertIn('--steps=5000', train_command(args))
+
     def test_train_command_locks_deployed_wrist_only_contract(self):
         arguments = argparse.Namespace(
             dataset="local/data",
