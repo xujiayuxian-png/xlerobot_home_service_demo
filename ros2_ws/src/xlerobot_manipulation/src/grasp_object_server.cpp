@@ -1020,6 +1020,7 @@ private:
     send_named_trajectory(
       goal_handle, gripper_client_, {gripper_joint_}, {pregrasp_gripper_position_},
       pregrasp_gripper_duration_s_, controller_timeout_s_, "pregrasp gripper");
+    publish_prepared_target(goal_handle, trajectory);
     publish_feedback(goal_handle, "pregrasp", 0.55F, "executing validated pregrasp plan");
     send_trajectory(goal_handle, arm_client_, trajectory, controller_timeout_s_, "pregrasp");
     publish_feedback(
@@ -1754,6 +1755,25 @@ private:
     if (!execution_enabled_) {
       throw GraspFailure(CapabilityError::SAFETY_REJECTED, "execution_enabled is false");
     }
+  }
+
+  void publish_prepared_target(
+    const std::shared_ptr<GoalHandleGrasp> &,
+    const trajectory_msgs::msg::JointTrajectory &) {}
+
+  void publish_prepared_target(
+    const std::shared_ptr<GoalHandlePrepare> & goal_handle,
+    const trajectory_msgs::msg::JointTrajectory & trajectory)
+  {
+    auto feedback = std::make_shared<PrepareGrasp::Feedback>();
+    feedback->state.phase = "planned_target";
+    feedback->state.progress = 0.35F;
+    feedback->state.message = "validated pregrasp target for concurrent Leader alignment";
+    feedback->planned_joints.name = trajectory.joint_names;
+    feedback->planned_joints.position = trajectory.points.back().positions;
+    feedback->planned_joints.name.push_back(gripper_joint_);
+    feedback->planned_joints.position.push_back(pregrasp_gripper_position_);
+    goal_handle->publish_feedback(feedback);
   }
 
   void publish_feedback(

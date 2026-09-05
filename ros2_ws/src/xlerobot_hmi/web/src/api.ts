@@ -173,6 +173,10 @@ export const api = {
       + encodeURIComponent(episodeId), {
       method: 'DELETE',
     }),
+  beginCollection: (datasetId: string, episodeId: string) =>
+    request<CollectionState>(
+      `/api/v1/datasets/${encodeURIComponent(datasetId)}/episodes/`
+      + `${encodeURIComponent(episodeId)}/begin`, { method: 'POST', body: '{}' }),
   reviewEpisode: (
     datasetId: string, episodeId: string,
     status: 'accepted' | 'rejected', notes = '',

@@ -51,18 +51,22 @@ Startup does not automatically home the arms or begin recording.
    the Follower's current pose without detection or automatic pregrasp.
    **抓取模板** (pick) instead detects the object and moves the Follower above
    it using the Demo's shared pregrasp path.
-2. Check the dataset ID and enter the actual object and instruction. Use a
+2. Check the dataset ID. Changing the object auto-fills the grasp instruction,
+   which can still be edited. Use a
    separate dataset for trials instead of mixing them into training recordings.
-3. Click **Home / 开始采集**. Both modes automatically align the Leader to the
-   Follower; do not drag it during alignment. Be ready to support it during
-   the countdown, then move it only once `RECORDING` appears. The right
-   Follower follows your demonstration.
-4. Click **End / 正常结束并发布**, or let the duration expire. Following stops
+3. Click **开始 / 准备 pregrasp** (prepare). Pick mode opens the Follower gripper,
+   then prepares both arms concurrently from the same validated pregrasp target.
+   Manual mode only aligns the Leader to the current Follower pose. Once ready,
+   `WAITING_HOME` holds Leader torque without recording; do not drag it yet.
+4. Support the Leader and click **Home / 释放主臂并开始采集**. This releases torque
+   and starts recording. Demonstrate once `RECORDING` appears. Waiting for Home
+   longer than 60 seconds cancels the attempt; it never auto-starts recording.
+5. Click **End / 正常结束并发布**, or let the duration expire. Following stops
    before camera videos and joint data are finalized. “Publish” here means a
    completed local episode, not an upload.
-5. Once saving succeeds, choose **接受** (accept) or **拒绝** (reject). Only
+6. Once saving succeeds, choose **接受** (accept) or **拒绝** (reject). Only
    accepted episodes are converted; rejection does not delete raw recordings.
-   The next Home starts a new episode without overwriting the previous one.
+   The next Start prepares a new episode without overwriting the previous one.
 
 **Abort** cancels an interrupted trial and retains an incomplete recording;
 it is not the normal save button. **状态机 dry-run** exercises phase transitions

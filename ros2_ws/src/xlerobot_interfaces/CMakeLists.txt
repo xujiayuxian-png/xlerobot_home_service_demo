@@ -6,6 +6,7 @@ find_package(builtin_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/CapabilityError.msg"
@@ -39,6 +40,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/CaptureCalibrationSample.srv"
   "srv/ImportCalibrationResult.srv"
   "srv/FinalizeEpisode.srv"
+  "srv/BeginEpisode.srv"
   "srv/MarkEpisodeEvent.srv"
   "srv/ReviewEpisode.srv"
   "srv/RecordSiteValidation.srv"
@@ -48,7 +50,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SolveCalibrationSamples.srv"
   "srv/ServoCalibrationStep.srv"
   "srv/SetNamedPlace.srv"
-  DEPENDENCIES builtin_interfaces geometry_msgs std_msgs
+  DEPENDENCIES builtin_interfaces geometry_msgs std_msgs sensor_msgs
 )
 
 ament_export_dependencies(rosidl_default_runtime)

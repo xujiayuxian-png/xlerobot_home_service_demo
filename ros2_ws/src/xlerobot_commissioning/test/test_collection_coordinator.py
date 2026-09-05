@@ -17,7 +17,7 @@ from xlerobot_interfaces.action import (
     CollectEpisode, DetectObject, PrepareGrasp, RecordEpisode,
 )
 from xlerobot_interfaces.msg import CapabilityError
-from xlerobot_interfaces.srv import FinalizeEpisode, MarkEpisodeEvent
+from xlerobot_interfaces.srv import BeginEpisode, FinalizeEpisode, MarkEpisodeEvent
 
 
 class CompletedFuture:
@@ -142,6 +142,11 @@ class CollectionHandle:
 
     def publish_feedback(self, feedback):
         self.events.append(feedback.state.phase)
+        if feedback.state.phase == 'WAITING_HOME':
+            response = CollectionNode.request_begin(self.node, BeginEpisode.Request(
+                dataset_id=self.request.dataset_id, episode_id=self.request.episode_id),
+                BeginEpisode.Response())
+            self.events.append(f'home_response:{response.error.code}')
         if (
             feedback.state.phase == 'RECORDER_ADMISSION'
             and self.ending == 'abort_admission'
@@ -190,6 +195,7 @@ def coordinator(events):
     node._active_episode_id = ''
     node._phase = ''
     node._finish_requested = threading.Event()
+    node._begin_requested = threading.Event()
     node._joint_state_timeout_s = 0.5
     node._control_enable_lease_s = 1.0
     node._control_heartbeat_period_s = 0.2
@@ -274,6 +280,96 @@ def test_manual_end_disables_teleop_then_finalizes_and_succeeds(monkeypatch):
     assert 'finish_response:0' in events
     assert node.recorder.goal.max_duration.sec == 73
     assert node.recorder.goal.max_duration.nanosec == 0
+
+
+def test_prepared_session_does_not_release_or_record_until_home():
+    events = []
+    node = coordinator(events)
+    ready = threading.Event()
+    handle = CollectionHandle(node, events, ending='finish')
+    normal_feedback = handle.publish_feedback
+
+    def feedback(message):
+        if message.state.phase == 'WAITING_HOME':
+            events.append('WAITING_HOME')
+            ready.set()
+        else:
+            normal_feedback(message)
+
+    handle.publish_feedback = feedback
+    outcome = []
+    worker = threading.Thread(target=lambda: outcome.append(node.execute(handle)))
+    worker.start()
+    try:
+        assert ready.wait(2.0)
+        assert 'torque_on' in events
+        assert 'torque_off' not in events
+        assert 'recorder_start' not in events
+        wrong = node.request_begin(BeginEpisode.Request(dataset_id='wrong', episode_id='episode-001'), BeginEpisode.Response())
+        assert wrong.error.code == CapabilityError.NOT_FOUND
+        assert not node._begin_requested.is_set()
+        response = node.request_begin(BeginEpisode.Request(dataset_id='dataset-001', episode_id='episode-001'), BeginEpisode.Response())
+        assert response.error.code == CapabilityError.NONE
+        worker.join(3.0)
+        assert not worker.is_alive()
+        assert outcome[0].error.code == CapabilityError.NONE
+        assert events.index('WAITING_HOME') < events.index('torque_off') < events.index('recorder_start')
+    finally:
+        handle.is_cancel_requested = True
+        worker.join(3.0)
+
+
+def test_paired_preparation_moves_leader_before_follower_action_finishes():
+    node = coordinator([])
+    node.prepare = object()
+    leader_started = threading.Event()
+    node._align_leader = lambda positions, handle: leader_started.set()
+
+    def action(client, goal, handle, **kwargs):
+        feedback = PrepareGrasp.Feedback()
+        feedback.planned_joints.name = list(TARGET_JOINTS)
+        feedback.planned_joints.position = [0.1] * 6
+        kwargs['feedback_callback'](SimpleNamespace(feedback=feedback))
+        assert leader_started.wait(1.0), 'Leader must start before Follower preparation returns'
+        return PrepareGrasp.Result()
+
+    node._action = action
+    result = node._prepare_pair(PrepareGrasp.Goal(), SimpleNamespace(is_cancel_requested=False))
+    assert result.error.code == CapabilityError.NONE
+
+
+def test_pair_leader_failure_cancels_and_drains_follower():
+    node = coordinator([])
+    node.prepare = object()
+    drained = threading.Event()
+    def align(*_args):
+        raise RuntimeError('Leader failed to arrive')
+    node._align_leader = align
+    def action(client, goal, handle, **kwargs):
+        feedback = PrepareGrasp.Feedback()
+        feedback.planned_joints.name = list(TARGET_JOINTS)
+        feedback.planned_joints.position = [0.1] * 6
+        kwargs['feedback_callback'](SimpleNamespace(feedback=feedback))
+        end = time.monotonic() + 2.0
+        while not handle.is_cancel_requested and time.monotonic() < end:
+            drained.wait(0.01)
+        assert handle.is_cancel_requested
+        drained.set()
+        raise CollectionCanceled('paired Follower canceled')
+    node._action = action
+    with pytest.raises(RuntimeError, match='Leader failed to arrive'):
+        node._prepare_pair(PrepareGrasp.Goal(), SimpleNamespace(is_cancel_requested=False))
+    assert drained.is_set()
+
+
+def test_pair_missing_plan_never_commands_leader():
+    events = []
+    node = coordinator(events)
+    node.prepare = object()
+    node._action = lambda *_args, **_kwargs: PrepareGrasp.Result()
+    with pytest.raises(RuntimeError, match='omitted planned target'):
+        node._prepare_pair(PrepareGrasp.Goal(), SimpleNamespace(is_cancel_requested=False))
+    assert 'leader_aligned' not in events
 
 
 def test_stop_marker_failure_cancels_incomplete_before_finalize(monkeypatch):
@@ -391,6 +487,10 @@ def test_pick_recorder_admission_precedes_prepare_grasp_motion(monkeypatch):
             return detected
         assert client is node.prepare
         events.append('prepare_motion')
+        feedback = PrepareGrasp.Feedback()
+        feedback.planned_joints.name = list(TARGET_JOINTS)
+        feedback.planned_joints.position = [0.1] * len(TARGET_JOINTS)
+        _kwargs['feedback_callback'](SimpleNamespace(feedback=feedback))
         prepared = PrepareGrasp.Result()
         prepared.error.code = CapabilityError.NONE
         prepared.start_context.joint_names = list(TARGET_JOINTS)
@@ -407,7 +507,8 @@ def test_pick_recorder_admission_precedes_prepare_grasp_motion(monkeypatch):
     assert result.error.code == CapabilityError.NONE
     assert events.index('detect') < events.index('recorder_admitted')
     assert events.index('recorder_admitted') < events.index('prepare_motion')
-    assert events.index('prepare_motion') < events.index('torque_on')
+    assert events.index('recorder_admitted') < events.index('torque_on')
+    assert 'WAITING_HOME' in events
 
 
 def test_manual_collection_rejects_stale_follower_before_motion(monkeypatch):
@@ -732,7 +833,7 @@ def test_finalize_request_is_fail_closed_and_repeat_is_idempotent():
     node._goal_active = True
     node._active_dataset_id = 'dataset-001'
     node._active_episode_id = 'episode-001'
-    node._phase = 'COUNTDOWN'
+    node._phase = 'WAITING_HOME'
     node._finish_requested = threading.Event()
 
     wrong = CollectionNode.request_finalize(
@@ -890,7 +991,7 @@ def test_alignment_heartbeat_failure_cancels_and_drains_child(monkeypatch):
     assert node._cleanup_blocked is False
 
 
-def test_countdown_torque_refresh_failure_releases_and_cancels_recorder(
+def test_waiting_home_torque_refresh_failure_releases_and_cancels_recorder(
     monkeypatch,
 ):
     monkeypatch.setattr(collection_node.time, 'sleep', lambda _seconds: None)
@@ -907,9 +1008,9 @@ def test_countdown_torque_refresh_failure_releases_and_cancels_recorder(
                 raise RuntimeError('torque heartbeat failed')
 
     node._set_torque = set_torque
-    result = CollectionNode.execute(
-        node, CollectionHandle(node, events, ending='finish')
-    )
+    handle = CollectionHandle(node, events, ending='finish')
+    handle.publish_feedback = lambda message: events.append(message.state.phase)
+    result = CollectionNode.execute(node, handle)
 
     assert result.error.code == CapabilityError.BACKEND_FAILURE
     assert 'torque heartbeat failed' in result.error.message

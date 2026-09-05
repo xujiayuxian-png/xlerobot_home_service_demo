@@ -36,7 +36,7 @@ from xlerobot_hmi.operator_console import (
 )
 from xlerobot_hmi.manual_control import ManualControlCoordinator
 from xlerobot_interfaces.msg import CapabilityError, PerceptionObservation, TaskEvent
-from xlerobot_interfaces.srv import FinalizeEpisode, ReviewEpisode, ServoCalibrationStep
+from xlerobot_interfaces.srv import BeginEpisode, FinalizeEpisode, ReviewEpisode, ServoCalibrationStep
 import yaml
 from xlerobot_assets import ArtifactCatalog
 
@@ -1294,6 +1294,32 @@ def test_capture_only_servo_finalize_returns_result_without_legacy_import():
     assert len(calls) == 1
     assert calls[0][0] is node.servo_calibration_client
     assert audits
+
+
+def test_collection_home_requires_prepared_state_and_uses_typed_service():
+    async def exercise():
+        calls = []
+        def call_async(request):
+            calls.append(request)
+            future = asyncio.get_running_loop().create_future()
+            future.set_result(BeginEpisode.Response())
+            return future
+        node = object.__new__(OperatorConsoleNode)
+        node._collection_lock = threading.Lock()
+        node.active_collection = {'dataset_id': 'd', 'episode_id': 'e',
+                                  'status': 'RUNNING', 'phase': 'PREPARE_PREGRASP'}
+        node.collection_begin_client = SimpleNamespace(service_is_ready=lambda: True,
+                                                        call_async=call_async)
+        with pytest.raises(web.HTTPConflict):
+            await node.begin_collection('d', 'e')
+        assert calls == []
+        node.active_collection['phase'] = 'WAITING_HOME'
+        with pytest.raises(web.HTTPNotFound):
+            await node.begin_collection('d', 'old')
+        await node.begin_collection('d', 'e')
+        assert len(calls) == 1
+        assert calls[0].dataset_id == 'd' and calls[0].episode_id == 'e'
+    asyncio.run(exercise())
 
 
 def test_collection_finalize_uses_typed_coordinator_service_and_is_idempotent():

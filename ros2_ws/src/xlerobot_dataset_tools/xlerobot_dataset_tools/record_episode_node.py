@@ -29,7 +29,7 @@ from .episode_io import EpisodeWriter, JOINT_NAMES
 
 IDENTIFIER = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,95}$')
 MAX_RECORDING_DURATION_S = 180.0
-START_EVENT_TIMEOUT_S = 120.0
+START_EVENT_TIMEOUT_S = 180.0  # preparation plus explicit operator Home wait
 
 
 def duration_seconds(duration) -> float:

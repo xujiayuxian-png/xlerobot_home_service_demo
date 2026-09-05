@@ -7,3 +7,6 @@ CapabilityError error
 PolicyStartContext start_context
 ---
 CapabilityProgress state
+# Validated target, published before execution for concurrent Leader alignment.
+# This is a planned target, not the measured result start_context.
+sensor_msgs/JointState planned_joints

@@ -1,0 +1,5 @@
+# Operator Home: begin recording an already prepared episode.
+string dataset_id
+string episode_id
+---
+CapabilityError error

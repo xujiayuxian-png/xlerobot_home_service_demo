@@ -211,7 +211,7 @@ export function App() {
   </div>
 }
 
-function CollectionWorkspace({ state, initialDatasetId, onState, onError }: {
+export function CollectionWorkspace({ state, initialDatasetId, onState, onError }: {
   state: CollectionState | null
   initialDatasetId: string
   onState: (state: CollectionState | null) => void
@@ -224,11 +224,15 @@ function CollectionWorkspace({ state, initialDatasetId, onState, onError }: {
   const [objectId, setObjectId] = useState('羽毛球')
   const [instruction, setInstruction] = useState('抓住羽毛球')
   const [duration, setDuration] = useState(30)
+  const [homePending, setHomePending] = useState(false)
+  const [startPending, setStartPending] = useState(false)
   const running = state?.status === 'RUNNING'
   const abortable = running && ![
     'STOPPING_TELEOP', 'FINALIZING', 'REVIEW',
   ].includes(state?.phase || '')
   const start = async (dryRun: boolean) => {
+    if (startPending) return
+    setStartPending(true)
     const episodeId = `episode-${new Date().toISOString().replace(/\D/g, '').slice(0, 17)}`
     try {
       onState(await api.startCollection({
@@ -237,6 +241,7 @@ function CollectionWorkspace({ state, initialDatasetId, onState, onError }: {
         language_instruction: instruction, max_duration_s: duration, dry_run: dryRun,
       }))
     } catch (reason) { onError(String(reason)) }
+    finally { setStartPending(false) }
   }
   const finish = async () => {
     if (!state) return
@@ -256,6 +261,13 @@ function CollectionWorkspace({ state, initialDatasetId, onState, onError }: {
     }
     catch (reason) { onError(String(reason)) }
   }
+  const home = async () => {
+    if (!state || homePending) return
+    setHomePending(true)
+    try { await api.beginCollection(state.dataset_id, state.episode_id) }
+    catch (reason) { onError(String(reason)) }
+    finally { setHomePending(false) }
+  }
   const review = async (status: 'accepted' | 'rejected') => {
     if (!state) return
     try {
@@ -269,8 +281,8 @@ function CollectionWorkspace({ state, initialDatasetId, onState, onError }: {
     <p className="section-label">FOLLOWER NEXT-STATE · NPZ + DUAL MP4</p>
     <h2>ACT 数据采集</h2>
     <div className="workflow-tabs">
-      <button className={template === 'pick' ? 'active' : ''} onClick={() => setTemplate('pick')}>抓取模板</button>
-      <button className={template === 'manual' ? 'active' : ''} onClick={() => setTemplate('manual')}>通用手动</button>
+      <button disabled={running || startPending} className={template === 'pick' ? 'active' : ''} onClick={() => setTemplate('pick')}>抓取模板</button>
+      <button disabled={running || startPending} className={template === 'manual' ? 'active' : ''} onClick={() => setTemplate('manual')}>通用手动</button>
     </div>
     <div className="camera-previews">
       <figure><img src="/api/v1/cameras/head/stream" alt="头部 D455 实时预览" />
@@ -278,14 +290,21 @@ function CollectionWorkspace({ state, initialDatasetId, onState, onError }: {
       <figure><img src="/api/v1/cameras/wrist/stream" alt="右腕相机实时预览" />
         <figcaption>WRIST · RIGHT ARM</figcaption></figure>
     </div>
-    <div className="field-row"><input value={datasetId} onChange={event => setDatasetId(event.target.value)} placeholder="Dataset ID" />
-      <input value={objectId} onChange={event => setObjectId(event.target.value)} placeholder="物体标签" /></div>
-    <label>语言指令<input value={instruction} onChange={event => setInstruction(event.target.value)} /></label>
-    <label>最长时长 {duration}s<input type="range" min="5" max="120" value={duration}
+    <div className="field-row"><input value={datasetId} disabled={running || startPending} onChange={event => setDatasetId(event.target.value)} placeholder="Dataset ID" />
+      <input value={objectId} disabled={running || startPending} onChange={event => {
+        setObjectId(event.target.value)
+        setInstruction(`抓住${event.target.value}`)
+      }} placeholder="物体标签" /></div>
+    <label>语言指令<input value={instruction} disabled={running || startPending} onChange={event => setInstruction(event.target.value)} /></label>
+    <label>最长时长 {duration}s<input disabled={running || startPending} type="range" min="5" max="120" value={duration}
       onChange={event => setDuration(Number(event.target.value))} /></label>
-    {!running && <div className="field-row"><button onClick={() => start(true)}>状态机 dry-run</button>
-      <button className="primary" onClick={() => start(false)}>Home / 开始采集</button></div>}
+    {!running && <div className="field-row"><button disabled={startPending} onClick={() => start(true)}>状态机 dry-run</button>
+      <button disabled={startPending} className="primary" onClick={() => start(false)}>开始 / 准备 pregrasp</button></div>}
     {running && <div className="field-row">
+      <button className="primary" onClick={home}
+        disabled={state.phase !== 'WAITING_HOME' || homePending}>
+        Home / 释放主臂并开始采集
+      </button>
       <button className="primary" onClick={finish}
         disabled={state.phase !== 'RECORDING'}>
         End / 正常结束并发布
@@ -300,7 +319,7 @@ function CollectionWorkspace({ state, initialDatasetId, onState, onError }: {
       <div className="field-row">
       <button onClick={() => review('accepted')}>接受</button>
       <button onClick={() => review('rejected')}>拒绝</button></div>}
-    <p className="hint">Recorder READY 后才允许预备运动；启动记录成功后才释放 Leader 并启用遥操。停止时先禁用遥操，再原子发布 NPZ 和双路 MP4。快速夹爪动作不做平滑。</p>
+    <p className="hint">开始：主从臂准备到 pregrasp 后保持上力（通用手动仅主臂对齐从臂）。等待 Home：托住主臂后点击 Home，释放扭矩并开始采集；正常结束请点 End。等待超过 60 秒将中止本条。</p>
   </section>
 }
 

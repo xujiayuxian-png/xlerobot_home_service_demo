@@ -21,12 +21,12 @@ from xlerobot_interfaces.action import (
     CollectEpisode, DetectObject, PrepareGrasp, RecordEpisode,
 )
 from xlerobot_interfaces.msg import CapabilityError
-from xlerobot_interfaces.srv import FinalizeEpisode, MarkEpisodeEvent
+from xlerobot_interfaces.srv import BeginEpisode, FinalizeEpisode, MarkEpisodeEvent
 
 
 PHASES = (
     'PREFLIGHT', 'DETECT_OBJECT', 'RECORDER_ADMISSION',
-    'PREPARE_FOLLOWER_PREGRASP', 'ALIGN_LEADER', 'COUNTDOWN', 'RECORDING',
+    'PREPARE_PREGRASP', 'ALIGN_LEADER', 'WAITING_HOME', 'RECORDING',
     'STOPPING_TELEOP', 'FINALIZING', 'REVIEW',
 )
 TARGET_JOINTS = (
@@ -105,6 +105,7 @@ class CollectionNode(Node):
         self._active_episode_id = ''
         self._phase = ''
         self._finish_requested = threading.Event()
+        self._begin_requested = threading.Event()
         self._cleanup_blocked = False
         self._joint_state_timeout_s = float(
             self.declare_parameter('joint_state_timeout_s', 0.5).value
@@ -160,6 +161,8 @@ class CollectionNode(Node):
             self.request_finalize,
             callback_group=group,
         )
+        self.create_service(BeginEpisode, '/collect_episode/begin', self.request_begin,
+                            callback_group=group)
         self._states = {'leader': {}, 'follower': {}}
         self._state_received_at = {'leader': 0.0, 'follower': 0.0}
         self._leader_frame_count = 0
@@ -210,6 +213,24 @@ class CollectionNode(Node):
             ):
                 return CancelResponse.REJECT
         return CancelResponse.ACCEPT
+
+    def request_begin(self, request, response):
+        with self._session_lock:
+            if (not self._goal_active or request.dataset_id != self._active_dataset_id
+                    or request.episode_id != self._active_episode_id):
+                response.error.code = CapabilityError.NOT_FOUND
+                response.error.message = 'prepared collection episode was not found'
+            elif self._phase == 'RECORDING' and self._begin_requested.is_set():
+                response.error.code = CapabilityError.NONE
+                response.error.message = 'recording already started'
+            elif self._phase != 'WAITING_HOME':
+                response.error.code = CapabilityError.INVALID_GOAL
+                response.error.message = f'Home is unavailable during {self._phase}'
+            else:
+                self._begin_requested.set()
+                response.error.code = CapabilityError.NONE
+                response.error.message = 'Home accepted; beginning recording'
+        return response
 
     def request_finalize(self, request, response):
         """Request a graceful end without bypassing coordinator stop ordering."""
@@ -584,6 +605,74 @@ class CollectionNode(Node):
                 f'exceeds {ALIGNMENT_TOLERANCE_RAD:.2f} rad threshold'
             )
 
+    def _prepare_pair(self, goal, parent_handle):
+        """Use the canonical validated target to overlap both preparation motions."""
+        stop = threading.Event()
+        target_ready = threading.Event()
+        done = threading.Event()
+        outcome = {}
+
+        class PairHandle:
+            @property
+            def is_cancel_requested(self):
+                return parent_handle.is_cancel_requested or stop.is_set()
+
+        paired = PairHandle()
+
+        def feedback(message):
+            joints = message.feedback.planned_joints
+            if not joints.name or target_ready.is_set():
+                return
+            mapping = dict(zip(joints.name, joints.position))
+            if (len(joints.name) != len(joints.position)
+                    or any(name not in mapping or not math.isfinite(mapping[name])
+                           for name in TARGET_JOINTS)):
+                outcome['error'] = RuntimeError('PrepareGrasp returned invalid planned joints')
+                stop.set()
+                return
+            outcome['target'] = [mapping[name] for name in TARGET_JOINTS]
+            target_ready.set()
+
+        def prepare():
+            try:
+                result = self._action(self.prepare, goal, paired, label='PrepareGrasp',
+                                      timeout=60.0, feedback_callback=feedback,
+                                      heartbeat_callback=lambda: self._set_torque(True))
+                if result.error.code != CapabilityError.NONE:
+                    raise RuntimeError(result.error.message)
+                outcome['result'] = result
+            except Exception as error:
+                outcome.setdefault('error', error)
+                stop.set()
+            finally:
+                done.set()
+
+        worker = threading.Thread(target=prepare, daemon=True)
+        worker.start()
+        try:
+            while not target_ready.wait(0.02):
+                if done.is_set():
+                    raise outcome.get('error', RuntimeError('PrepareGrasp omitted planned target'))
+                self._raise_if_canceled(paired)
+            self._align_leader(outcome['target'], paired)
+            while not done.wait(self._control_heartbeat_period_s):
+                self._raise_if_canceled(paired)
+                self._set_torque(True)
+            if 'error' in outcome:
+                raise outcome['error']
+            return outcome['result']
+        except Exception:
+            stop.set()
+            # Both paths use the existing child cancel/drain semantics.
+            worker.join(timeout=35.0)
+            if worker.is_alive():
+                self._block_after_cleanup_failure()
+                raise RuntimeError('paired preparation cleanup did not complete')
+            if ('error' in outcome and not isinstance(outcome['error'], CollectionCanceled)
+                    and not parent_handle.is_cancel_requested):
+                raise outcome['error']
+            raise
+
     def _validate_live_teleop_alignment(self) -> None:
         """Require a fresh, complete paired snapshot immediately before teleop."""
         now = time.monotonic()
@@ -716,6 +805,7 @@ class CollectionNode(Node):
                 self._active_episode_id = goal.episode_id
                 self._phase = 'PREFLIGHT'
                 self._finish_requested.clear()
+                self._begin_requested.clear()
             self._feedback(handle, 'PREFLIGHT', 0.02, 'checking collection profile and runtimes')
             self._raise_if_canceled(handle)
             if goal.dry_run:
@@ -842,19 +932,15 @@ class CollectionNode(Node):
 
             if goal.template_id == 'pick':
                 self._feedback(
-                    handle, 'PREPARE_FOLLOWER_PREGRASP', 0.22,
-                    'moving Follower through canonical PrepareGrasp',
+                    handle, 'PREPARE_PREGRASP', 0.22,
+                    'moving both arms to the canonical validated pregrasp target',
                 )
                 prepare_goal = PrepareGrasp.Goal(
                     object_id=goal.object_id, target=detected.target, dry_run=False
                 )
-                prepared = self._action(
-                    self.prepare,
-                    prepare_goal,
-                    handle,
-                    label='PrepareGrasp',
-                    timeout=60.0,
-                )
+                leader_torque_enabled = True
+                self._set_torque(True)
+                prepared = self._prepare_pair(prepare_goal, handle)
                 if prepared.error.code != CapabilityError.NONE:
                     raise RuntimeError(prepared.error.message)
                 self._raise_if_canceled(handle)
@@ -874,22 +960,23 @@ class CollectionNode(Node):
                 require_recorder_running('Follower pregrasp')
 
             self._raise_if_canceled(handle)
-            self._feedback(handle, 'ALIGN_LEADER', 0.30, 'moving only Leader to Follower state')
-            # Treat an enable request as owned until an explicit disable
-            # succeeds. This also covers a lost service response after the
-            # backend already applied the request.
-            leader_torque_enabled = True
-            self._set_torque(True)
-            self._align_leader(positions, handle)
+            if goal.template_id == 'manual':
+                self._feedback(handle, 'ALIGN_LEADER', 0.30, 'moving Leader to current Follower state')
+                # Own torque until an explicit disable, including lost replies.
+                leader_torque_enabled = True
+                self._set_torque(True)
+                self._align_leader(positions, handle)
             self._raise_if_canceled(handle)
             require_recorder_running('Leader alignment')
-            for remaining in (3, 2, 1):
-                self._raise_if_canceled(handle)
-                require_recorder_running('countdown')
-                self._feedback(handle, 'COUNTDOWN', 0.38, f'{remaining}')
-                keep_torque_leased(1.0, 'countdown')
+            self._feedback(handle, 'WAITING_HOME', 0.38,
+                           'pregrasp ready; Leader torque held; press Home to record')
+            home_deadline = time.monotonic() + 60.0
+            while not self._begin_requested.is_set():
+                if time.monotonic() >= home_deadline:
+                    raise TimeoutError('Home was not pressed within 60 seconds; preparation canceled')
+                keep_torque_leased(self._control_heartbeat_period_s, 'waiting for Home')
             self._raise_if_canceled(handle)
-            require_recorder_running('countdown')
+            require_recorder_running('Home')
             self._set_torque(False)
             leader_torque_enabled = False
             self._raise_if_canceled(handle)

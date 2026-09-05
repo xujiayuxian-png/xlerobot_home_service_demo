@@ -67,6 +67,7 @@ from xlerobot_interfaces.srv import (
     ActivateArtifact,
     CaptureCalibrationSample,
     FinalizeEpisode,
+    BeginEpisode,
     ImportCalibrationResult,
     SaveBaseGeometryCalibration,
     ServoCalibrationStep,
@@ -570,6 +571,7 @@ class OperatorConsoleNode(Node):
             self.collection_finalize_client = self.create_client(
                 FinalizeEpisode, '/collect_episode/finalize'
             )
+            self.collection_begin_client = self.create_client(BeginEpisode, '/collect_episode/begin')
             self.review_client = self.create_client(
                 ReviewEpisode, '/episodes/review'
             )
@@ -1567,6 +1569,27 @@ class OperatorConsoleNode(Node):
             state = dict(self.active_collection)
         self.events.publish('collection', state)
 
+    async def begin_collection(self, dataset_id: str, episode_id: str) -> dict[str, Any]:
+        with self._collection_lock:
+            state = self.active_collection
+            if not state or state['dataset_id'] != dataset_id or state['episode_id'] != episode_id:
+                raise web.HTTPNotFound(text='collection not found')
+            if state['status'] != 'RUNNING' or state['phase'] != 'WAITING_HOME':
+                raise web.HTTPConflict(text='Home requires both arms prepared and waiting')
+        if not await _wait_until_ready(self.collection_begin_client.service_is_ready, 2.0):
+            raise web.HTTPServiceUnavailable(text='collection Home service is unavailable')
+        future = self.collection_begin_client.call_async(BeginEpisode.Request(
+            dataset_id=dataset_id, episode_id=episode_id))
+        await _await_rclpy_future(future, 5.0)
+        response = future.result()
+        if response is None or response.error.code != CapabilityError.NONE:
+            raise web.HTTPConflict(text=response.error.message if response else 'Home returned no response')
+        with self._collection_lock:
+            state = self.active_collection
+            if not state or state['dataset_id'] != dataset_id or state['episode_id'] != episode_id:
+                raise web.HTTPConflict(text='collection changed while starting recording')
+            return dict(state)
+
     async def finalize_collection(
         self, dataset_id: str, episode_id: str
     ) -> dict[str, Any]:
@@ -1859,6 +1882,8 @@ class ConsoleApplication:
             ),
             web.post('/api/v1/collections/sessions', self.start_collection),
             web.get('/api/v1/collections/current', self.current_collection),
+            web.post('/api/v1/datasets/{dataset_id}/episodes/{episode_id}/begin',
+                     self.begin_collection),
             web.post(
                 '/api/v1/datasets/{dataset_id}/episodes/'
                 '{episode_id}/finalize',
@@ -3131,6 +3156,12 @@ class ConsoleApplication:
             request.match_info['dataset_id'],
             request.match_info['episode_id'],
         ))
+
+    async def begin_collection(self, request):
+        self._require_engineering_workspace(request)
+        self._require_workspace('collection')
+        return web.json_response(await self.node.begin_collection(
+            request.match_info['dataset_id'], request.match_info['episode_id']), status=202)
 
     async def finalize_collection(self, request):
         self._require_engineering_workspace(request)

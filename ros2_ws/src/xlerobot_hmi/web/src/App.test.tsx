@@ -73,7 +73,7 @@ describe('operator console API', () => {
       dataset_id: 'dataset-1', episode_id: 'episode-1',
       template_id: 'manual', object_id: '', status: 'RUNNING',
       dry_run: false,
-      phase: 'COUNTDOWN', progress: 0.3, message: '3',
+      phase: 'WAITING_HOME', progress: 0.38, message: '等待 Home',
       elapsed_s: 0, frame_count: 0, episode_uri: '',
       quality_passed: false,
     }
