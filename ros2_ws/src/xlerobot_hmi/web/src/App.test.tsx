@@ -293,10 +293,10 @@ describe('operator console API', () => {
 
     render(<App />)
     expect(await screen.findByText('发起取物递送')).toBeTruthy()
-    expect(screen.queryByLabelText('底盘低速摇杆')).toBeNull()
+    expect(screen.queryByLabelText('底盘摇杆')).toBeNull()
     expect(socketCount).toBe(0)
     fireEvent.click(screen.getByRole('button', { name: '手动控制' }))
-    expect(await screen.findByLabelText('底盘低速摇杆')).toBeTruthy()
+    expect(await screen.findByLabelText('底盘摇杆')).toBeTruthy()
     fireEvent.click(await screen.findByRole('button', { name: '解锁遥控' }))
     expect(socketCount).toBe(0)
   })

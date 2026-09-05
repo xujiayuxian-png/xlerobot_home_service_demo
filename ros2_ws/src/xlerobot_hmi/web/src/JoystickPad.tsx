@@ -9,10 +9,13 @@ export function joystickVector(x: number, y: number) {
     linear: -y * scale, angular: -x * scale }
 }
 
-export function MappingJoystick({ disabled, onMove, onRelease }: {
+export function JoystickPad({ disabled, onMove, onRelease, size = 212 }: {
   disabled: boolean, onMove: (linear: number, angular: number) => void,
   onRelease: () => void,
+  size?: number,
 }) {
+  const knobSize = size < 180 ? 34 : 56
+  const travel = (size - knobSize) / 2
   const [position, setPosition] = useState({ x: 0, y: 0 })
   const pointer = useRef<number | null>(null)
   const surface = useRef<HTMLDivElement>(null)
@@ -41,15 +44,16 @@ export function MappingJoystick({ disabled, onMove, onRelease }: {
 
   const update = (event: PointerEvent<HTMLDivElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect()
-    const radius = Math.min(bounds.width, bounds.height) / 2 - 28
+    const radius = Math.min(bounds.width, bounds.height) / 2 - knobSize / 2
     if (radius <= 0) return
     const next = joystickVector((event.clientX - bounds.left - bounds.width / 2) / radius,
       (event.clientY - bounds.top - bounds.height / 2) / radius)
     setPosition(next)
     onMove(next.linear, next.angular)
   }
-  return <div className="mapping-stick-wrap">
-    <div ref={surface} className={`mapping-stick ${disabled ? 'disabled' : ''}`}
+  return <div className="joystick-pad-wrap">
+    <div ref={surface} className={`joystick-pad ${disabled ? 'disabled' : ''}`}
+      style={{ width: size, height: size }}
       role="group" aria-label="底盘摇杆" aria-disabled={disabled}
       onContextMenu={event => event.preventDefault()}
       onDragStart={event => event.preventDefault()}
@@ -72,7 +76,9 @@ export function MappingJoystick({ disabled, onMove, onRelease }: {
       <span className="joystick-forward">前进</span><span className="joystick-back">后退</span>
       <span className="joystick-left">左转</span><span className="joystick-right">右转</span>
       <span className="joystick-knob" style={{
-        transform: `translate(${position.x * 78}px, ${position.y * 78}px)`,
+        width: knobSize, height: knobSize,
+        top: `calc(50% - ${knobSize / 2}px)`, left: `calc(50% - ${knobSize / 2}px)`,
+        transform: `translate(${position.x * travel}px, ${position.y * travel}px)`,
       }} />
     </div>
     <p className="hint">按住拖动，松手停车；上/下前后行驶，左/右转向，可同时转弯。</p>

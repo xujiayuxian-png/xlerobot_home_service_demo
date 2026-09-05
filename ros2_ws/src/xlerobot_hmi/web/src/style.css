@@ -195,15 +195,6 @@ button:disabled { opacity: .42; cursor: not-allowed; }
 .joystick-lock { width: 100%; display: flex; justify-content: center; align-items: center; gap: 7px; padding: 8px 10px; color: var(--text-soft); background: transparent; }
 .joystick-lock i { width: 8px; height: 8px; border: 1px solid #71888e; border-radius: 2px; }
 .joystick-lock.unlocked { color: #061611; background: var(--green); border-color: var(--green); }.joystick-lock.unlocked i { border-color: #061611; background: #061611; }
-.joystick-stage { position: relative; width: 142px; height: 142px; display: grid; place-items: center; }
-.joystick { position: relative; width: 108px; height: 108px; display: grid; place-items: center; border: 1px solid #29464e; border-radius: 50%; background: radial-gradient(circle, #18323a 0 8%, #0a1a20 9% 52%, #071319 53%); touch-action: none; opacity: .48; }
-.joystick::before, .joystick::after { content: ''; position: absolute; background: #28434b; pointer-events: none; }
-.joystick::before { width: 1px; height: 74%; }.joystick::after { width: 74%; height: 1px; }
-.joystick.unlocked { opacity: 1; border-color: rgba(93, 228, 166, .5); }
-.joystick span { position: relative; z-index: 1; width: 34px; height: 34px; border: 1px solid #5f7f87; border-radius: 50%; background: linear-gradient(145deg, #294952, #132930); box-shadow: 0 6px 14px rgba(0, 0, 0, .35); pointer-events: none; }
-.joystick.unlocked span { border-color: var(--green); }
-.axis-label { position: absolute; color: #587078; font-size: .56rem; }.axis-label.forward { top: 0; }.axis-label.back { bottom: 0; }.axis-label.left { left: 0; }.axis-label.right { right: 0; }
-.deadman-hint { color: var(--text-dim); font-size: .59rem; }
 button.danger { border-color: #88474f; color: #ff9da7; background: rgba(96, 31, 40, .18); }
 .operation-result, .saved { margin: 14px 0 0; padding: 10px 12px; border: 1px solid rgba(93, 228, 166, .22); border-radius: 9px; color: #c7dbd6; background: rgba(32, 91, 67, .12); font-size: .72rem; overflow-wrap: anywhere; }
 .operation-result span { margin-right: 9px; color: var(--green); font-weight: 750; }
@@ -236,16 +227,16 @@ button.danger { border-color: #88474f; color: #ff9da7; background: rgba(96, 31, 
 .mapping-side { display: grid; gap: 16px; }
 .drive-title button { border-radius: 100px; color: #81969b; background: transparent; padding: 8px 13px; }
 .drive-title button.armed { color: #051911; background: var(--green); border-color: var(--green); }
-.mapping-stick-wrap { text-align: center; margin: 18px 0; }
-.mapping-stick, .mapping-stick * { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-.mapping-stick { position: relative; width: 212px; height: 212px; margin: auto; border-radius: 50%; border: 1px solid var(--line-soft); background: radial-gradient(circle, #21423e 0, #0b1c22 70%); cursor: grab; }
-.mapping-stick:active { cursor: grabbing; }.mapping-stick.disabled { opacity: .4; cursor: not-allowed; }
-.mapping-stick span { position: absolute; pointer-events: none; color: var(--text-soft); font-size: .7rem; }
+.joystick-pad-wrap { text-align: center; margin: 18px 0; }
+.joystick-pad, .joystick-pad * { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.joystick-pad { position: relative; width: 212px; height: 212px; margin: auto; border-radius: 50%; border: 1px solid var(--line-soft); background: radial-gradient(circle, #21423e 0, #0b1c22 70%); cursor: grab; }
+.joystick-pad:active { cursor: grabbing; }.joystick-pad.disabled { opacity: .4; cursor: not-allowed; }
+.joystick-pad span { position: absolute; pointer-events: none; color: var(--text-soft); font-size: .7rem; }
 .joystick-forward { top: 10px; left: 50%; transform: translateX(-50%); }
 .joystick-back { bottom: 10px; left: 50%; transform: translateX(-50%); }
 .joystick-left { left: 10px; top: 50%; transform: translateY(-50%); }
 .joystick-right { right: 10px; top: 50%; transform: translateY(-50%); }
-.mapping-stick .joystick-knob { width: 56px; height: 56px; top: calc(50% - 28px); left: calc(50% - 28px); border: 2px solid var(--green); border-radius: 50%; background: #306b58; box-shadow: 0 3px 14px #0008; }
+.joystick-pad .joystick-knob { width: 56px; height: 56px; top: calc(50% - 28px); left: calc(50% - 28px); border: 2px solid var(--green); border-radius: 50%; background: #306b58; box-shadow: 0 3px 14px #0008; }
 .stop-drive { color: var(--red); }
 .site-field { display: grid; gap: 6px; margin: 12px 0; font-size: .8rem; }
 .saved-places { list-style: none; padding: 0; display: grid; gap: 8px; }

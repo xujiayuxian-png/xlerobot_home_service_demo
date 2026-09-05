@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { MappingJoystick as BaseJoystick, joystickVector } from './MappingJoystick'
-import { MappingWorkspace } from './App'
+import { JoystickPad as BaseJoystick, joystickVector } from './JoystickPad'
+import { BaseJoystick as OperatorJoystick, MappingWorkspace } from './App'
 import { api, type SiteSummary } from './api'
 import type { MappingState } from './types'
 
@@ -111,6 +111,26 @@ describe('mapping joystick input', () => {
 })
 
 describe('mapping workflow', () => {
+  it('keeps one held command through parent updates and the five-second site refresh', async () => {
+    vi.useFakeTimers()
+    const view = render(<MappingWorkspace state={state} phase="build" initialSiteId="home" onError={vi.fn()} />)
+    await act(async () => {})
+    fireEvent.click(screen.getByText('开启遥控'))
+    const pad = screen.getByRole('group', { name: '底盘摇杆' })
+    press(pad)
+    const socket = TestSocket.instances[0]
+    act(() => socket.open())
+    for (let i = 0; i < 120; i++) {
+      view.rerender(<MappingWorkspace state={{ ...state, pose: { ...state.pose!, x: i / 100 } }}
+        phase="build" initialSiteId="home" onError={vi.fn()} />)
+      await act(async () => { vi.advanceTimersByTime(100) })
+    }
+    expect(api.site).toHaveBeenCalledTimes(3)
+    expect(TestSocket.instances).toHaveLength(1)
+    expect(socket.sent).toHaveLength(121)
+    expect(socket.sent.every(command => command.armed && command.linear === .08)).toBe(true)
+    expect(screen.getByRole('group', { name: '底盘摇杆' })).toBe(pad)
+  })
   it('blocks duplicate requests while saving and reports failure without claiming success', async () => {
     let reject!: (error: Error) => void
     const save = vi.spyOn(api, 'setPlace').mockImplementation(() => new Promise((_, fail) => { reject = fail }))
@@ -199,5 +219,29 @@ describe('mapping workflow', () => {
     expect((screen.getByText('2. 导航并验证地点') as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByText('3. 激活场地草稿') as HTMLButtonElement).disabled).toBe(true)
     expect(TestSocket.instances).toHaveLength(0)
+  })
+})
+
+describe('shared Demo teleoperation', () => {
+  it('uses the same hold/release session and closes it when a task locks manual control', () => {
+    vi.useFakeTimers()
+    const view = render(<OperatorJoystick disabled={false} onError={vi.fn()} />)
+    fireEvent.click(screen.getByText('解锁遥控'))
+    const pad = screen.getByRole('group', { name: '底盘摇杆' })
+    press(pad, 106, 0)
+    const socket = TestSocket.instances[0]
+    act(() => socket.open())
+    expect(socket.sent.at(-1)?.linear).toBe(.1)
+    fireEvent.pointerUp(pad, { pointerId: 1 })
+    act(() => { vi.advanceTimersByTime(100) })
+    expect(socket.sent.at(-1)).toEqual({ armed: true, linear: 0, angular: 0 })
+    press(pad, 106, 0)
+    expect(TestSocket.instances).toHaveLength(1)
+    view.rerender(<OperatorJoystick disabled onError={vi.fn()} />)
+    expect(socket.sent.at(-1)).toEqual({ armed: false, linear: 0, angular: 0 })
+    expect(socket.readyState).toBe(3)
+    expect(screen.getByText('任务中已锁定')).toBeTruthy()
+    press(pad)
+    expect(TestSocket.instances).toHaveLength(1)
   })
 })

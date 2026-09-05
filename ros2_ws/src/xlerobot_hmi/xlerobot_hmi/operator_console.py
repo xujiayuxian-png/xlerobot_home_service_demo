@@ -33,7 +33,7 @@ from nav_msgs.msg import OccupancyGrid, Path as NavigationPath
 import numpy as np
 import rclpy
 from rclpy.action import ActionClient
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import (
     DurabilityPolicy,
@@ -3144,7 +3144,11 @@ def main():
     """Run the ROS executor and aiohttp server as one gateway process."""
     rclpy.init()
     node = OperatorConsoleNode()
-    executor = MultiThreadedExecutor(num_threads=3)
+    # ROS callbacks use the default mutually-exclusive group and must not
+    # block waiting for actions (those awaits run in asyncio). Thread-pool
+    # contention in this gateway starved the web loop and its 100 ms teleop
+    # heartbeats under map updates. Keep one ROS dispatch thread.
+    executor = SingleThreadedExecutor()
     executor.add_node(node)
     spin_thread = threading.Thread(target=executor.spin, daemon=True)
     spin_thread.start()

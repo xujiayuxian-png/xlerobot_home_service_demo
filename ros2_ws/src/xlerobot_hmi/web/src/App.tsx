@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type CalibrationCoverage, type SiteSummary } from './api'
-import { MappingJoystick } from './MappingJoystick'
+import { JoystickPad } from './JoystickPad'
+import { useBaseTeleop } from './useBaseTeleop'
 import {
   activeCameraPerception, activePersonTarget, taskShowsNavigationPath,
 } from './observability'
@@ -571,7 +572,6 @@ export function MappingWorkspace({ state, phase, initialSiteId, onError }: {
   state: MappingState | null, phase: string, initialSiteId: string,
   onError: (message: string) => void
 }) {
-  const [armed, setArmed] = useState(false)
   const [linearSpeed, setLinearSpeed] = useState(0.08)
   const [angularSpeed, setAngularSpeed] = useState(0.35)
   const siteId = initialSiteId || 'home'
@@ -583,100 +583,9 @@ export function MappingWorkspace({ state, phase, initialSiteId, onError }: {
   const [pending, setPending] = useState('')
   const busy = useRef(false)
   const [localized, setLocalized] = useState(false)
-  const [connected, setConnected] = useState(false)
-  const socket = useRef<WebSocket | null>(null)
-  const teleopTimer = useRef<number | null>(null)
-  const command = useRef({ linear: 0, angular: 0, active: false })
-
-  const transmit = () => {
-    const ws = socket.current
-    if (command.current.active && ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        armed: true,
-        linear: command.current.linear,
-        angular: command.current.angular,
-      }))
-    }
-  }
-  const closeTeleop = (sendStop: boolean) => {
-    if (teleopTimer.current !== null) {
-      window.clearInterval(teleopTimer.current)
-      teleopTimer.current = null
-    }
-    const ws = socket.current
-    socket.current = null
-    setConnected(false)
-    if (sendStop && ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ armed: false, linear: 0, angular: 0 }))
-    }
-    if (ws && ws.readyState < WebSocket.CLOSING) ws.close()
-    command.current = { linear: 0, angular: 0, active: false }
-  }
-  const openTeleop = () => {
-    if (socket.current !== null || phase !== 'build') return
-    const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-    const ws = new WebSocket(`${protocol}://${location.host}/api/v1/teleop/base`)
-    socket.current = ws
-    ws.onopen = () => {
-      if (socket.current !== ws) return
-      if (!command.current.active) {
-        ws.close()
-        return
-      }
-      transmit()
-      setConnected(true)
-      teleopTimer.current = window.setInterval(transmit, 100)
-    }
-    ws.onmessage = event => {
-      if (socket.current !== ws) return
-      const message = JSON.parse(event.data)
-      if (message.error) {
-        closeTeleop(true)
-        setArmed(false)
-        onError(message.error)
-      }
-    }
-    ws.onerror = () => {
-      if (socket.current !== ws) return
-      closeTeleop(false)
-      setArmed(false)
-      onError('底盘遥控连接失败')
-    }
-    ws.onclose = () => {
-      if (socket.current !== ws) return
-      closeTeleop(false)
-      setArmed(false)
-      onError('遥控连接已断开，已停止发送；请重新开启遥控。')
-    }
-  }
-  useEffect(() => {
-    if (phase !== 'build') return
-    const stop = () => {
-      closeTeleop(true)
-      setArmed(false)
-    }
-    const hidden = () => { if (document.hidden) stop() }
-    document.addEventListener('visibilitychange', hidden)
-    window.addEventListener('blur', stop)
-    return () => {
-      stop()
-      document.removeEventListener('visibilitychange', hidden)
-      window.removeEventListener('blur', stop)
-    }
-  }, [phase])
-
-  const drive = (linear: number, angular: number) => {
-    if (!armed) return
-    // A released stick sends zero on the same connection. Keeping one session
-    // until disarm avoids competing backend owners on rapid release/re-press.
-    if (!socket.current && linear === 0 && angular === 0) return
-    command.current = { linear, angular, active: true }
-    openTeleop()
-    transmit()
-  }
-  const stop = () => {
-    closeTeleop(true)
-  }
+  const { armed, setArmed, connected, move: drive, stop } = useBaseTeleop(
+    phase !== 'build' || !!pending, onError,
+  )
   const refreshSite = async () => {
     const result = await api.site(siteId)
     setSite(result)
@@ -771,7 +680,7 @@ export function MappingWorkspace({ state, phase, initialSiteId, onError }: {
           <button disabled={!!pending} className={armed ? 'armed' : ''} onClick={() => { stop(); setArmed(!armed) }}>
             {armed ? '结束遥控' : '开启遥控'}
           </button></div>
-        <MappingJoystick disabled={!armed || !!pending}
+        <JoystickPad disabled={!armed || !!pending}
           onMove={(linear, angular) => drive(linear * linearSpeed, angular * angularSpeed)}
           onRelease={() => drive(0, 0)} />
         <p className="hint">{!armed ? '遥控已关闭' : connected ? '已连接 · 松手零速保持' : '已开启 · 拖动摇杆连接'}</p>
@@ -1227,126 +1136,18 @@ function CameraPreview({ camera, perception }: {
   </figure>
 }
 
-function BaseJoystick({ disabled, onError }: {
+export function BaseJoystick({ disabled, onError }: {
   disabled: boolean, onError: (message: string) => void,
 }) {
-  const [unlocked, setUnlocked] = useState(false)
-  const [knob, setKnob] = useState({ x: 0, y: 0 })
-  const socket = useRef<WebSocket | null>(null)
-  const timer = useRef<number | null>(null)
-  const command = useRef({ armed: false, linear: 0, angular: 0 })
-
-  const transmit = () => {
-    if (command.current.armed && socket.current?.readyState === WebSocket.OPEN) {
-      socket.current.send(JSON.stringify(command.current))
-    }
-  }
-  const closeSession = (sendStop: boolean) => {
-    if (timer.current !== null) {
-      window.clearInterval(timer.current)
-      timer.current = null
-    }
-    const ws = socket.current
-    if (sendStop && ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ armed: false, linear: 0, angular: 0 }))
-    }
-    if (ws && ws.readyState < WebSocket.CLOSING) ws.close()
-    socket.current = null
-    command.current = { armed: false, linear: 0, angular: 0 }
-    setKnob({ x: 0, y: 0 })
-  }
-
-  useEffect(() => {
-    const halt = () => { closeSession(true); setUnlocked(false) }
-    const hidden = () => { if (document.hidden) halt() }
-    document.addEventListener('visibilitychange', hidden)
-    window.addEventListener('blur', halt)
-    return () => {
-      halt()
-      document.removeEventListener('visibilitychange', hidden)
-      window.removeEventListener('blur', halt)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (disabled) {
-      setUnlocked(false)
-      closeSession(true)
-    }
-  }, [disabled])
-
-  const openSession = () => {
-    if (socket.current !== null) return
-    const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-    const ws = new WebSocket(`${protocol}://${location.host}/api/v1/teleop/base`)
-    socket.current = ws
-    ws.onopen = () => {
-      if (!command.current.armed) {
-        ws.close()
-        return
-      }
-      transmit()
-      timer.current = window.setInterval(transmit, 100)
-    }
-    ws.onmessage = event => {
-      const message = JSON.parse(event.data)
-      if (message.error) {
-        setUnlocked(false)
-        closeSession(true)
-        onError(message.error)
-      }
-    }
-    ws.onerror = () => {
-      setUnlocked(false)
-      closeSession(false)
-      onError('底盘遥控连接失败')
-    }
-    ws.onclose = () => {
-      if (socket.current === ws) closeSession(false)
-    }
-  }
-
-  const update = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!unlocked || disabled) return
-    const bounds = event.currentTarget.getBoundingClientRect()
-    const radius = Math.max(1, Math.min(bounds.width, bounds.height) * .36)
-    let x = event.clientX - (bounds.left + bounds.width / 2)
-    let y = event.clientY - (bounds.top + bounds.height / 2)
-    const length = Math.hypot(x, y)
-    if (length > radius) { x *= radius / length; y *= radius / length }
-    setKnob({ x, y })
-    command.current = {
-      armed: true,
-      linear: Math.max(-0.10, Math.min(0.10, -y / radius * 0.10)),
-      angular: Math.max(-0.40, Math.min(0.40, -x / radius * 0.40)),
-    }
-    openSession()
-    transmit()
-  }
-  const end = () => closeSession(true)
+  const { armed, setArmed, move } = useBaseTeleop(disabled, onError)
   return <div className="joystick-control">
-    <button className={unlocked ? 'joystick-lock unlocked' : 'joystick-lock'}
-      aria-pressed={unlocked}
-      disabled={disabled} onClick={() => {
-        if (unlocked) closeSession(true)
-        setUnlocked(!unlocked)
-      }}><i />{unlocked ? '遥控已解锁' : disabled ? '任务中已锁定' : '解锁遥控'}</button>
-    <div className="joystick-stage">
-      <span className="axis-label forward">前</span><span className="axis-label left">左</span>
-      <span className="axis-label right">右</span><span className="axis-label back">后</span>
-      <div className={unlocked ? 'joystick unlocked' : 'joystick'}
-        aria-label="底盘低速摇杆"
-      onPointerDown={event => {
-        event.currentTarget.setPointerCapture(event.pointerId); update(event)
-      }}
-      onPointerMove={event => {
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) update(event)
-      }}
-      onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end}>
-        <span style={{ transform: `translate(${knob.x}px, ${knob.y}px)` }} />
-      </div>
-    </div>
-    <small className="deadman-hint">{unlocked ? '按住移动，松手立即零速' : '解锁后才接受点动命令'}</small>
+    <button className={armed ? 'joystick-lock unlocked' : 'joystick-lock'}
+      aria-pressed={armed} disabled={disabled} onClick={() => setArmed(!armed)}>
+      <i />{armed ? '结束遥控' : disabled ? '任务中已锁定' : '解锁遥控'}
+    </button>
+    <JoystickPad size={142} disabled={!armed || disabled}
+      onMove={(linear, angular) => move(linear * .10, angular * .40)}
+      onRelease={() => move(0, 0)} />
   </div>
 }
 
