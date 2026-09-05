@@ -61,6 +61,9 @@ Startup does not automatically home the arms or begin recording.
 4. Support the Leader and click **Home / 释放主臂并开始采集**. This releases torque
    and starts recording. Demonstrate once `RECORDING` appears. Waiting for Home
    longer than 60 seconds cancels the attempt; it never auto-starts recording.
+   Preparation failure, cancellation, or timeout exits the session and releases
+   Leader torque; this is not the ready/waiting state. Alignment errors report
+   the affected joint's target, measured position, and error; do not force teleop.
 5. Click **End / 正常结束并发布**, or let the duration expire. Following stops
    before camera videos and joint data are finalized. “Publish” here means a
    completed local episode, not an upload.

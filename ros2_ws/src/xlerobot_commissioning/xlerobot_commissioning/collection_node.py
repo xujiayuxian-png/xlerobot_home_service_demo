@@ -55,6 +55,7 @@ RECORDER_FAILSAFE_GRACE_S = (
     + RECORDER_SCHEDULING_MARGIN_S
 )
 ALIGNMENT_TOLERANCE_RAD = 0.15
+ALIGNMENT_SETTLE_TIMEOUT_S = 2.0
 TERMINAL_ACTION_STATUSES = {
     GoalStatus.STATUS_SUCCEEDED,
     GoalStatus.STATUS_CANCELED,
@@ -587,23 +588,41 @@ class CollectionNode(Node):
         )
         if result.error_code != FollowJointTrajectory.Result.SUCCESSFUL:
             raise RuntimeError(f'Leader alignment failed: {result.error_string}')
-        now = time.monotonic()
-        with self._state_lock:
-            state = dict(self._states['leader'])
-            received_at = self._state_received_at['leader']
-        if any(
-            name not in state
-            or not math.isfinite(state[name])
-            or abs(state[name] - position) > ALIGNMENT_TOLERANCE_RAD
-            for name, position in zip(LEADER_JOINTS, positions)
-        ) or (
-            received_at <= 0.0
-            or now - received_at > self._joint_state_timeout_s
-        ):
-            raise RuntimeError(
-                'Leader alignment state is stale, incomplete, non-finite, or '
-                f'exceeds {ALIGNMENT_TOLERANCE_RAD:.2f} rad threshold'
-            )
+        # Trajectory completion and joint-state delivery are asynchronous. Keep
+        # holding the target while feedback catches up; success is still based
+        # on measured positions, never just the controller's success result.
+        completed_at = time.monotonic()
+        deadline = completed_at + ALIGNMENT_SETTLE_TIMEOUT_S
+        while True:
+            self._raise_if_canceled(parent_handle)
+            self._set_torque(True)
+            with self._state_lock:
+                state = dict(self._states['leader'])
+                received_at = self._state_received_at['leader']
+            now = time.monotonic()
+            problems = []
+            if received_at <= 0.0 or now - received_at > self._joint_state_timeout_s:
+                problems.append('joint state is stale or missing')
+            elif received_at < completed_at:
+                problems.append('waiting for joint state after trajectory completion')
+            for name, position in zip(LEADER_JOINTS, positions):
+                measured = state.get(name)
+                if measured is None or not math.isfinite(measured):
+                    problems.append(f'{name}: missing or non-finite position')
+                elif abs(measured - position) > ALIGNMENT_TOLERANCE_RAD:
+                    problems.append(
+                        f'{name}: target={position:.3f}, actual={measured:.3f}, '
+                        f'error={abs(measured - position):.3f} rad '
+                        f'(limit={ALIGNMENT_TOLERANCE_RAD:.2f})'
+                    )
+            if not problems:
+                return
+            if now >= deadline:
+                raise RuntimeError(
+                    'Leader alignment did not settle; preparation canceled '
+                    '(not waiting for Home): ' + '; '.join(problems)
+                )
+            time.sleep(min(self._control_heartbeat_period_s, deadline - now))
 
     def _prepare_pair(self, goal, parent_handle):
         """Use the canonical validated target to overlap both preparation motions."""

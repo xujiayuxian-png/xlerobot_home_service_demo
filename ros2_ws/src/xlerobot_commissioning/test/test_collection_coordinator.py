@@ -302,12 +302,24 @@ def test_prepared_session_does_not_release_or_record_until_home():
     worker.start()
     try:
         assert ready.wait(2.0)
+        # Exercise multiple lease renewals, not only the first WAITING_HOME frame.
+        renewals = events.count('torque_on')
+        deadline = time.monotonic() + 2.0
+        while events.count('torque_on') < renewals + 3:
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
         assert 'torque_on' in events
         assert 'torque_off' not in events
         assert 'recorder_start' not in events
+        assert 'teleop_on' not in events
         wrong = node.request_begin(BeginEpisode.Request(dataset_id='wrong', episode_id='episode-001'), BeginEpisode.Response())
         assert wrong.error.code == CapabilityError.NOT_FOUND
         assert not node._begin_requested.is_set()
+        # Hardware continues publishing while the operator waits at Home.
+        with node._state_lock:
+            node._state_received_at.update(
+                leader=time.monotonic(), follower=time.monotonic(),
+            )
         response = node.request_begin(BeginEpisode.Request(dataset_id='dataset-001', episode_id='episode-001'), BeginEpisode.Response())
         assert response.error.code == CapabilityError.NONE
         worker.join(3.0)
@@ -1189,9 +1201,18 @@ def test_leader_deviation_after_alignment_never_enables_teleop(monkeypatch):
     assert 'recorder_cancel' in events
 
 
-def test_alignment_result_rejects_stale_leader_state():
+def alignment_node(monkeypatch):
+    clock = SimpleNamespace(now=100.0)
+
+    def sleep(seconds):
+        clock.now += seconds
+
+    monkeypatch.setattr(collection_node, 'time', SimpleNamespace(
+        monotonic=lambda: clock.now, sleep=sleep,
+    ))
     node = object.__new__(CollectionNode)
     node.align = object()
+    node._control_heartbeat_period_s = 0.2
     node._joint_state_timeout_s = 0.5
     node._state_lock = threading.Lock()
     node._states = {
@@ -1201,16 +1222,83 @@ def test_alignment_result_rejects_stale_leader_state():
         },
     }
     node._state_received_at = {
-        'leader': time.monotonic() - 2.0,
+        'leader': clock.now - 2.0,
     }
     node._action = lambda *_args, **_kwargs: SimpleNamespace(
         error_code=0,
         error_string='',
     )
+    torque = []
+    node._set_torque = lambda enabled: torque.append((clock.now, enabled))
+    return node, clock, torque
 
-    with pytest.raises(RuntimeError, match='alignment state is stale'):
+
+def test_alignment_result_rejects_stale_leader_state(monkeypatch):
+    node, clock, torque = alignment_node(monkeypatch)
+
+    with pytest.raises(RuntimeError, match='joint state is stale'):
         CollectionNode._align_leader(
             node,
             [float(index) / 10.0 for index in range(len(LEADER_JOINTS))],
             SimpleNamespace(is_cancel_requested=False),
         )
+    assert clock.now == pytest.approx(102.0)
+    assert len(torque) > 2
+    assert all(enabled for _, enabled in torque)
+
+
+def test_alignment_waits_for_new_settled_measurement_with_torque_on(monkeypatch):
+    node, clock, torque = alignment_node(monkeypatch)
+    target = list(node._states['leader'].values())
+    node._states['leader'][LEADER_JOINTS[0]] += 0.3
+
+    def refresh(enabled):
+        torque.append((clock.now, enabled))
+        node._state_received_at['leader'] = clock.now
+        if clock.now >= 100.6:
+            node._states['leader'] = dict(zip(LEADER_JOINTS, target))
+
+    node._set_torque = refresh
+    node._align_leader(target, SimpleNamespace(is_cancel_requested=False))
+    assert clock.now >= 100.6
+    assert all(enabled for _, enabled in torque)
+
+
+@pytest.mark.parametrize('bad_value,detail', [
+    (0.3, 'leader_shoulder_pan: target=0.000, actual=0.300, error=0.300'),
+    (float('nan'), 'leader_shoulder_pan: missing or non-finite'),
+    (None, 'leader_shoulder_pan: missing or non-finite'),
+])
+def test_alignment_reports_invalid_joint_without_bypassing_check(monkeypatch, bad_value, detail):
+    node, clock, _ = alignment_node(monkeypatch)
+    target = list(node._states['leader'].values())
+    node._states['leader'][LEADER_JOINTS[0]] = bad_value
+    node._set_torque = lambda enabled: node._state_received_at.update(leader=clock.now)
+    with pytest.raises(RuntimeError, match=detail):
+        node._align_leader(target, SimpleNamespace(is_cancel_requested=False))
+
+
+def test_alignment_settle_obeys_cancel(monkeypatch):
+    node, clock, torque = alignment_node(monkeypatch)
+    handle = SimpleNamespace(is_cancel_requested=False)
+
+    def cancel_after_wait(seconds):
+        clock.now += seconds
+        handle.is_cancel_requested = True
+
+    monkeypatch.setattr(collection_node.time, 'sleep', cancel_after_wait)
+    with pytest.raises(CollectionCanceled):
+        node._align_leader(list(node._states['leader'].values()), handle)
+    assert len(torque) == 1
+
+
+def test_alignment_settle_propagates_torque_refresh_failure(monkeypatch):
+    node, _, _ = alignment_node(monkeypatch)
+
+    def failed_refresh(enabled):
+        raise RuntimeError('torque refresh failed')
+
+    node._set_torque = failed_refresh
+    with pytest.raises(RuntimeError, match='torque refresh failed'):
+        node._align_leader(list(node._states['leader'].values()),
+                           SimpleNamespace(is_cancel_requested=False))
