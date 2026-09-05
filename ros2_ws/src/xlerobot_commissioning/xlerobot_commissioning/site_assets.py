@@ -113,6 +113,15 @@ class SiteDraftStore:
             (staging / 'map.yaml').write_text(
                 yaml.safe_dump(document, sort_keys=False), encoding='utf-8'
             )
+            # Navigation evidence belongs to the previous map, not its
+            # replacement. Keep places, but require fresh validation.
+            validation = draft / 'validation.json'
+            if validation.exists():
+                _atomic_json(validation, {
+                    'schema': 'xlerobot_site_validation/v1', 'site_id': site_id,
+                    'places': {}, 'passed': False, 'updated_at': _utc_now(),
+                    'message': 'map replaced; validate localization and places again',
+                })
             for old in draft.glob('map.*'):
                 old.unlink()
             os.replace(staging / image_name, draft / image_name)

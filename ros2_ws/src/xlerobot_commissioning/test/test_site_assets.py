@@ -44,6 +44,25 @@ def test_activation_rejects_unvalidated_or_incomplete_draft(tmp_path: Path):
         store.finalize_and_activate('home')
 
 
+def test_replacing_map_preserves_places_but_invalidates_navigation(tmp_path: Path):
+    store = SiteDraftStore(tmp_path / 'artifacts')
+    source = make_map(tmp_path)
+    store.save_map('home', 'first', source)
+    store.set_place('home', 'table', frame_id='map', x=0.0, y=0.0, yaw=0.0,
+                    nav_offset_m=0.25, dock=True)
+    store.record_validation('home', 'table', localization_passed=True,
+                            navigation_passed=True, dock_passed=True,
+                            position_error_m=0.0, yaw_error_rad=0.0,
+                            duration_s=1.0, message='passed')
+    before = (store.draft('home') / 'places.yaml').read_bytes()
+    assert store.ready('home')
+    store.save_map('home', 'updated', source)
+    assert (store.draft('home') / 'places.yaml').read_bytes() == before
+    assert not store.ready('home')
+    with pytest.raises(ValueError, match='incomplete'):
+        store.finalize_and_activate('home')
+
+
 def test_map_yaml_must_reference_an_existing_supported_image(tmp_path: Path):
     path = make_map(tmp_path)
     document = yaml.safe_load(path.read_text())
