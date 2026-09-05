@@ -567,6 +567,11 @@ bool BusSystemBase::write_position_commands(const std::vector<double> & position
     }
     const auto raw = joints_[i].position_codec->encode(positions[i]);
     if (!raw) {
+      RCLCPP_ERROR(
+        rclcpp::get_logger("xlerobot_hardware"),
+        "%s bus cannot encode %s (servo %u) position %.6f rad within calibrated "
+        "command limits; at startup, reposition the unpowered joint within its range",
+        bus_name_.c_str(), joints_[i].name.c_str(), joints_[i].servo_id, positions[i]);
       return false;
     }
     position_commands.push_back({

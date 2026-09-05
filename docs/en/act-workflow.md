@@ -24,6 +24,33 @@ This launches the source collection workspace and can move the right Follower
 arm. Review each immutable episode in the web UI. The reference release keeps
 all raw recordings outside Git.
 
+Open `http://<Robot address>:8080` (use the configured `demo.web_port`). Opening
+the workspace does not start a demonstration. Keep the Leader's initial pose
+inside its calibrated joint ranges, not folded against a mechanical stop.
+
+1. For a first 10–15 second trial, select **通用手动** (manual). It starts from
+   the Follower's current pose without detection or automatic pregrasp.
+   **抓取模板** (pick) instead detects the object and moves the Follower above
+   it using the Demo's shared pregrasp path.
+2. Check the dataset ID and enter the actual object and instruction. Use a
+   separate dataset for trials instead of mixing them into training recordings.
+3. Click **Home / 开始采集**. Both modes automatically align the Leader to the
+   Follower; do not drag it during alignment. Be ready to support it during
+   the countdown, then move it only once `RECORDING` appears. The right
+   Follower follows your demonstration.
+4. Click **End / 正常结束并发布**, or let the duration expire. Following stops
+   before camera videos and joint data are finalized. “Publish” here means a
+   completed local episode, not an upload.
+5. Once saving succeeds, choose **接受** (accept) or **拒绝** (reject). Only
+   accepted episodes are converted; rejection does not delete raw recordings.
+   The next Home starts a new episode without overwriting the previous one.
+
+**Abort** cancels an interrupted trial and retains an incomplete recording;
+it is not the normal save button. **状态机 dry-run** exercises phase transitions
+only: it does not record data or establish camera/hardware readiness.
+Raw episodes live at `data.collection_root/datasets/<dataset ID in UI>/raw/`,
+with sibling `reviews/`. Point `data.dataset_root` at that dataset for conversion.
+
 ## Convert and train
 
 The recorder writes `raw/` and immutable `reviews/` under the configured

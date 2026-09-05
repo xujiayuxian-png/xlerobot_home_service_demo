@@ -37,8 +37,12 @@ def duration_seconds(duration) -> float:
 
 
 def load_profile(profile_id: str, profile_root: Path) -> dict:
-    path = (profile_root / f'{profile_id}.yaml').resolve()
-    if not path.is_relative_to(profile_root.resolve()) or not path.is_file():
+    # Validate the name, not the resolved destination: colcon --symlink-install
+    # deliberately links trusted package data outside the install directory.
+    if not IDENTIFIER.fullmatch(profile_id):
+        raise ValueError(f'invalid collection profile ID: {profile_id}')
+    path = profile_root / f'{profile_id}.yaml'
+    if not path.is_file():
         raise FileNotFoundError(f'unknown collection profile: {profile_id}')
     document = yaml.safe_load(path.read_text(encoding='utf-8'))
     if document.get('schema') != 'xlerobot_collection_profile/v1':

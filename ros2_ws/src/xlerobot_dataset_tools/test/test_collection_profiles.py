@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 import xlerobot_dataset_tools.convert_accepted as convert_accepted
 from xlerobot_dataset_tools.convert_accepted import (
     accepted_episode_paths,
@@ -18,6 +20,25 @@ def test_repository_profile_uses_follower_next_state_at_30_hz():
     assert set(profile['cameras']) == {'head', 'wrist'}
     assert all(camera['width'] == 640 for camera in profile['cameras'].values())
     assert all(camera['height'] == 480 for camera in profile['cameras'].values())
+
+
+def test_profile_supports_colcon_symlink_install(tmp_path):
+    installed = tmp_path / 'install' / 'config'
+    installed.mkdir(parents=True)
+    source = Path(__file__).parents[1] / 'config' / 'two_wheel_pick.yaml'
+    (installed / source.name).symlink_to(source.resolve())
+    assert load_profile('two_wheel_pick', installed)['fps'] == 30
+
+
+@pytest.mark.parametrize('profile_id', ['../two_wheel_pick', '/tmp/profile', 'a/b', '', 'a\n'])
+def test_profile_rejects_path_identifiers(tmp_path, profile_id):
+    with pytest.raises(ValueError, match='invalid collection profile ID'):
+        load_profile(profile_id, tmp_path)
+
+
+def test_missing_profile_is_reported(tmp_path):
+    with pytest.raises(FileNotFoundError, match='unknown collection profile'):
+        load_profile('missing', tmp_path)
 
 
 def test_batch_conversion_selects_only_accepted_reviews(tmp_path: Path):
