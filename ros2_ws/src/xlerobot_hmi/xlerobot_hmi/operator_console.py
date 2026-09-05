@@ -2365,14 +2365,51 @@ class ConsoleApplication:
         site_id = request.query.get('site_id', '').strip()
         if not site_id:
             return web.json_response({'sites': []})
-        versions = self.node.catalog.versions('sites', site_id)
-        active = self.node.catalog.active('sites', site_id)
+        try:
+            # Catalog validates the identifier before using it as a path.
+            versions = self.node.catalog.versions('sites', site_id)
+            active = self.node.catalog.active('sites', site_id)
+        except ValueError as error:
+            raise web.HTTPBadRequest(text=str(error)) from error
+        draft = self.node.artifact_root / 'sites' / '.drafts' / site_id
+        try:
+            session_path = draft / 'mapping_session.json'
+            session = json.loads(session_path.read_text()) if session_path.is_file() else {}
+            validation_path = draft / 'validation.json'
+            validation = (
+                json.loads(validation_path.read_text())
+                if validation_path.is_file() else {}
+            )
+            places_path = draft / 'places.yaml'
+            document = (
+                yaml.safe_load(places_path.read_text()) or {}
+                if places_path.is_file() else {}
+            )
+            raw_places = document.get('named_places', {}).get('places', {})
+            places = load_named_places(str(places_path))
+            for place in places:
+                place['dock'] = bool(raw_places[place['id']].get('dock', False))
+                place['validated'] = bool(
+                    validation.get('places', {}).get(place['id'], {}).get('passed', False)
+                )
+        except (OSError, ValueError, TypeError, AttributeError, yaml.YAMLError) as error:
+            raise web.HTTPConflict(text=f'cannot read site draft: {error}') from error
+        map_saved = (draft / 'map.yaml').is_file()
         return web.json_response({
             'site_id': site_id,
             'active_version': active.version if active else '',
             'versions': [
                 {'version': item.version, 'uri': item.uri} for item in versions
             ],
+            'draft': {
+                'map_saved': map_saved,
+                'map_name': session.get('map_name', ''),
+                'map_saved_at': session.get('map_saved_at', ''),
+                'places': places,
+                'ready': bool(map_saved and places and all(
+                    place['validated'] for place in places
+                )),
+            },
         })
 
     async def save_mapping_session(self, request):

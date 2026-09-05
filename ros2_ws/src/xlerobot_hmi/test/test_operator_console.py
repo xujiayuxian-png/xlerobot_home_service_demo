@@ -37,6 +37,54 @@ from xlerobot_hmi.manual_control import ManualControlCoordinator
 from xlerobot_interfaces.msg import CapabilityError, PerceptionObservation, TaskEvent
 from xlerobot_interfaces.srv import FinalizeEpisode, ReviewEpisode, ServoCalibrationStep
 import yaml
+from xlerobot_assets import ArtifactCatalog
+
+
+def test_site_summary_reads_draft_without_activating_or_modifying_it(tmp_path):
+    catalog = ArtifactCatalog(tmp_path)
+    draft = tmp_path / 'sites' / '.drafts' / 'home'
+    draft.mkdir(parents=True)
+    (draft / 'mapping_session.json').write_text(json.dumps({
+        'map_name': 'ground-floor', 'map_saved_at': '2026-09-05T09:42:00Z',
+    }))
+    (draft / 'map.yaml').write_text('image: map.pgm\n')
+    (draft / 'places.yaml').write_text(yaml.safe_dump({'named_places': {'places': {
+        'table': {'x': .1, 'y': -.07, 'yaw': 2.0, 'dock': True, 'nav_offset_m': .25},
+    }}}))
+    before = {p.name: p.read_bytes() for p in draft.iterdir()}
+    node = SimpleNamespace(catalog=catalog, artifact_root=tmp_path,
+                           parameter=lambda name: name == 'enable_engineering_tools')
+
+    async def exercise():
+        app = ConsoleApplication(node)
+        response = await app.sites(SimpleNamespace(query={'site_id': 'home'}))
+        result = json.loads(response.text)
+        assert result['active_version'] == ''
+        assert result['draft']['map_saved'] is True
+        assert result['draft']['map_name'] == 'ground-floor'
+        assert result['draft']['ready'] is False
+        assert result['draft']['places'] == [{
+            'id': 'table', 'x': .1, 'y': -.07, 'yaw': 2.0, 'nav_offset_m': .25,
+            'dock': True, 'validated': False,
+        }]
+        assert {p.name: p.read_bytes() for p in draft.iterdir()} == before
+        (draft / 'validation.json').write_text(json.dumps({
+            'places': {'table': {'passed': True}},
+        }))
+        validated = json.loads((await app.sites(SimpleNamespace(query={'site_id': 'home'}))).text)
+        assert validated['draft']['ready'] is True
+        assert validated['active_version'] == ''
+        empty = json.loads((await app.sites(SimpleNamespace(query={'site_id': 'new'}))).text)
+        assert empty['draft']['map_saved'] is False
+        assert empty['draft']['places'] == []
+        assert not (tmp_path / 'sites' / '.drafts' / 'new').exists()
+        with pytest.raises(web.HTTPBadRequest):
+            await app.sites(SimpleNamespace(query={'site_id': '../escape'}))
+        (draft / 'places.yaml').write_text('named_places: [')
+        with pytest.raises(web.HTTPConflict, match='Conflict'):
+            await app.sites(SimpleNamespace(query={'site_id': 'home'}))
+
+    asyncio.run(exercise())
 
 
 def test_parse_task_request_uses_stable_execute_task_contract():

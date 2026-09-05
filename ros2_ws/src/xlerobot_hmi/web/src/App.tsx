@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { api, type CalibrationCoverage } from './api'
+import { api, type CalibrationCoverage, type SiteSummary } from './api'
+import { MappingJoystick } from './MappingJoystick'
 import {
   activeCameraPerception, activePersonTarget, taskShowsNavigationPath,
 } from './observability'
@@ -566,17 +567,23 @@ export function HandeyeCoveragePanel({ coverage }: {
   </section>
 }
 
-function MappingWorkspace({ state, phase, initialSiteId, onError }: {
+export function MappingWorkspace({ state, phase, initialSiteId, onError }: {
   state: MappingState | null, phase: string, initialSiteId: string,
   onError: (message: string) => void
 }) {
   const [armed, setArmed] = useState(false)
   const [linearSpeed, setLinearSpeed] = useState(0.08)
   const [angularSpeed, setAngularSpeed] = useState(0.35)
-  const [siteId, setSiteId] = useState(initialSiteId || 'home')
+  const siteId = initialSiteId || 'home'
   const [mapName, setMapName] = useState('ground-floor')
   const [placeId, setPlaceId] = useState('table')
   const [saved, setSaved] = useState('')
+  const [site, setSite] = useState<SiteSummary | null>(null)
+  const [siteError, setSiteError] = useState('')
+  const [pending, setPending] = useState('')
+  const busy = useRef(false)
+  const [localized, setLocalized] = useState(false)
+  const [connected, setConnected] = useState(false)
   const socket = useRef<WebSocket | null>(null)
   const teleopTimer = useRef<number | null>(null)
   const command = useRef({ linear: 0, angular: 0, active: false })
@@ -597,11 +604,12 @@ function MappingWorkspace({ state, phase, initialSiteId, onError }: {
       teleopTimer.current = null
     }
     const ws = socket.current
+    socket.current = null
+    setConnected(false)
     if (sendStop && ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ armed: false, linear: 0, angular: 0 }))
     }
     if (ws && ws.readyState < WebSocket.CLOSING) ws.close()
-    socket.current = null
     command.current = { linear: 0, angular: 0, active: false }
   }
   const openTeleop = () => {
@@ -610,14 +618,17 @@ function MappingWorkspace({ state, phase, initialSiteId, onError }: {
     const ws = new WebSocket(`${protocol}://${location.host}/api/v1/teleop/base`)
     socket.current = ws
     ws.onopen = () => {
+      if (socket.current !== ws) return
       if (!command.current.active) {
         ws.close()
         return
       }
       transmit()
+      setConnected(true)
       teleopTimer.current = window.setInterval(transmit, 100)
     }
     ws.onmessage = event => {
+      if (socket.current !== ws) return
       const message = JSON.parse(event.data)
       if (message.error) {
         closeTeleop(true)
@@ -626,12 +637,16 @@ function MappingWorkspace({ state, phase, initialSiteId, onError }: {
       }
     }
     ws.onerror = () => {
+      if (socket.current !== ws) return
       closeTeleop(false)
       setArmed(false)
       onError('底盘遥控连接失败')
     }
     ws.onclose = () => {
-      if (socket.current === ws) closeTeleop(false)
+      if (socket.current !== ws) return
+      closeTeleop(false)
+      setArmed(false)
+      onError('遥控连接已断开，已停止发送；请重新开启遥控。')
     }
   }
   useEffect(() => {
@@ -652,6 +667,9 @@ function MappingWorkspace({ state, phase, initialSiteId, onError }: {
 
   const drive = (linear: number, angular: number) => {
     if (!armed) return
+    // A released stick sends zero on the same connection. Keeping one session
+    // until disarm avoids competing backend owners on rapid release/re-press.
+    if (!socket.current && linear === 0 && angular === 0) return
     command.current = { linear, angular, active: true }
     openTeleop()
     transmit()
@@ -659,59 +677,90 @@ function MappingWorkspace({ state, phase, initialSiteId, onError }: {
   const stop = () => {
     closeTeleop(true)
   }
-  const pointer = (linear: number, angular: number) => ({
-    onPointerDown: (event: React.PointerEvent) => {
-      event.currentTarget.setPointerCapture(event.pointerId)
-      drive(linear, angular)
-    },
-    onPointerUp: stop, onPointerCancel: stop, onPointerLeave: stop,
-  })
-  const save = async () => {
+  const refreshSite = async () => {
+    const result = await api.site(siteId)
+    setSite(result)
+    setSiteError('')
+  }
+  useEffect(() => {
+    let disposed = false
+    const refresh = async () => {
+      try {
+        const result = await api.site(siteId)
+        if (!disposed) { setSite(result); setSiteError('') }
+      } catch (reason) { if (!disposed) setSiteError(`无法读取保存状态：${String(reason)}`) }
+    }
+    void refresh()
+    const timer = window.setInterval(refresh, 5000)
+    return () => { disposed = true; window.clearInterval(timer) }
+  }, [siteId])
+  const perform = async (label: string, action: () => Promise<void>) => {
+    if (busy.current) return
+    busy.current = true
     stop()
+    setArmed(false)
+    setPending(label)
+    setSaved('')
     try {
-      const result = await api.saveMap(siteId, mapName)
-      setSaved(`地图已进入 staging：${result.artifact_uri}`)
+      await action()
+      try { await refreshSite() }
+      catch (reason) { setSiteError(`操作已完成，但刷新保存状态失败：${String(reason)}`) }
     } catch (reason) { onError(String(reason)) }
+    finally { busy.current = false; setPending('') }
+  }
+  const save = async () => {
+    await perform('保存地图中…', async () => {
+      await api.saveMap(siteId, mapName.trim())
+      setSaved('地图已保存为草稿，尚未替换 Demo 地图。继续建图后请再次保存。')
+    })
   }
   const savePlace = async () => {
-    try {
-      const result = await api.setPlace(siteId, placeId, placeId === 'table',
-        placeId === 'table' ? 0.25 : 0)
-      setSaved(`地点已记录：${result.artifact_uri}`)
-    } catch (reason) { onError(String(reason)) }
+    const id = placeId.trim()
+    if (site?.draft.places.some(place => place.id === id)
+      && !window.confirm(`用机器人当前的位置和朝向覆盖 ${id}？`)) return
+    await perform('记录地点中…', async () => {
+      await api.setPlace(siteId, id, id === 'table', id === 'table' ? 0.25 : 0)
+      setSaved(`已记录 ${id} 的位置和朝向。`)
+    })
   }
   const removePlace = async () => {
-    try {
-      const result = await api.removePlace(siteId, placeId)
-      setSaved(`地点已删除：${result.artifact_uri}`)
-    } catch (reason) { onError(String(reason)) }
+    if (!window.confirm(`删除地点 ${placeId.trim()}？`)) return
+    await perform('删除地点中…', async () => {
+      await api.removePlace(siteId, placeId.trim())
+      setSaved(`已删除 ${placeId.trim()}。`)
+    })
   }
   const validateLocalization = async () => {
-    try {
+    setLocalized(false)
+    await perform('自动定位中，机器人会转动…', async () => {
       const result = await api.validateLocalization(siteId)
+      setLocalized(true)
       setSaved(`定位通过：σxy ${result.position_stddev_m.toFixed(3)} m，σyaw ${result.yaw_stddev_rad.toFixed(3)} rad`)
-    } catch (reason) { onError(String(reason)) }
+    })
   }
   const validatePlace = async () => {
-    try {
+    await perform('导航验证中，机器人会移动…', async () => {
       const result = await api.validatePlace(siteId, placeId)
       setSaved(`${placeId} 通过：位置误差 ${result.position_error_m.toFixed(3)} m，角度误差 ${result.yaw_error_rad.toFixed(3)} rad${result.site_ready ? '；site 已可激活' : ''}`)
-    } catch (reason) { onError(String(reason)) }
+    })
   }
   const activate = async () => {
-    try {
+    await perform('激活场地中…', async () => {
       const result = await api.activateSite(siteId)
-      setSaved(`Site 已原子激活：${result.artifact_uri}`)
-    } catch (reason) { onError(String(reason)) }
+      setSaved(`场地已激活：${result.artifact_uri}。下次 Demo 使用的 site.map / site.places 仍由本机配置指定，请指向该场地 current/ 中的文件。`)
+    })
   }
+  const validId = (value: string) => /^[A-Za-z0-9][A-Za-z0-9_.-]{0,95}$/.test(value.trim())
+  const places = site?.draft?.places || []
+  const selectedPlace = places.find(place => place.id === placeId.trim())
 
   return <section className="mapping-grid">
     <article className="map-card">
       <div className="map-heading"><div><p className="section-label">LIVE SLAM</p>
         <h2>场地地图</h2></div><strong>{state?.slam || 'WAITING'}</strong></div>
-      <MapCanvas state={state} />
+      <MapCanvas state={state} places={places} />
       <div className="map-stats">
-        <span>分辨率 <b>{state?.map?.resolution || '—'} m</b></span>
+        <span>分辨率 <b>{state?.map?.resolution.toFixed(3) || '—'} m</b></span>
         <span>尺寸 <b>{state?.map ? `${state.map.width} × ${state.map.height}` : '—'}</b></span>
         <span>Pose <b>{state?.pose ? `${state.pose.x.toFixed(2)}, ${state.pose.y.toFixed(2)}` : '—'}</b></span>
       </div>
@@ -719,39 +768,60 @@ function MappingWorkspace({ state, phase, initialSiteId, onError }: {
     <div className="mapping-side">
       {phase === 'build' && <article className="drive-card">
         <div className="drive-title"><div><p className="section-label">DEAD-MAN TELEOP</p><h2>覆盖场地</h2></div>
-          <button className={armed ? 'armed' : ''} onClick={() => { stop(); setArmed(!armed) }}>
-            {armed ? 'ARMED' : 'ARM'}
+          <button disabled={!!pending} className={armed ? 'armed' : ''} onClick={() => { stop(); setArmed(!armed) }}>
+            {armed ? '结束遥控' : '开启遥控'}
           </button></div>
-        <div className="dpad">
-          <button className="up" {...pointer(linearSpeed, 0)}>↑</button>
-          <button className="left" {...pointer(0, angularSpeed)}>←</button>
-          <button className="stop-drive" onClick={stop}>STOP</button>
-          <button className="right" {...pointer(0, -angularSpeed)}>→</button>
-          <button className="down" {...pointer(-linearSpeed, 0)}>↓</button>
-        </div>
-        <label>线速度 {linearSpeed.toFixed(2)} m/s<input type="range" min="0.03" max="0.12" step="0.01"
+        <MappingJoystick disabled={!armed || !!pending}
+          onMove={(linear, angular) => drive(linear * linearSpeed, angular * angularSpeed)}
+          onRelease={() => drive(0, 0)} />
+        <p className="hint">{!armed ? '遥控已关闭' : connected ? '已连接 · 松手零速保持' : '已开启 · 拖动摇杆连接'}</p>
+        <button className="block stop-drive" onClick={() => { stop(); setArmed(false) }}>停车并结束遥控</button>
+        <label>最大线速度 {linearSpeed.toFixed(2)} m/s<input type="range" min="0.03" max="0.12" step="0.01"
           value={linearSpeed} onChange={event => setLinearSpeed(Number(event.target.value))} /></label>
-        <label>角速度 {angularSpeed.toFixed(2)} rad/s<input type="range" min="0.15" max="0.50" step="0.05"
+        <label>最大角速度 {angularSpeed.toFixed(2)} rad/s<input type="range" min="0.15" max="0.50" step="0.05"
           value={angularSpeed} onChange={event => setAngularSpeed(Number(event.target.value))} /></label>
       </article>}
       <article className="site-card">
         <p className="section-label">SITE · {phase.toUpperCase()}</p>
-        <h2>{phase === 'validate' ? '验证并激活' : '保存现场资产'}</h2>
-        <div className="field-row"><input value={siteId} onChange={event => setSiteId(event.target.value)} placeholder="Site ID" />
-          {phase === 'build' && <input value={mapName} onChange={event => setMapName(event.target.value)} placeholder="地图名" />}</div>
-        {phase === 'build' && <button className="primary block" onClick={save}>停车并保存地图</button>}
-        <div className="field-row"><input value={placeId} onChange={event => setPlaceId(event.target.value)} placeholder="地点名" />
-          {phase === 'build' && <button onClick={savePlace}>记录当前位置</button>}</div>
-        {phase === 'build' && <button className="quiet block" onClick={removePlace}>删除该地点</button>}
-        {phase === 'validate' && <div className="validation-actions">
-          <button onClick={validateLocalization}>1. 自动定位验证</button>
-          <button onClick={validatePlace}>2. 导航并验证地点</button>
-          <button className="primary block" onClick={activate}>3. 激活 Site</button>
+        <h2>{phase === 'validate' ? '验证并激活' : '保存地图与地点'}</h2>
+        <p className="hint">场地：{siteId} · {!site ? '正在读取保存状态…'
+          : site.active_version ? `已激活版本 ${site.active_version}` : '本次场地未激活'}</p>
+        {site && <p className="hint">{site.draft?.map_saved
+          ? `已保存地图：${site.draft.map_name} · ${new Date(site.draft.map_saved_at).toLocaleString()}`
+          : '尚无地图草稿'} · 已记录 {places.length} 个地点</p>}
+        {siteError && <p role="alert">{siteError}</p>}
+        {phase === 'build' && <>
+          <label className="site-field">地图名<input aria-label="地图名" disabled={!!pending} value={mapName}
+            onChange={event => setMapName(event.target.value)} /></label>
+          <button className="primary block" disabled={armed || !!pending || !state?.map || !validId(mapName)} onClick={save}>保存当前地图</button>
+          <p className="hint">先停车并结束遥控，等机器人停稳再保存。保存不会结束建图；结束前再保存一次。</p>
+        </>}
+        <label className="site-field">地点 ID<input aria-label="地点 ID" disabled={!!pending} value={placeId}
+          onChange={event => setPlaceId(event.target.value)} placeholder="table / home" /></label>
+        <p className="hint">{placeId.trim() === 'table'
+          ? 'table：记录最终桌边停车位和面向桌面的朝向；导航先在后方 0.25 m 停靠，再精确贴桌。'
+          : '记录机器人当前位置和朝向，不进行贴桌。'} ID 使用英文字母、数字、下划线或连字符。</p>
+        {phase === 'build' && <div className="validation-actions">
+          <button disabled={armed || !!pending || !state?.pose || !validId(placeId)} onClick={savePlace}>
+            {selectedPlace ? '用当前位置更新地点' : '记录当前位置为地点'}</button>
+          <button className="quiet block" disabled={armed || !!pending || !selectedPlace} onClick={removePlace}>删除所选地点</button>
         </div>}
-        {saved && <p className="saved">{saved}</p>}
+        <ul className="saved-places" aria-label="已保存地点">
+          {places.map(place => <li key={place.id}><button disabled={!!pending}
+            aria-pressed={place.id === placeId.trim()} onClick={() => setPlaceId(place.id)}>
+            <strong>{place.id}</strong> {place.x.toFixed(2)}, {place.y.toFixed(2)} m · {(place.yaw * 180 / Math.PI).toFixed(0)}°
+            <small>{place.dock ? '精确贴桌' : '普通导航'} · {place.validated ? '验证通过' : '待验证'}</small>
+          </button></li>)}
+        </ul>
+        {phase === 'validate' && <div className="validation-actions">
+          <button disabled={!!pending || !site?.draft?.map_saved} onClick={validateLocalization}>1. 自动定位验证</button>
+          <button disabled={!!pending || !localized || !selectedPlace} onClick={validatePlace}>2. 导航并验证地点</button>
+          <button disabled={!!pending || !site?.draft?.ready} className="primary block" onClick={activate}>3. 激活场地草稿</button>
+        </div>}
+        <p role="status" className="saved">{pending || saved}</p>
         <p className="hint">{phase === 'validate'
           ? '先完成 AutoLocalize，再逐地点导航；table 会执行 position-only、Spin 和精确 dock。所有地点通过后才允许激活。'
-          : '保存地图并记录全部 named places 后，停止 build 阶段，再启动 mapping validate。'}</p>
+          : '顺序：遥控覆盖场地 → 停稳并记录地点 → 最后保存地图 → 停止 build，使用同一配置启动 validate。草稿不会自动替换正在使用的 Demo 地图。'}</p>
       </article>
     </div>
   </section>

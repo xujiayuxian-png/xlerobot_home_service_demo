@@ -109,5 +109,28 @@ hardware operations:
 ./tools/run mapping --hardware --phase validate
 ```
 
+Run these phases separately, never concurrently. If using `--config`, use the
+same file for both phases. In the web workspace:
+
+1. Enable teleoperation and hold/drag the joystick to cover the site. Up/down
+   drives forward/backward; left/right turns, including simultaneous driving
+   and turning. Release sends zero; leaving the window ends teleoperation.
+   The speed sliders set maximum speeds.
+2. End teleoperation and wait for the robot to stop before recording a place.
+   `table` is the final dock pose, facing the table: navigation first reaches
+   a point 0.25 m behind it, then performs precise docking. Saved places appear
+   on the map and in a selectable list for updating or deleting.
+3. Save the current map after covering the entire site. Saving does not end
+   mapping: save again if you continue exploring. The page shows the save time;
+   a draft is not the active Demo map.
+4. Stop build and start validate. Localize first, validate navigation to each
+   place, then activate the draft. Replacing a map invalidates its navigation
+   evidence; updating a place invalidates that place's evidence.
+5. Activated files live under
+   `<data.collection_root>/sites/<robot.site_id>/current/`. Set `site.map` and
+   `site.places` in your local configuration to its `map.yaml` and `places.yaml`
+   before the next Demo startup. A test site never silently replaces the old
+   site's configuration.
+
 Omitting the literal `--hardware` flag fails before any motor device is opened.
 Follow the same boundary for every grasp and full-demo command.

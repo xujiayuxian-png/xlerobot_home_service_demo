@@ -1,4 +1,14 @@
-import type { Bootstrap, CollectionState, Health, MappingState, Task } from './types'
+import type { Bootstrap, CollectionState, Health, MappingState, NamedPlace, Task } from './types'
+
+export interface SiteSummary {
+  site_id: string
+  active_version: string
+  draft: {
+    map_saved: boolean, map_name: string, map_saved_at: string,
+    places: Array<NamedPlace & { dock: boolean, validated: boolean }>,
+    ready: boolean,
+  }
+}
 
 export type CalibrationCoverage = {
   sample_count: number
@@ -59,6 +69,9 @@ export const api = {
       method: 'POST', body: JSON.stringify({ preset }),
     }),
   mappingState: () => request<MappingState>('/api/v1/mapping/state'),
+  site: (siteId: string) => request<SiteSummary>(
+    `/api/v1/sites?site_id=${encodeURIComponent(siteId)}`,
+  ),
   saveMap: (siteId: string, mapName: string) => request<{
     artifact_uri: string, version: string
   }>('/api/v1/mapping/sessions', {
