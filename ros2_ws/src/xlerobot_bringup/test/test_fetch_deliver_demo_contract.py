@@ -13,6 +13,7 @@ from launch.actions import (
 )
 from launch.events.process import ProcessExited
 from launch.substitutions import LaunchConfiguration
+from launch.utilities import normalize_to_list_of_substitutions, perform_substitutions
 from launch_ros.actions import Node
 import pytest
 import yaml
@@ -266,8 +267,12 @@ def test_leaf_hardware_launches_consume_profile_device_arguments():
     realsense = _include_arguments(includes, 'rs_launch.py')
     assert isinstance(lidar['port_name'], LaunchConfiguration)
     assert lidar['port_name'].perform(context) == '/dev/test-lidar'
-    assert isinstance(realsense['serial_no'], LaunchConfiguration)
-    assert realsense['serial_no'].perform(context) == 'head-serial'
+    for serial in ('head-serial', '201523062481', ''):
+        context.launch_configurations['d455_serial'] = serial
+        value = perform_substitutions(
+            context, normalize_to_list_of_substitutions(realsense['serial_no'])
+        )
+        assert yaml.safe_load(value) == serial
     assert isinstance(realsense['config_file'], LaunchConfiguration)
     assert realsense['config_file'].perform(context) == '/tmp/test-d455.yaml'
     empty_context = LaunchContext()

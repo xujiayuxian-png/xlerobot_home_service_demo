@@ -50,6 +50,13 @@ def parser() -> argparse.ArgumentParser:
     common = _common()
     commands.add_parser('status', parents=[common])
 
+    imported = commands.add_parser(
+        'import-runtime', parents=[common],
+        help='reuse a complete existing unit runtime without a new solver quality claim',
+    )
+    imported.add_argument('--input', type=Path, required=True)
+    imported.add_argument('--version', required=True)
+
     capture = commands.add_parser(
         'capture', help='start one live capture workspace (requires --hardware)'
     )
@@ -225,6 +232,10 @@ def run(argv: list[str] | None = None) -> int:
         store = UnitCalibrationStore(state_root, repo)
         if args.command == 'status':
             _dump(store.status(unit))
+        elif args.command == 'import-runtime':
+            version = store.import_runtime(unit, args.input.resolve(), args.version)
+            _dump({'status': 'existing_runtime_imported', 'version': version,
+                   'quality_revalidated': False, 'runtime': str(store.render_active(unit))})
         elif args.command == 'servo':
             document = load_yaml(args.input.expanduser().resolve())
             _dump(_save(store, unit, 'servo', document))

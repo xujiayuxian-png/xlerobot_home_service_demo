@@ -99,6 +99,10 @@ collect() {
   artifact_root=$(absolute_from_repo "$(config_get data.collection_root .xlerobot/artifacts)")
   mkdir -p "$artifact_root"
   note 'starting LIVE ACT collection: Leader input can move the right Follower arm'
+  local serial
+  local device_arguments=()
+  serial=$(config_get robot.devices.head_camera_serial '')
+  [[ -z $serial ]] || device_arguments+=("d455_serial:=$serial")
   exec ros2 launch xlerobot_bringup act_collection.launch.py \
     hardware_enabled:=true \
     artifact_root:="$artifact_root" \
@@ -109,14 +113,14 @@ collect() {
     left_bus:="$(config_get robot.devices.left_arm /dev/left_arm)" \
     leader_port:="$(config_get robot.devices.leader_arm /dev/right_master_arm)" \
     lidar_port:="$(config_get robot.devices.lidar /dev/lidar)" \
-    d455_serial:="$(config_get robot.devices.head_camera_serial '')" \
     wrist_camera_device:="$(config_get robot.devices.wrist_camera '')" \
     vlm_base_url:="$(config_get services.lm_studio_url '')" \
     web_port:="$(config_get demo.web_port 8080)" \
     geometry_file:="$runtime/geometry.yaml" \
     servo_calibration_file:="$runtime/servos.yaml" \
     controllers_file:="$runtime/controllers.yaml" \
-    grasp_alignment_file:="$runtime/grasp_alignment.yaml"
+    grasp_alignment_file:="$runtime/grasp_alignment.yaml" \
+    "${device_arguments[@]}"
 }
 
 convert_dataset() {

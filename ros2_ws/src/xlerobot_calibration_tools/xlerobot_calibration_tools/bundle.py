@@ -17,6 +17,7 @@ import yaml
 from .quality import validate_component
 from .transforms import validate_transform
 from .workflow import load_yaml, utc_now
+from .runtime_import import FILES as IMPORT_FILES, SCHEMA as IMPORT_SCHEMA, validate_documents
 
 
 COMPONENTS = (
@@ -206,6 +207,34 @@ class UnitCalibrationStore:
         self._select(unit, version)
         return version
 
+    def import_runtime(self, unit: str, source: Path, version: str) -> str:
+        """Activate a complete existing-unit snapshot, with no new quality claim."""
+        unit, version = _id(unit, 'unit'), _id(version, 'version')
+        documents = {name: load_yaml(source / name) for name in IMPORT_FILES}
+        validate_documents(documents, self.repo_root)
+        versions = self.unit_root(unit) / 'versions'
+        versions.mkdir(parents=True, exist_ok=True)
+        destination = versions / version
+        if destination.exists() or destination.is_symlink():
+            raise FileExistsError(f'calibration version already exists: {version}')
+        staging = Path(tempfile.mkdtemp(prefix='.import-', dir=versions))
+        try:
+            for name, document in documents.items():
+                _atomic_yaml(staging / name, document)
+            manifest = {
+                'schema': IMPORT_SCHEMA, 'unit': unit, 'version': version,
+                'created_at': utc_now(), 'source': 'existing_unit_runtime',
+                'quality_revalidated': False,
+                'sha256': {name: _sha256(staging / name) for name in IMPORT_FILES},
+            }
+            _atomic_yaml(staging / 'manifest.yaml', manifest)
+            os.replace(staging, destination)
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging)
+        self._select(unit, version)
+        return version
+
     def active_version(self, unit: str) -> Path | None:
         active = self.unit_root(unit) / 'active'
         if not active.exists() and not active.is_symlink():
@@ -224,12 +253,15 @@ class UnitCalibrationStore:
         if active is None:
             raise ValueError('unit has no active calibration bundle')
         manifest = self._verify_version(unit, active.name)
-        component_documents = {
-            name: load_yaml(active / manifest['components'][name]['path'])
-            for name in COMPONENTS
-        }
-        documents = self._structural_runtime_documents(component_documents)
-        documents['grasp_alignment.yaml'] = component_documents['grasp_alignment']
+        if manifest['schema'] == IMPORT_SCHEMA:
+            documents = {name: load_yaml(active / name) for name in IMPORT_FILES}
+        else:
+            component_documents = {
+                name: load_yaml(active / manifest['components'][name]['path'])
+                for name in COMPONENTS
+            }
+            documents = self._structural_runtime_documents(component_documents)
+            documents['grasp_alignment.yaml'] = component_documents['grasp_alignment']
         runtime_manifest = {
             'schema': 'xlerobot_calibration_runtime/v1',
             'unit': unit,
@@ -237,6 +269,7 @@ class UnitCalibrationStore:
             'active_manifest_sha256': _sha256(active / 'manifest.yaml'),
             'rendered_at': utc_now(),
             'files': list(documents),
+            'source': manifest.get('source', 'measured_bundle'),
         }
         documents['manifest.yaml'] = runtime_manifest
         runtime = self.unit_root(unit) / 'runtime'
@@ -384,6 +417,20 @@ class UnitCalibrationStore:
         if not version_root.is_dir() or version_root.is_symlink():
             raise ValueError(f'calibration version does not exist: {version}')
         manifest = load_yaml(version_root / 'manifest.yaml')
+        if manifest.get('schema') == IMPORT_SCHEMA:
+            if manifest.get('unit') != unit or manifest.get('version') != version:
+                raise ValueError('imported runtime identity does not match its path')
+            digests = manifest.get('sha256', {})
+            if set(digests) != set(IMPORT_FILES):
+                raise ValueError('imported runtime checksums are incomplete')
+            documents = {}
+            for name in IMPORT_FILES:
+                path = version_root / name
+                if not path.is_file() or path.is_symlink() or _sha256(path) != digests[name]:
+                    raise ValueError(f'imported runtime checksum failed: {name}')
+                documents[name] = load_yaml(path)
+            validate_documents(documents, self.repo_root)
+            return manifest
         if manifest.get('schema') != 'xlerobot_unit_calibration_bundle/v1':
             raise ValueError('calibration bundle manifest has an unsupported schema')
         if manifest.get('unit') != unit or manifest.get('version') != version:

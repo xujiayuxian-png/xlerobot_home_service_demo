@@ -45,7 +45,6 @@ def load_contract(manifest: Path) -> tuple[str, str, int]:
 def valid(path: Path, expected: str, size: int) -> bool:
     return (
         path.is_file()
-        and not path.is_symlink()
         and path.stat().st_size == size
         and digest(path) == expected
     )

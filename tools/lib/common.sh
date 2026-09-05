@@ -11,6 +11,16 @@ note() {
   echo "==> $*"
 }
 
+gpu_driver_available() {
+  local executable
+  executable=$(command -v nvidia-smi || true)
+  # Non-interactive SSH sessions on WSL may omit this directory from PATH.
+  if [[ -z $executable && -x /usr/lib/wsl/lib/nvidia-smi ]]; then
+    executable=/usr/lib/wsl/lib/nvidia-smi
+  fi
+  [[ -n $executable ]] && "$executable" >/dev/null 2>&1
+}
+
 source_environment() {
   # ROS and Python activation scripts are not guaranteed to be nounset-safe.
   # Preserve the caller's setting instead of weakening it for the rest of the

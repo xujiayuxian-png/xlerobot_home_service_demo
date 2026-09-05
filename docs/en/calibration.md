@@ -103,7 +103,20 @@ directly. Rollback is explicit:
 ./tools/calibrate render
 ```
 
-Two hardware-free solver fixtures are included:
+For a robot that already has a working calibration, `import-runtime` can
+preserve its complete existing runtime in an immutable version. The input
+directory must contain `geometry.yaml`, `servos.yaml`, `controllers.yaml`,
+`transforms.yaml`, and `grasp_alignment.yaml`, with recorded provenance and
+alignment marked `validation: existing_unit_runtime`. This checks executable
+values and file integrity; it does **not** claim that old measurements passed
+the new solver quality gates. Use it only for the same physical robot and
+unchanged mounts. New builds should follow the measurement workflow above.
+
+```bash
+./tools/calibrate import-runtime --input PATH --version existing-unit-v1
+```
+
+Run the two solver fixtures without hardware:
 
 ```bash
 ./tools/calibrate replay head-camera

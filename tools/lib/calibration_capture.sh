@@ -123,10 +123,12 @@ launch_args=(
   "unit_id:=$unit"
   "right_bus:=$(config_get robot.devices.right_arm /dev/right_arm)"
   "left_bus:=$(config_get robot.devices.left_arm /dev/left_arm)"
-  "d455_serial:=$(config_get robot.devices.head_camera_serial '')"
   "web_bind_host:=$(config_get services.bind_host 0.0.0.0)"
   "web_port:=$web_port"
 )
+
+serial=$(config_get robot.devices.head_camera_serial '')
+[[ -z $serial ]] || launch_args+=("d455_serial:=$serial")
 
 case $workflow in
   servo)

@@ -127,9 +127,7 @@ setup_robot() {
 setup_gpu() {
   check_ubuntu
   install_base_tools
-  command -v nvidia-smi >/dev/null || die \
-    'nvidia-smi is missing; install the NVIDIA driver/WSL GPU integration first'
-  nvidia-smi >/dev/null || die 'the NVIDIA GPU is not available'
+  gpu_driver_available || die 'the NVIDIA driver/WSL GPU integration is unavailable'
 
   local conda_bin
   conda_bin=$(command -v conda || true)
@@ -178,7 +176,9 @@ expected = {
     'torchvision': '0.25.0+cu128',
 }
 assert platform.python_version() == '3.12.13', platform.python_version()
-assert {name: version(name) for name in expected} == expected
+from importlib import import_module
+assert {name: (import_module(name).__version__ if name in ('torch', 'torchvision')
+               else version(name)) for name in expected} == expected
 assert torch.cuda.is_available(), 'PyTorch cannot see CUDA'
 assert torch.backends.cudnn.version() == 91002, torch.backends.cudnn.version()
 print(f'ACT environment ready: torch={torch.__version__}, lerobot={version("lerobot")}')
@@ -200,7 +200,9 @@ expected = {
     'torchvision': '0.26.0+cu128',
 }
 assert platform.python_version() == '3.10.20', platform.python_version()
-assert {name: version(name) for name in expected} == expected
+from importlib import import_module
+assert {name: (import_module(name).__version__ if name in ('torch', 'torchvision')
+               else version(name)) for name in expected} == expected
 assert torch.cuda.is_available(), 'PyTorch cannot see CUDA'
 print(f'classical environment ready: torch={torch.__version__}, numpy={numpy.__version__}')
 PY

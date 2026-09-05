@@ -74,7 +74,9 @@ def generate_launch_description() -> LaunchDescription:
                     "camera_name": "d455",
                     "camera_namespace": "xlerobot",
                     "config_file": realsense_config,
-                    "serial_no": d455_serial,
+                    # rs_launch evaluates untyped launch values as YAML.
+                    # Preserve numeric serials (and the empty default) as strings.
+                    "serial_no": ["'", d455_serial, "'"],
                 }.items(),
                 condition=IfCondition(enable_d455),
             ),

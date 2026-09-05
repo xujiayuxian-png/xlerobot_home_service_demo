@@ -164,6 +164,36 @@ def test_bundle_requires_every_component_and_renders_rollback(tmp_path, componen
     }
 
 
+def test_existing_runtime_import_preserves_values_and_rejects_tampering(tmp_path, components):
+    store = UnitCalibrationStore(tmp_path / '.xlerobot', REPO)
+    for name, document in components.items():
+        store.save_component('source-unit', name, deepcopy(document))
+    store.activate('source-unit', 'measured')
+    source = store.render_active('source-unit')
+    alignment = load_yaml(source / 'grasp_alignment.yaml')
+    del alignment['metrics']
+    alignment.update(validation='existing_unit_runtime', provenance={'source': 'existing-unit'})
+    (source / 'grasp_alignment.yaml').write_text(yaml.safe_dump(alignment))
+    transforms = load_yaml(source / 'transforms.yaml')
+    transforms['provenance'] = {'source': 'existing-unit'}
+    (source / 'transforms.yaml').write_text(yaml.safe_dump(transforms))
+    store.import_runtime('existing-unit', source, 'adopted')
+    rendered = store.render_active('existing-unit')
+    assert load_yaml(rendered / 'geometry.yaml') == load_yaml(source / 'geometry.yaml')
+    assert store.verify_runtime('existing-unit')['source'] == 'existing_unit_runtime'
+    with pytest.raises(FileExistsError):
+        store.import_runtime('existing-unit', source, 'adopted')
+    bad = load_yaml(source / 'geometry.yaml')
+    bad['base']['wheel_radius'] = float('nan')
+    (source / 'geometry.yaml').write_text(yaml.safe_dump(bad))
+    with pytest.raises(ValueError, match='finite'):
+        store.import_runtime('existing-unit', source, 'invalid')
+    version = store.active_version('existing-unit')
+    (version / 'servos.yaml').write_text('{}')
+    with pytest.raises(ValueError, match='checksum'):
+        store.verify_runtime('existing-unit')
+
+
 def test_staged_render_uses_only_passing_preceding_drafts(tmp_path, components):
     store = UnitCalibrationStore(tmp_path / '.xlerobot', REPO)
     unit = 'test-unit'

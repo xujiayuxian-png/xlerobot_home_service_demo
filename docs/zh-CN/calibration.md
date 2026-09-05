@@ -91,6 +91,17 @@ right-handeye` 链路并行；到 grasp-alignment staged render 和最终发布�
 ./tools/calibrate render
 ```
 
+同一台机器人已有可用标定时，可以导入完整运行快照并保留原数值和来源。
+输入目录需包含 `geometry.yaml`、`servos.yaml`、`controllers.yaml`、
+`transforms.yaml`、`grasp_alignment.yaml`；后两者记录 provenance，抓取对齐
+标记 `validation: existing_unit_runtime`。导入会检查数值和文件完整性，
+不代表旧测量已通过新的求解质量门。只适用于同一实物且安装未改变的机器人；
+新装机器人按前面的测量流程操作。
+
+```bash
+./tools/calibrate import-runtime --input PATH --version existing-unit-v1
+```
+
 无硬件求解回放：
 
 ```bash

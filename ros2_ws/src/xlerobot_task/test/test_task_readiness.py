@@ -5,6 +5,7 @@ import time
 
 from diagnostic_msgs.msg import DiagnosticStatus
 from rclpy.action import GoalResponse
+from rclpy.serialization import deserialize_message, serialize_message
 
 from xlerobot_task.fetch_deliver_task_node import (
     FetchDeliverTaskNode,
@@ -156,6 +157,20 @@ def test_stop_latch_change_during_goal_acceptance_rejects_live_goal():
     assert node.goal_callback(request) == GoalResponse.REJECT
     assert node._goal_active is False
     assert any('stop state changed' in item for item in warnings)
+
+
+def test_diagnostics_accept_serialized_ros_byte_levels():
+    node = bare_node()
+    name = next(iter(node._required_diagnostics))
+    status = DiagnosticStatus(name=name, level=DiagnosticStatus.OK)
+    received = deserialize_message(serialize_message(status), DiagnosticStatus)
+    node._on_diagnostics(SimpleNamespace(status=[received]))
+    assert node._required_diagnostics[name][0] == 0
+    assert node._live_readiness()[0]
+    status.level = DiagnosticStatus.ERROR
+    received = deserialize_message(serialize_message(status), DiagnosticStatus)
+    node._on_diagnostics(SimpleNamespace(status=[received]))
+    assert not node._live_readiness()[0]
 
 
 def test_camera_subscriptions_use_sensor_data_qos():

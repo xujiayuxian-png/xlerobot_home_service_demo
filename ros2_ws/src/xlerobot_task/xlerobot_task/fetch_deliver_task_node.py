@@ -109,6 +109,15 @@ def should_request_reached_place_skip(
     return localization_was_ready and source_place == "table" and not dry_run
 
 
+def diagnostic_level(value) -> int:
+    """ROS byte fields may deserialize as bytes instead of integers."""
+    if isinstance(value, (bytes, bytearray)):
+        if len(value) != 1:
+            raise ValueError('diagnostic level must contain one byte')
+        return value[0]
+    return int(value)
+
+
 class FetchDeliverTaskNode(Node):
     """Compose task-level actions without importing any backend package."""
 
@@ -1325,7 +1334,7 @@ class FetchDeliverTaskNode(Node):
             if status.name in self._required_diagnostics:
                 with self._lock:
                     self._required_diagnostics[status.name] = (
-                        int(status.level),
+                        diagnostic_level(status.level),
                         str(status.message),
                         received_at,
                     )
@@ -1349,7 +1358,7 @@ class FetchDeliverTaskNode(Node):
             age_s = now_s - received_at if received_at > 0.0 else math.inf
             if age_s > self.diagnostic_max_age_s:
                 reasons.append(f"{label} diagnostic is stale ({age_s:.2f}s)")
-            elif level != DiagnosticStatus.OK:
+            elif diagnostic_level(level) != diagnostic_level(DiagnosticStatus.OK):
                 reasons.append(message or f"{label} is not ready")
         joint_age_s = (
             now_s - self._readiness_joint_state_received_monotonic

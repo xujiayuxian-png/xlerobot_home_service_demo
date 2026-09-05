@@ -275,7 +275,8 @@ def validate_transform_result(
     return metrics
 
 
-def validate_grasp_alignment(document: dict[str, Any]) -> dict[str, float]:
+def validate_grasp_alignment_values(document: dict[str, Any]) -> None:
+    """Validate executable values independently of a new measurement report."""
     if not isinstance(document, dict) or document.get('schema') != 'xlerobot_grasp_alignment/v1':
         raise ValueError('expected xlerobot_grasp_alignment/v1')
     if document.get('frame') != 'base_link':
@@ -311,6 +312,10 @@ def validate_grasp_alignment(document: dict[str, Any]) -> dict[str, float]:
     ]
     if any(left >= right for left, right in zip(lower, upper)):
         raise ValueError('workspace bounds must be ordered')
+
+
+def validate_grasp_alignment(document: dict[str, Any]) -> dict[str, float]:
+    validate_grasp_alignment_values(document)
     metrics_value = document.get('metrics')
     if not isinstance(metrics_value, dict):
         raise ValueError('grasp alignment metrics must be a mapping')
