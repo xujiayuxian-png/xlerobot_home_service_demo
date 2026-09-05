@@ -1470,6 +1470,22 @@ def test_collection_result_requires_matching_terminal_transport_status():
     assert published[-1][0] == 'collection'
 
 
+def test_old_episode_callbacks_cannot_overwrite_new_collection():
+    node = object.__new__(OperatorConsoleNode)
+    node._collection_lock = threading.Lock()
+    node.active_collection = {'dataset_id': 'trial', 'episode_id': 'new', 'status': 'RUNNING'}
+    node.collection_goal_handle = object()
+    original_handle = node.collection_goal_handle
+    node.events = SimpleNamespace(publish=lambda *_: pytest.fail('old episode published'))
+    future = SimpleNamespace(result=lambda: SimpleNamespace(
+        status=GoalStatus.STATUS_ABORTED, result=SimpleNamespace(
+            error=SimpleNamespace(code=7, message='old failure'), episode_uri='', quality_passed=False)))
+    node._on_collection_result(future, ('trial', 'old'))
+    node._on_collection_feedback(SimpleNamespace(feedback=None), ('trial', 'old'))
+    assert node.active_collection['status'] == 'RUNNING'
+    assert node.collection_goal_handle is original_handle
+
+
 @pytest.mark.parametrize('duration', ['not-a-number', float('nan'), 0, 120.1])
 def test_collection_http_boundary_rejects_invalid_duration(duration):
     class Request:

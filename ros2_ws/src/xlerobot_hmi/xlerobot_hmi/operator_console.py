@@ -1501,7 +1501,8 @@ class OperatorConsoleNode(Node):
         ):
             raise web.HTTPServiceUnavailable(text='CollectEpisode is unavailable')
         future = self.collection_client.send_goal_async(
-            goal, feedback_callback=self._on_collection_feedback
+            goal, feedback_callback=lambda message: self._on_collection_feedback(
+                message, (goal.dataset_id, goal.episode_id))
         )
         await _await_rclpy_future(future, 5.0)
         handle = future.result()
@@ -1519,13 +1520,19 @@ class OperatorConsoleNode(Node):
             self.active_collection = state
             self.collection_goal_handle = handle
         self.events.publish('collection', state)
-        handle.get_result_async().add_done_callback(self._on_collection_result)
+        handle.get_result_async().add_done_callback(lambda future: self._on_collection_result(
+            future, (goal.dataset_id, goal.episode_id)))
         return dict(state)
 
-    def _on_collection_feedback(self, message) -> None:
+    def _on_collection_feedback(self, message, identity=None) -> None:
         feedback = message.feedback
         with self._collection_lock:
             if self.active_collection is None:
+                return
+            if identity is not None and identity != (
+                    self.active_collection['dataset_id'], self.active_collection['episode_id']):
+                return
+            if self.active_collection['status'] != 'RUNNING':
                 return
             self.active_collection.update({
                 'phase': feedback.state.phase,
@@ -1537,7 +1544,7 @@ class OperatorConsoleNode(Node):
             state = dict(self.active_collection)
         self.events.publish('collection', state)
 
-    def _on_collection_result(self, future) -> None:
+    def _on_collection_result(self, future, identity=None) -> None:
         try:
             wrapped = future.result()
             result = wrapped.result
@@ -1563,6 +1570,9 @@ class OperatorConsoleNode(Node):
             update = {'status': 'FAILED', 'message': str(error)}
         with self._collection_lock:
             if self.active_collection is None:
+                return
+            if identity is not None and identity != (
+                    self.active_collection['dataset_id'], self.active_collection['episode_id']):
                 return
             self.active_collection.update(update)
             self.collection_goal_handle = None

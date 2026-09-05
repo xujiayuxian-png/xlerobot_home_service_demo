@@ -15,6 +15,9 @@
     command_interfaces: [position]
     state_interfaces: [position, velocity]
     allow_partial_joints_goal: false
+    # Every preparation starts from measured pose, never the previous episode.
+    set_last_command_interface_value_as_state_on_activation: false
+    interpolate_from_desired_state: false
 
 /leader/leader_torque_controller:
   ros__parameters:

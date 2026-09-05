@@ -4,16 +4,20 @@ import math
 import re
 import threading
 import time
+import xml.etree.ElementTree as ET
 
 from action_msgs.msg import GoalStatus
 from builtin_interfaces.msg import Duration
 from control_msgs.action import FollowJointTrajectory
+from controller_manager_msgs.srv import ListControllers, SwitchController
 import rclpy
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from sensor_msgs.msg import JointState
+from std_msgs.msg import String
 from std_srvs.srv import SetBool
 from trajectory_msgs.msg import JointTrajectoryPoint
 
@@ -26,7 +30,7 @@ from xlerobot_interfaces.srv import BeginEpisode, FinalizeEpisode, MarkEpisodeEv
 
 PHASES = (
     'PREFLIGHT', 'DETECT_OBJECT', 'RECORDER_ADMISSION',
-    'PREPARE_PREGRASP', 'ALIGN_LEADER', 'WAITING_HOME', 'RECORDING',
+    'PREPARE_PREGRASP', 'ALIGN_LEADER', 'WAITING_HOME', 'STARTING_RECORDING', 'RECORDING',
     'STOPPING_TELEOP', 'FINALIZING', 'REVIEW',
 )
 TARGET_JOINTS = (
@@ -166,8 +170,20 @@ class CollectionNode(Node):
                             callback_group=group)
         self._states = {'leader': {}, 'follower': {}}
         self._state_received_at = {'leader': 0.0, 'follower': 0.0}
-        self._leader_frame_count = 0
         self._state_lock = threading.Lock()
+        self._leader_limits = {}
+        self._leader_controller_owned = False
+        self._holding_leader = False
+        self.leader_controllers = self.create_client(
+            ListControllers, '/leader/controller_manager/list_controllers', callback_group=group)
+        self.follower_controllers = self.create_client(
+            ListControllers, '/controller_manager/list_controllers', callback_group=group)
+        self.leader_switch = self.create_client(
+            SwitchController, '/leader/controller_manager/switch_controller', callback_group=group)
+        self.create_subscription(
+            String, '/leader/robot_description', self._leader_description,
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
+            callback_group=group)
         self.create_subscription(
             JointState, '/leader/joint_states',
             lambda msg: self._state('leader', msg), 10, callback_group=group,
@@ -275,8 +291,6 @@ class CollectionNode(Node):
         with self._state_lock:
             self._states[which] = values
             self._state_received_at[which] = time.monotonic()
-            if which == 'leader':
-                self._leader_frame_count += 1
 
     def _set_phase(self, phase: str) -> None:
         with self._session_lock:
@@ -289,6 +303,8 @@ class CollectionNode(Node):
         feedback.state.phase = phase
         feedback.state.progress = progress
         feedback.state.message = message
+        feedback.frame_count = getattr(self, '_recorded_frames', 0)
+        feedback.elapsed_s = getattr(self, '_recorded_elapsed', 0.0)
         handle.publish_feedback(feedback)
 
     def _service(
@@ -298,7 +314,113 @@ class CollectionNode(Node):
             timeout_sec=SERVICE_DISCOVERY_TIMEOUT_S
         ):
             raise RuntimeError('required collection service is unavailable')
-        return _wait(client.call_async(request), timeout)
+        future = client.call_async(request)
+        deadline = time.monotonic() + timeout
+        next_refresh = time.monotonic() + self._control_heartbeat_period_s
+        while not future.done():
+            if time.monotonic() >= deadline:
+                raise TimeoutError('ROS request timed out')
+            if (self._holding_leader and client is not self.torque
+                    and time.monotonic() >= next_refresh):
+                self._set_torque(True)
+                next_refresh = time.monotonic() + self._control_heartbeat_period_s
+            time.sleep(0.02)
+        return future.result()
+
+    def _leader_description(self, message):
+        try:
+            root = ET.fromstring(message.data)
+            limits = {}
+            for name in LEADER_JOINTS:
+                joint = root.find(f"./joint[@name='{name}']/limit")
+                low, high = float(joint.attrib['lower']), float(joint.attrib['upper'])
+                if not math.isfinite(low) or not math.isfinite(high) or low >= high:
+                    raise ValueError('invalid bounds')
+                limits[name] = (low, high)
+        except (ET.ParseError, AttributeError, KeyError, ValueError):
+            limits = {}
+        with self._state_lock:
+            self._leader_limits = limits
+
+    def _validate_leader_positions(self, target=None):
+        with self._state_lock:
+            limits = dict(self._leader_limits)
+            state = dict(self._states['leader'])
+            received = self._state_received_at['leader']
+        if len(limits) != len(LEADER_JOINTS):
+            raise RuntimeError('Leader description/physical limits are unavailable')
+        if received <= 0 or time.monotonic() - received > self._joint_state_timeout_s:
+            raise RuntimeError('Leader measured state is stale; preparation not started')
+        if target is not None and len(target) != len(LEADER_JOINTS):
+            raise RuntimeError('Leader target must contain six joints')
+        for index, name in enumerate(LEADER_JOINTS):
+            low, high = limits[name]
+            values = [('measured', state.get(name))]
+            if target is not None:
+                values.append(('target', target[index]))
+            for label, value in values:
+                if value is None or not math.isfinite(value) or not low <= value <= high:
+                    raise RuntimeError(
+                        f'Leader {name} {label}={value} outside [{low:.3f}, {high:.3f}] rad; '
+                        'position control remains unavailable until pose/target is in range')
+
+    def _controller_states(self, client):
+        return {c.name: c.state for c in self._service(client, ListControllers.Request()).controller}
+
+    def _check_controllers(self):
+        follower = self._controller_states(self.follower_controllers)
+        for name in ('right_arm_controller', 'right_gripper_controller', 'head_controller'):
+            if follower.get(name) != 'active':
+                raise RuntimeError(f'{name} is {follower.get(name, "missing")}; restart collection after checking hardware')
+        leader = self._controller_states(self.leader_controllers)
+        if leader.get('leader_torque_controller') != 'active':
+            raise RuntimeError('Leader torque controller is not active; restart collection')
+        if leader.get('leader_arm_controller') != 'inactive':
+            raise RuntimeError(
+                'Leader position controller must be inactive before preparation; '
+                f'actual={leader.get("leader_arm_controller", "missing")}; restart collection')
+        self._validate_leader_positions()
+
+    def _switch_leader(self, active):
+        request = SwitchController.Request(
+            activate_controllers=['leader_arm_controller'] if active else [],
+            deactivate_controllers=[] if active else ['leader_arm_controller'],
+            strictness=SwitchController.Request.STRICT,
+            timeout=Duration(sec=2))
+        response = self._service(self.leader_switch, request)
+        if not response.ok:
+            raise RuntimeError(f'Leader position controller switch failed: {response.message}')
+        state = self._controller_states(self.leader_controllers).get('leader_arm_controller')
+        if state != ('active' if active else 'inactive'):
+            raise RuntimeError(f'Leader position controller switch unconfirmed: {state}')
+
+    def _acquire_leader(self):
+        # Detection/recorder admission may take seconds after preflight.
+        self._check_controllers()
+        try:
+            # Clear a previous teleop fault only at an explicit new attempt.
+            self._set_teleop(False)
+        except Exception:
+            self._block_after_cleanup_failure()
+            raise
+        self._set_torque(False)
+        # Activation is from measured state. Torque stays off during ownership
+        # transfer, so neither an old goal nor an old command can move the arm.
+        self._leader_controller_owned = True  # Also own an ambiguous switch reply.
+        self._switch_leader(True)
+        self._set_torque(True)
+        self._holding_leader = True
+
+    def _deactivate_leader(self):
+        if self._leader_controller_owned:
+            state = self._controller_states(self.leader_controllers).get('leader_arm_controller')
+            if state == 'inactive':
+                self._leader_controller_owned = False
+                return
+            if state != 'active':
+                raise RuntimeError(f'Leader controller ownership is unconfirmed: {state}')
+            self._switch_leader(False)
+            self._leader_controller_owned = False
 
     @staticmethod
     def _require_action(client, label: str) -> None:
@@ -316,6 +438,7 @@ class CollectionNode(Node):
 
     def _preflight(self, goal) -> None:
         """Resolve every live dependency before the first motor command."""
+        self._check_controllers()
         actions = [
             (self.recorder, 'RecordEpisode'),
             (self.align, 'Leader alignment'),
@@ -496,8 +619,11 @@ class CollectionNode(Node):
             ) from error
         if wrapped is None or wrapped.status != GoalStatus.STATUS_SUCCEEDED:
             status = getattr(wrapped, 'status', 'missing')
+            payload = getattr(wrapped, 'result', None)
+            error = getattr(payload, 'error', None)
+            detail = getattr(error, 'message', '') or getattr(payload, 'error_string', '')
             raise RuntimeError(
-                f'{label} action terminated with status {status}'
+                f'{label} action terminated with status {status}' + (f': {detail}' if detail else '')
             )
         return wrapped.result
 
@@ -572,6 +698,7 @@ class CollectionNode(Node):
             raise RuntimeError(response.message)
 
     def _align_leader(self, positions: list[float], parent_handle):
+        self._validate_leader_positions(positions)
         goal = FollowJointTrajectory.Goal()
         goal.trajectory.joint_names = list(LEADER_JOINTS)
         point = JointTrajectoryPoint()
@@ -743,8 +870,10 @@ class CollectionNode(Node):
         if wrapped is None:
             raise RuntimeError('RecordEpisode returned no terminal result')
         if wrapped.status != GoalStatus.STATUS_SUCCEEDED:
+            detail = getattr(getattr(getattr(wrapped, 'result', None), 'error', None), 'message', '')
             raise RuntimeError(
                 f'RecordEpisode terminated with action status {wrapped.status}'
+                + (f': {detail}' if detail else '')
             )
         recorded = wrapped.result
         if recorded.error.code != CapabilityError.NONE:
@@ -788,6 +917,26 @@ class CollectionNode(Node):
             raise RuntimeError('Follower joint state contains non-finite positions')
         return positions
 
+    def _wait_follower_stopped(self, handle):
+        # Teleop's last short trajectory can still be running after publication
+        # stops. Do not mark the recording's end boundary until measured rest.
+        deadline = time.monotonic() + 3.0
+        previous = self._manual_follower_positions()
+        stable_since = None
+        while time.monotonic() < deadline:
+            self._raise_if_canceled(handle)
+            time.sleep(0.1)
+            current = self._manual_follower_positions()
+            if max(abs(a - b) for a, b in zip(current, previous)) <= 0.01:
+                if stable_since is None:
+                    stable_since = time.monotonic()
+                elif time.monotonic() - stable_since >= 0.2:
+                    return
+            else:
+                stable_since = None
+            previous = current
+        raise RuntimeError('Follower did not settle after teleop stopped; incomplete data retained')
+
     def _block_after_cleanup_failure(self) -> None:
         with self._session_lock:
             self._cleanup_blocked = True
@@ -803,10 +952,15 @@ class CollectionNode(Node):
             except Exception as error:
                 errors.append(f'teleop disable failed: {error}')
         if leader_torque_enabled:
+            self._holding_leader = False
             try:
                 self._set_torque(False)
             except Exception as error:
                 errors.append(f'leader torque disable failed: {error}')
+        try:
+            self._deactivate_leader()
+        except Exception as error:
+            errors.append(f'Leader position controller release failed: {error}')
         if errors:
             self._block_after_cleanup_failure()
         return errors
@@ -819,6 +973,8 @@ class CollectionNode(Node):
         leader_torque_enabled = False
         try:
             goal = handle.request
+            self._recorded_frames = 0
+            self._recorded_elapsed = 0.0
             with self._session_lock:
                 self._active_dataset_id = goal.dataset_id
                 self._active_episode_id = goal.episode_id
@@ -877,6 +1033,11 @@ class CollectionNode(Node):
             )
 
             def recorder_feedback(message):
+                with self._session_lock:
+                    if (self._active_dataset_id, self._active_episode_id) != (goal.dataset_id, goal.episode_id):
+                        return
+                    self._recorded_frames = max(self._recorded_frames, int(message.feedback.frame_count))
+                    self._recorded_elapsed = max(self._recorded_elapsed, float(message.feedback.elapsed_s))
                 if message.feedback.state.phase == 'READY':
                     ready.set()
                 elif (
@@ -958,7 +1119,7 @@ class CollectionNode(Node):
                     object_id=goal.object_id, target=detected.target, dry_run=False
                 )
                 leader_torque_enabled = True
-                self._set_torque(True)
+                self._acquire_leader()
                 prepared = self._prepare_pair(prepare_goal, handle)
                 if prepared.error.code != CapabilityError.NONE:
                     raise RuntimeError(prepared.error.message)
@@ -983,7 +1144,7 @@ class CollectionNode(Node):
                 self._feedback(handle, 'ALIGN_LEADER', 0.30, 'moving Leader to current Follower state')
                 # Own torque until an explicit disable, including lost replies.
                 leader_torque_enabled = True
-                self._set_torque(True)
+                self._acquire_leader()
                 self._align_leader(positions, handle)
             self._raise_if_canceled(handle)
             require_recorder_running('Leader alignment')
@@ -996,10 +1157,8 @@ class CollectionNode(Node):
                 keep_torque_leased(self._control_heartbeat_period_s, 'waiting for Home')
             self._raise_if_canceled(handle)
             require_recorder_running('Home')
-            self._set_torque(False)
-            leader_torque_enabled = False
-            self._raise_if_canceled(handle)
-            require_recorder_running('after Leader torque release')
+            self._feedback(handle, 'STARTING_RECORDING', 0.39,
+                           'preparing first recorded sample while Leader still holds torque')
             first_sample.clear()
             event = self._service(
                 self.episode_event,
@@ -1024,17 +1183,21 @@ class CollectionNode(Node):
                         'recorder did not persist its first baseline sample '
                         'before the start deadline'
                     )
+                self._set_torque(True)
             self._raise_if_canceled(handle)
             require_recorder_running('before teleoperation enable')
             self._validate_live_teleop_alignment()
             self._raise_if_canceled(handle)
             require_recorder_running('after live alignment validation')
+            self._deactivate_leader()
+            self._raise_if_canceled(handle)
             # As with torque, cleanup owns a possibly-applied enable even when
             # the transport acknowledgement is lost.
             teleop_enabled = True
             self._set_teleop(True)
-            with self._state_lock:
-                first_leader_frame = self._leader_frame_count
+            self._holding_leader = False
+            self._set_torque(False)
+            leader_torque_enabled = False
             started = time.monotonic()
             duration = goal.max_duration_s
             next_teleop_heartbeat = (
@@ -1060,9 +1223,8 @@ class CollectionNode(Node):
                 feedback.state.message = (
                     'Leader controls Follower; Follower next-state targets are recorded'
                 )
-                feedback.elapsed_s = elapsed
-                with self._state_lock:
-                    feedback.frame_count = self._leader_frame_count - first_leader_frame
+                feedback.elapsed_s = self._recorded_elapsed
+                feedback.frame_count = self._recorded_frames
                 handle.publish_feedback(feedback)
                 time.sleep(0.1)
 
@@ -1072,6 +1234,7 @@ class CollectionNode(Node):
             )
             self._set_teleop(False)
             teleop_enabled = False
+            self._wait_follower_stopped(handle)
             self._raise_if_canceled(handle)
             stop_event = self._service(
                 self.episode_event,
@@ -1135,6 +1298,9 @@ class CollectionNode(Node):
             recorder_handle = None
             recorder_result_future = None
             recorded = self._validate_recorder_terminal(wrapped)
+            if recorded.message_counts:
+                self._recorded_frames = int(recorded.message_counts[0])
+            self._recorded_elapsed = recorded.duration_s
             result.episode_uri = recorded.episode_uri
             result.quality_passed = True
             result.error.code = CapabilityError.NONE

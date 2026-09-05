@@ -46,6 +46,11 @@ attachment's calibrated raw range, offset and direction, preserving the
 prototype's physical motor bounds rather than its copied Follower-style
 planning limits. Teleop output uses the active Follower calibration's limits.
 Startup does not automatically home the arms or begin recording.
+The Leader position controller stays `inactive` while idle or teleoperating.
+Start checks measured pose and controller readiness, then acquires position
+control from that pose. An out-of-range observation does not prevent opening
+the workspace, but preparation reports the affected joint instead of widening
+limits or re-enabling torque against an old target.
 
 1. For a first 10–15 second trial, select **通用手动** (manual). It starts from
    the Follower's current pose without detection or automatic pregrasp.
@@ -58,15 +63,17 @@ Startup does not automatically home the arms or begin recording.
    then prepares both arms concurrently from the same validated pregrasp target.
    Manual mode only aligns the Leader to the current Follower pose. Once ready,
    `WAITING_HOME` holds Leader torque without recording; do not drag it yet.
-4. Support the Leader and click **Home / 释放主臂并开始采集**. This releases torque
-   and starts recording. Demonstrate once `RECORDING` appears. Waiting for Home
+4. Support the Leader and click **Home / 释放主臂并开始采集** (or press Home).
+   `STARTING_RECORDING` retains torque while obtaining the first recorded sample
+   and checking alignment. It then releases Leader position-controller ownership,
+   enables following, and releases Leader torque. Demonstrate once `RECORDING` appears. Waiting for Home
    longer than 60 seconds cancels the attempt; it never auto-starts recording.
    Preparation failure, cancellation, or timeout exits the session and releases
    Leader torque; this is not the ready/waiting state. Alignment errors report
    the affected joint's target, measured position, and error; do not force teleop.
-5. Click **End / 正常结束并发布**, or let the duration expire. Following stops
-   before camera videos and joint data are finalized. “Publish” here means a
-   completed local episode, not an upload.
+5. Click **End / 结束并保存到本机** (or press End), or let the duration expire.
+   Following stops and measured Follower rest is checked before camera videos
+   and joint data are finalized locally. Nothing is uploaded.
 6. Once saving succeeds, choose **接受** (accept) or **拒绝** (reject). Only
    accepted episodes are converted; rejection does not delete raw recordings.
    The next Start prepares a new episode without overwriting the previous one.
@@ -74,6 +81,13 @@ Startup does not automatically home the arms or begin recording.
 **Abort** cancels an interrupted trial and retains an incomplete recording;
 it is not the normal save button. **状态机 dry-run** exercises phase transitions
 only: it does not record data or establish camera/hardware readiness.
+
+Home/End shortcuts are phase-gated and ignore typing fields and key repeats.
+The displayed frame count comes from the recorder, not Leader messages. Invalid
+teleop input, stale feedback, or lease expiry ends the attempt rather than
+silently resuming it on the next heartbeat. Correct the issue before starting
+another episode; unconfirmed controller ownership requires a collection restart.
+
 Raw episodes live at `data.collection_root/datasets/<dataset ID in UI>/raw/`,
 with sibling `reviews/`. Point `data.dataset_root` at that dataset for conversion.
 

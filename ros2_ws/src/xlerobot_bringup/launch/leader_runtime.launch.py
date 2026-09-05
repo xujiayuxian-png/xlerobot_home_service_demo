@@ -30,13 +30,14 @@ def runtime(context):
         package='controller_manager', executable='spawner', output='screen',
         arguments=['leader_joint_state_broadcaster', '-c', '/leader/controller_manager'],
     )
-    controllers = Node(
-        package='xlerobot_bringup', executable='position_ready_spawner', output='screen',
-        parameters=[description, {'joint_states_topic': '/leader/joint_states'}],
+    arm = Node(
+        package='controller_manager', executable='spawner', output='screen',
+        arguments=['leader_arm_controller', '-c', '/leader/controller_manager', '--inactive'],
+    )
+    torque = Node(
+        package='controller_manager', executable='spawner', output='screen',
         arguments=[
-            '-c', '/leader/controller_manager', '--activate-as-group',
-            '--controller', 'leader_arm_controller',
-            '--controller', 'leader_torque_controller',
+            'leader_torque_controller', '-c', '/leader/controller_manager',
             '--controller-ros-args', [
                 '--ros-args -p enable_lease_s:=',
                 LaunchConfiguration('control_enable_lease_s'),
@@ -54,7 +55,7 @@ def runtime(context):
         ),
         joint_states,
         RegisterEventHandler(OnProcessExit(
-            target_action=joint_states, on_exit=[controllers]
+            target_action=joint_states, on_exit=[arm, torque]
         )),
     ]
 

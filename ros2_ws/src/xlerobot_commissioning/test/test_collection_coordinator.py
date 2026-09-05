@@ -216,6 +216,13 @@ def coordinator(events):
         'follower': time.monotonic(),
     }
     node._leader_frame_count = 10
+    node._holding_leader = False
+    node._leader_controller_owned = False
+    node._check_controllers = lambda: None
+    node._validate_leader_positions = lambda target=None: None
+    node._acquire_leader = lambda: node._set_torque(True)
+    node._deactivate_leader = lambda: events.append('leader_position_inactive')
+    node._wait_follower_stopped = lambda handle: events.append('follower_stopped')
     recorder_handle = RecorderHandle(events)
     node._recorder_handle = recorder_handle
     node.recorder = RecorderClient(recorder_handle)
@@ -274,6 +281,7 @@ def test_manual_end_disables_teleop_then_finalizes_and_succeeds(monkeypatch):
     assert events.index('recorder_first_sample') < events.index('teleop_on')
     assert events.index('teleop_off') < events.index('recorder_finalize')
     assert events.index('teleop_off') < events.index('recorder_stop')
+    assert events.index('teleop_off') < events.index('follower_stopped') < events.index('recorder_stop')
     assert events.index('recorder_stop') < events.index('recorder_finalize')
     assert events.index('recorder_finalize') < events.index('action_succeeded')
     assert 'recorder_cancel' not in events
@@ -325,7 +333,8 @@ def test_prepared_session_does_not_release_or_record_until_home():
         worker.join(3.0)
         assert not worker.is_alive()
         assert outcome[0].error.code == CapabilityError.NONE
-        assert events.index('WAITING_HOME') < events.index('torque_off') < events.index('recorder_start')
+        assert events.index('WAITING_HOME') < events.index('recorder_start') < events.index('teleop_on') < events.index('torque_off')
+        assert events.index('recorder_first_sample') < events.index('leader_position_inactive') < events.index('teleop_on')
     finally:
         handle.is_cancel_requested = True
         worker.join(3.0)
@@ -1068,7 +1077,7 @@ def test_recording_teleop_refresh_failure_stops_and_cancels_recorder(
     assert events.index('teleop_off') < events.index('recorder_cancel')
 
 
-def test_cancel_after_torque_off_prevents_recorder_mark(monkeypatch):
+def test_cancel_at_handoff_disables_teleop_and_retains_incomplete(monkeypatch):
     monkeypatch.setattr(collection_node.time, 'sleep', lambda _seconds: None)
     events = []
     node = coordinator(events)
@@ -1083,8 +1092,8 @@ def test_cancel_after_torque_off_prevents_recorder_mark(monkeypatch):
     result = CollectionNode.execute(node, handle)
 
     assert result.error.code == CapabilityError.CANCELED
-    assert 'recorder_start' not in events
-    assert 'teleop_on' not in events
+    assert events.index('recorder_start') < events.index('teleop_on') < events.index('torque_off')
+    assert events.index('teleop_off') < events.index('recorder_cancel')
     assert 'recorder_cancel' in events
 
 
@@ -1157,6 +1166,7 @@ def test_missing_first_sample_never_enables_teleop(monkeypatch):
     assert 'first baseline sample' in result.error.message
     assert 'teleop_on' not in events
     assert 'recorder_cancel' in events
+    assert events.index('recorder_start') < events.index('torque_off')
 
 
 def test_stale_leader_after_alignment_never_enables_teleop(monkeypatch):
@@ -1212,6 +1222,7 @@ def alignment_node(monkeypatch):
     ))
     node = object.__new__(CollectionNode)
     node.align = object()
+    node._validate_leader_positions = lambda target=None: None
     node._control_heartbeat_period_s = 0.2
     node._joint_state_timeout_s = 0.5
     node._state_lock = threading.Lock()
@@ -1302,3 +1313,36 @@ def test_alignment_settle_propagates_torque_refresh_failure(monkeypatch):
     with pytest.raises(RuntimeError, match='torque refresh failed'):
         node._align_leader(list(node._states['leader'].values()),
                            SimpleNamespace(is_cancel_requested=False))
+
+
+def test_aborted_child_keeps_its_actual_failure_detail():
+    result = PrepareGrasp.Result()
+    result.error.message = 'pregrasp IK failed: seed=0 code=-31'
+    handle = SimpleNamespace(accepted=True, get_result_async=lambda: CompletedFuture(
+        SimpleNamespace(status=GoalStatus.STATUS_ABORTED, result=result)))
+    client = SimpleNamespace(wait_for_server=lambda **_: True,
+                             send_goal_async=lambda *_, **__: CompletedFuture(handle))
+    node = object.__new__(CollectionNode)
+    with pytest.raises(RuntimeError, match='pregrasp IK failed: seed=0 code=-31'):
+        node._action(client, PrepareGrasp.Goal(), SimpleNamespace(is_cancel_requested=False),
+                     label='PrepareGrasp')
+
+
+def test_progress_counts_recorder_frames_not_leader_messages(monkeypatch):
+    monkeypatch.setattr(collection_node.time, 'sleep', lambda _: None)
+    events = []
+    node = coordinator(events)
+    node._leader_frame_count = 9999
+    handle = CollectionHandle(node, events, ending='finish')
+    normal = handle.publish_feedback
+    frames = []
+
+    def feedback(message):
+        if message.state.phase in ('RECORDING', 'STOPPING_TELEOP', 'REVIEW'):
+            frames.append(message.frame_count)
+        normal(message)
+
+    handle.publish_feedback = feedback
+    result = node.execute(handle)
+    assert result.error.code == CapabilityError.NONE
+    assert frames and all(count == 1 for count in frames)

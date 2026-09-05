@@ -77,6 +77,11 @@ private:
   void on_state(const sensor_msgs::msg::JointState::SharedPtr message)
   {
     if (message->name.size() != message->position.size()) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      complete_ = false;
+      input_error_ = "Leader joint names/positions length mismatch";
+      faulted_ = faulted_ || enabled_;
+      enabled_ = false;
       return;
     }
     std::unordered_map<std::string, double> values;
@@ -89,6 +94,15 @@ private:
       if (found == values.end() || !std::isfinite(found->second) ||
         found->second < lower_[i] || found->second > upper_[i])
       {
+        std::lock_guard<std::mutex> lock(mutex_);
+        complete_ = false;
+        input_error_ = "Leader " + source_names_[i] + " missing, non-finite, or outside Follower limits [" +
+          std::to_string(lower_[i]) + ", " + std::to_string(upper_[i]) + "]";
+        if (found != values.end()) {
+          input_error_ += "; measured=" + std::to_string(found->second);
+        }
+        faulted_ = faulted_ || enabled_;
+        enabled_ = false;
         return;
       }
       candidate[i] = found->second;
@@ -97,6 +111,7 @@ private:
     positions_ = candidate;
     received_at_ = std::chrono::steady_clock::now();
     complete_ = true;
+    if (!faulted_) {input_error_.clear();}
   }
 
   bool fresh_locked() const
@@ -116,10 +131,20 @@ private:
     std_srvs::srv::SetBool::Response::SharedPtr response)
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (request->data && enabled_ && !lease_fresh_locked()) {
+      faulted_ = true;
+      enabled_ = false;
+    }
+    if (request->data && faulted_) {
+      response->success = false;
+      response->message = "Teleop stopped after invalid input or lease expiry; disable before a new session. " + input_error_;
+      return;
+    }
     if (request->data && !fresh_locked()) {
+      faulted_ = faulted_ || enabled_;
       enabled_ = false;
       response->success = false;
-      response->message = "leader state is incomplete or stale";
+      response->message = input_error_.empty() ? "Leader state is stale" : input_error_;
       return;
     }
     if (request->data) {
@@ -129,6 +154,7 @@ private:
         std::chrono::duration<double>(enable_lease_s_));
     } else {
       enabled_ = false;
+      faulted_ = false;
       lease_deadline_ = std::chrono::steady_clock::time_point{};
     }
     response->success = true;
@@ -142,6 +168,7 @@ private:
     {
       std::lock_guard<std::mutex> lock(mutex_);
       if (!lease_fresh_locked() || !fresh_locked()) {
+        faulted_ = faulted_ || enabled_;
         enabled_ = false;
         lease_deadline_ = std::chrono::steady_clock::time_point{};
         return;
@@ -172,6 +199,8 @@ private:
   double enable_lease_s_{1.0};
   bool enabled_{false};
   bool complete_{false};
+  bool faulted_{false};
+  std::string input_error_{"Leader state has not arrived"};
   std::chrono::steady_clock::time_point received_at_{};
   std::chrono::steady_clock::time_point lease_deadline_{};
   std::mutex mutex_;

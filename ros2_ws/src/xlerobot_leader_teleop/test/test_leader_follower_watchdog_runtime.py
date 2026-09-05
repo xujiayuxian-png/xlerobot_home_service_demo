@@ -124,6 +124,12 @@ def test_enable_heartbeat_expires_and_false_is_immediate() -> None:
         spin_until(node, lambda: False, 0.2, publish_state)
         assert len(commands) == after_expiry
 
+        # A heartbeat may not silently resume a session after a watchdog stop.
+        failed = client.call_async(SetBool.Request(data=True))
+        assert spin_until(node, failed.done, 2.0, publish_state)
+        assert not failed.result().success
+        call_enabled(node, client, False, publish_state)
+
         # Repeated true calls refresh the same lease without creating a new
         # owner or interface.
         before_heartbeats = len(commands)
@@ -138,6 +144,20 @@ def test_enable_heartbeat_expires_and_false_is_immediate() -> None:
         after_false = len(commands)
         spin_until(node, lambda: False, 0.2, publish_state)
         assert len(commands) == after_false
+
+        call_enabled(node, client, True, publish_state)
+        state.position[0] = 9.0
+        spin_until(node, lambda: False, 0.1, publish_state)
+        invalid = client.call_async(SetBool.Request(data=True))
+        assert spin_until(node, invalid.done, 2.0, publish_state)
+        assert not invalid.result().success
+        assert 'leader_shoulder_pan' in invalid.result().message
+        state.position[0] = 0.0
+        spin_until(node, lambda: False, 0.1, publish_state)
+        still_stopped = client.call_async(SetBool.Request(data=True))
+        assert spin_until(node, still_stopped.done, 2.0, publish_state)
+        assert not still_stopped.result().success
+        call_enabled(node, client, False, publish_state)
     finally:
         if node is not None:
             node.destroy_node()

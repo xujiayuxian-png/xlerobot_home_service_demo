@@ -268,6 +268,22 @@ export function CollectionWorkspace({ state, initialDatasetId, onState, onError 
     catch (reason) { onError(String(reason)) }
     finally { setHomePending(false) }
   }
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      const target = event.target instanceof Element ? event.target : null
+      if (event.repeat || event.isComposing || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey ||
+          target?.closest('input, textarea, select, [contenteditable]')) return
+      if (event.key === 'Home' && running && state?.phase === 'WAITING_HOME') {
+        event.preventDefault()
+        void home()
+      } else if (event.key === 'End' && running && state?.phase === 'RECORDING') {
+        event.preventDefault()
+        void finish()
+      }
+    }
+    window.addEventListener('keydown', keydown)
+    return () => window.removeEventListener('keydown', keydown)
+  })
   const review = async (status: 'accepted' | 'rejected') => {
     if (!state) return
     try {
@@ -307,7 +323,7 @@ export function CollectionWorkspace({ state, initialDatasetId, onState, onError 
       </button>
       <button className="primary" onClick={finish}
         disabled={state.phase !== 'RECORDING'}>
-        End / 正常结束并发布
+        End / 结束并保存到本机
       </button>
       <button className="danger" onClick={abort} disabled={!abortable}>
         Abort / 中止并保留 incomplete
@@ -319,7 +335,7 @@ export function CollectionWorkspace({ state, initialDatasetId, onState, onError 
       <div className="field-row">
       <button onClick={() => review('accepted')}>接受</button>
       <button onClick={() => review('rejected')}>拒绝</button></div>}
-    <p className="hint">开始：主从臂准备到 pregrasp 后保持上力（通用手动仅主臂对齐从臂）。等待 Home：托住主臂后点击 Home，释放扭矩并开始采集；正常结束请点 End。等待超过 60 秒将中止本条。</p>
+    <p className="hint">开始：主从臂准备到 pregrasp 后保持上力（通用手动仅主臂对齐从臂）。等待 Home：托住主臂后点击或按键盘 Home；数据就绪后交接到遥操，显示 RECORDING 再示教。End 结束并保存到本机，不会上传。输入框内不响应快捷键。等待超过 60 秒将中止本条。</p>
   </section>
 }
 

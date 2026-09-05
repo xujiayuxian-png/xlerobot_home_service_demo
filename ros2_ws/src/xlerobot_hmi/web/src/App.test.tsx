@@ -112,7 +112,7 @@ describe('operator console API', () => {
     expect((await screen.findByPlaceholderText('Dataset ID') as HTMLInputElement).value)
       .toBe('xlerobot-glue-stick-grasp-30')
     const finish = await screen.findByRole(
-      'button', { name: 'End / 正常结束并发布' },
+      'button', { name: 'End / 结束并保存到本机' },
     ) as HTMLButtonElement
     const abort = screen.getByRole(
       'button', { name: 'Abort / 中止并保留 incomplete' },
