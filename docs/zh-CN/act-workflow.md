@@ -20,6 +20,15 @@ Robot 端运行：
 ./tools/act collect --hardware
 ```
 
+启动后头部会用 3 秒转到水平居中、俯仰 **0.8 rad**，让 D455 看向桌面；
+不会因此移动主从臂或夹爪。不同桌高可在启动时覆盖，角度必须在 active 标定限位内：
+
+```bash
+./tools/act collect --hardware --head-tilt 0.8
+```
+
+同一批数据保持视角一致，录制期间不调整头部。
+
 它会启动源码采集工作区，右侧 Follower 机械臂可能运动。通过 Web UI 审核每条不可变
 episode；原始录制不进入 Git。
 

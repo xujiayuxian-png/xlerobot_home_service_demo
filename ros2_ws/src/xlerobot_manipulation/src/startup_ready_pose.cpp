@@ -30,6 +30,7 @@ public:
   : Node("startup_ready_pose")
   {
     execution_enabled_ = declare_parameter<bool>("execution_enabled", false);
+    head_only_ = declare_parameter<bool>("head_only", false);
     arm_joint_names_ = declare_parameter<std::vector<std::string>>(
       "arm_joint_names",
       {
@@ -90,9 +91,11 @@ public:
       return true;
     }
     set_status(diagnostic_msgs::msg::DiagnosticStatus::WARN, "waiting for measured joint state");
-    auto required = arm_joint_names_;
-    required.push_back(gripper_joint_);
-    required.insert(required.end(), head_joint_names_.begin(), head_joint_names_.end());
+    auto required = head_joint_names_;
+    if (!head_only_) {
+      required.insert(required.end(), arm_joint_names_.begin(), arm_joint_names_.end());
+      required.push_back(gripper_joint_);
+    }
     if (!wait_for_positions(required, joint_state_timeout_s_)) {
       return fail("required right-arm or head joint state was not available");
     }
@@ -101,6 +104,11 @@ public:
         head_client_, head_action_, head_joint_names_, head_ready_positions_, head_duration_s_))
     {
       return fail("head failed to reach centered ready pose");
+    }
+    if (head_only_) {
+      set_status(diagnostic_msgs::msg::DiagnosticStatus::OK, "head is in collection viewing pose");
+      RCLCPP_INFO(get_logger(), "Collection head pose complete; arms and gripper untouched");
+      return true;
     }
     set_status(diagnostic_msgs::msg::DiagnosticStatus::WARN, "moving right arm to ready pose");
     if (!move_if_needed(
@@ -293,6 +301,7 @@ private:
   }
 
   bool execution_enabled_{false};
+  bool head_only_{false};
   std::vector<std::string> arm_joint_names_;
   std::vector<double> arm_ready_positions_;
   std::string gripper_joint_;

@@ -7,7 +7,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 usage() {
   cat <<'EOF'
 Usage:
-  tools/act collect --hardware [--config PATH]
+  tools/act collect --hardware [--config PATH] [--head-tilt RAD]
   tools/act convert [--dataset PATH] [--version ID] [--repo-id ID] [--dry-run]
   tools/act train [--dataset PATH] [--repo-id ID] [--output PATH] [--resume] [--dry-run]
   tools/act evaluate [--checkpoint PATH] [--output PATH]
@@ -79,15 +79,17 @@ PY
 }
 
 collect() {
-  local hardware=false
+  local hardware=false head_tilt=0.8
   while (($#)); do
     case $1 in
       --hardware) hardware=true; shift ;;
+      --head-tilt) (($# >= 2)) || die '--head-tilt requires radians'; head_tilt=$2; shift 2 ;;
       *) die "unsupported collect option: $1" ;;
     esac
   done
   $hardware || die \
     'ACT collection requires the explicit --hardware flag; no device was opened'
+  [[ $head_tilt =~ ^-?[0-9]+([.][0-9]+)?$ ]] || die '--head-tilt must be a finite number in radians'
   require_config
   verify_calibration_runtime >/dev/null
   source_robot_workspace
@@ -107,6 +109,7 @@ collect() {
   [[ -z $serial ]] || device_arguments+=("d455_serial:=$serial")
   exec ros2 launch xlerobot_bringup act_collection.launch.py \
     hardware_enabled:=true \
+    collection_head_tilt:="$head_tilt" \
     artifact_root:="$artifact_root" \
     unit_id:="$(config_get robot.unit_id demo-01)" \
     dataset_id:="$(config_get data.dataset_id xlerobot-glue-stick-grasp-30)" \

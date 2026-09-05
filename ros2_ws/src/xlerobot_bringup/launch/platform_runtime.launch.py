@@ -89,7 +89,8 @@ def _runtime_nodes(context):
         joint_state_spawner,
         start_controllers,
     ]
-    if LaunchConfiguration('startup_ready').perform(context) == 'true':
+    head_only = LaunchConfiguration('startup_head_only', default='false').perform(context) == 'true'
+    if LaunchConfiguration('startup_ready', default='false').perform(context) == 'true' or head_only:
         startup_ready = Node(
             package='xlerobot_manipulation', executable='startup_ready_pose',
             name='startup_ready_pose', output='screen',
@@ -98,11 +99,16 @@ def _runtime_nodes(context):
                     FindPackageShare('xlerobot_manipulation'), 'config',
                     'startup_ready.yaml',
                 ]),
-                {'execution_enabled': True},
+                {'execution_enabled': True, 'head_only': head_only,
+                 'head_ready_positions': [0.0, float(LaunchConfiguration(
+                     'startup_head_tilt', default='0.0').perform(context))],
+                 'head_duration_s': 3.0 if head_only else 2.0,
+                 'arrival_tolerance_rad': 0.04 if head_only else 0.12},
             ],
         )
         actions.append(RegisterEventHandler(
-            OnProcessExit(target_action=normal_spawner, on_exit=[startup_ready])
+            OnProcessExit(target_action=normal_spawner,
+                          on_exit=lambda event, context: [startup_ready] if event.returncode == 0 else [])
         ))
     return actions
 
@@ -118,6 +124,8 @@ def generate_launch_description() -> LaunchDescription:
                 'startup_ready', default_value='false', choices=['true', 'false'],
                 description='Move the right arm and gripper to the verified demo ready pose.',
             ),
+            DeclareLaunchArgument('startup_head_only', default_value='false', choices=['true', 'false']),
+            DeclareLaunchArgument('startup_head_tilt', default_value='0.0'),
             DeclareLaunchArgument(
                 'right_bus',
                 default_value='/dev/right_arm',

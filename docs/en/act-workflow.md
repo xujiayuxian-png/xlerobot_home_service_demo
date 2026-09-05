@@ -20,6 +20,16 @@ render the active calibration, then run on the Robot computer:
 ./tools/act collect --hardware
 ```
 
+At startup, the head centers pan and moves tilt to **0.8 rad** over 3 seconds
+so the D455 looks at the table. This does not move either arm or the gripper.
+Override the viewing angle for a different table height within active calibration limits:
+
+```bash
+./tools/act collect --hardware --head-tilt 0.8
+```
+
+Keep the same view throughout a dataset and do not adjust the head while recording.
+
 This launches the source collection workspace and can move the right Follower
 arm. Review each immutable episode in the web UI. The reference release keeps
 all raw recordings outside Git.

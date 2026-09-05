@@ -16,7 +16,7 @@ def test_teleop_uses_active_follower_calibration(tmp_path, monkeypatch):
     config.write_text(yaml.safe_dump({'right_arm': {'joints': {
         name: {'limit_min': 0.0 if name == 'gripper' else -1.0,
                'limit_max': 1.7} for name in names
-    }}}))
+    }}, 'head': {'joints': {'tilt': {'limit_min': -0.76, 'limit_max': 1.45}}}}))
     module = _load_launch(ROOT / 'launch/act_collection.launch.py')
     monkeypatch.setattr(module, 'Node', lambda **kwargs: kwargs)
     context = LaunchContext()
@@ -28,6 +28,16 @@ def test_teleop_uses_active_follower_calibration(tmp_path, monkeypatch):
                 and item['executable'] == 'leader_follower_teleop')
     assert node['parameters'][0]['lower_limits'] == [-1.0] * 5 + [0.0]
     assert node['parameters'][0]['upper_limits'] == [1.7] * 6
+    platform = _include_arguments(nodes, 'platform_runtime.launch.py')
+    assert platform['startup_head_only'] == 'true'
+    assert platform['startup_head_tilt'] == '0.8'
+    context.launch_configurations['collection_head_tilt'] = '0.6'
+    platform = _include_arguments(module.runtime(context), 'platform_runtime.launch.py')
+    assert platform['startup_head_tilt'] == '0.6'
+    for invalid in ('nan', 'inf', '2.0', '-1.0'):
+        context.launch_configurations['collection_head_tilt'] = invalid
+        with pytest.raises(ValueError):
+            module.runtime(context)
 
 
 def _load_launch(path):

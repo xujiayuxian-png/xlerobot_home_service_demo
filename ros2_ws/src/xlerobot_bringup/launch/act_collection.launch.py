@@ -7,6 +7,7 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from pathlib import Path
+import math
 import yaml
 
 
@@ -27,7 +28,12 @@ def runtime(context):
     servo_file = LaunchConfiguration('servo_calibration_file', default=PathJoinSubstitution([
         FindPackageShare('xlerobot_description'), 'config', 'two_wheel_reference_servos.yaml',
     ])).perform(context)
-    follower = yaml.safe_load(Path(servo_file).read_text())['right_arm']['joints']
+    servos = yaml.safe_load(Path(servo_file).read_text())
+    follower = servos['right_arm']['joints']
+    head_tilt = float(LaunchConfiguration('collection_head_tilt', default='0.8').perform(context))
+    limits = servos['head']['joints']['tilt']
+    if not math.isfinite(head_tilt) or not limits['limit_min'] <= head_tilt <= limits['limit_max']:
+        raise ValueError('collection head tilt is outside active calibrated limits')
     joint_order = ('shoulder_pan', 'shoulder_lift', 'elbow_flex',
                    'wrist_flex', 'wrist_roll', 'gripper')
     actions = [
@@ -38,6 +44,8 @@ def runtime(context):
             'controllers_file': LaunchConfiguration('controllers_file'),
             'right_bus': LaunchConfiguration('right_bus'),
             'left_bus': LaunchConfiguration('left_bus'),
+            'startup_head_only': 'true',
+            'startup_head_tilt': str(head_tilt),
         }),
         include('xlerobot_bringup', 'leader_runtime.launch.py', {
             'hardware_enabled': enabled,
@@ -177,5 +185,6 @@ def generate_launch_description():
         DeclareLaunchArgument('vlm_base_url', default_value='http://127.0.0.1:1234'),
         DeclareLaunchArgument('web_bind_host', default_value='0.0.0.0'),
         DeclareLaunchArgument('web_port', default_value='8080'),
+        DeclareLaunchArgument('collection_head_tilt', default_value='0.8'),
         OpaqueFunction(function=runtime),
     ])
