@@ -25,8 +25,17 @@ arm. Review each immutable episode in the web UI. The reference release keeps
 all raw recordings outside Git.
 
 Open `http://<Robot address>:8080` (use the configured `demo.web_port`). Opening
-the workspace does not start a demonstration. Keep the Leader's initial pose
-inside its calibrated joint ranges, not folded against a mechanical stop.
+the workspace does not start a demonstration. An initial pose outside command
+limits does not prevent driver startup: the affected bus reports real positions
+but keeps torque off and discards commands. Once manually repositioned within
+limits, it resumes holding the measured pose, not a queued target. Both arms
+still need to be within their allowed ranges before starting a demonstration.
+
+Leader URDF and hardware command limits are derived consistently from the
+attachment's calibrated raw range, offset and direction, preserving the
+prototype's physical motor bounds rather than its copied Follower-style
+planning limits. Teleop output uses the active Follower calibration's limits.
+Startup does not automatically home the arms or begin recording.
 
 1. For a first 10–15 second trial, select **通用手动** (manual). It starts from
    the Follower's current pose without detection or automatic pregrasp.

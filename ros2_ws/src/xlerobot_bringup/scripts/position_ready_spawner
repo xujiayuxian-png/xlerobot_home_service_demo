@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Wait for measured positions before invoking the standard controller spawner."""
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+from ament_index_python.packages import get_package_prefix
+import rclpy
+from rclpy.utilities import remove_ros_args
+from sensor_msgs.msg import JointState
+
+from xlerobot_bringup.initial_pose import command_limits, outside_limits
+
+
+def main():
+    arguments = remove_ros_args(sys.argv)[1:]
+    rclpy.init()
+    node = rclpy.create_node('position_ready_spawner')
+    try:
+        limits = command_limits(node.declare_parameter('robot_description', '').value)
+        topic = node.declare_parameter('joint_states_topic', '/joint_states').value
+        ready_since = None
+        last_report = ''
+        last_frame = 0.0
+
+        def observe(message):
+            nonlocal ready_since, last_report, last_frame
+            now = time.monotonic()
+            if now - last_frame > 0.5:
+                ready_since = None
+            last_frame = now
+            outside = outside_limits(limits, dict(zip(message.name, message.position)))
+            if outside:
+                ready_since = None
+                report = ', '.join(outside)
+                if report != last_report:
+                    node.get_logger().warning(
+                        'Waiting to activate motion controllers; reposition joints within '
+                        f'limits: {report}. State feedback remains available.')
+                    last_report = report
+            elif ready_since is None:
+                ready_since = now
+
+        node.create_subscription(JointState, topic, observe, 10)
+        while rclpy.ok():
+            rclpy.spin_once(node, timeout_sec=0.1)
+            now = time.monotonic()
+            if ready_since is not None and now - ready_since >= 0.5 and now - last_frame < 0.2:
+                break
+        if not rclpy.ok():
+            return 1
+        node.get_logger().info('Measured pose ready; starting standard controller spawner')
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+    spawner = Path(get_package_prefix('controller_manager')) / 'lib/controller_manager/spawner'
+    return subprocess.call([sys.executable, str(spawner), *arguments])
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(130)

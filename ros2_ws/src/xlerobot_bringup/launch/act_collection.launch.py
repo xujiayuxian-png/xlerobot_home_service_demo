@@ -6,6 +6,8 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+from pathlib import Path
+import yaml
 
 
 def include(package, name, arguments=None):
@@ -22,6 +24,12 @@ def runtime(context):
             'ACT collection requires hardware_enabled:=true; no device was opened'
         )
     enabled = 'true'
+    servo_file = LaunchConfiguration('servo_calibration_file', default=PathJoinSubstitution([
+        FindPackageShare('xlerobot_description'), 'config', 'two_wheel_reference_servos.yaml',
+    ])).perform(context)
+    follower = yaml.safe_load(Path(servo_file).read_text())['right_arm']['joints']
+    joint_order = ('shoulder_pan', 'shoulder_lift', 'elbow_flex',
+                   'wrist_flex', 'wrist_roll', 'gripper')
     actions = [
         include('xlerobot_bringup', 'platform_runtime.launch.py', {
             'hardware_enabled': enabled,
@@ -46,6 +54,10 @@ def runtime(context):
         Node(
             package='xlerobot_leader_teleop', executable='leader_follower_teleop',
             output='screen', parameters=[{
+                # Teleop commands the Follower, whose active calibration can
+                # differ from the external Leader's physical attachment range.
+                'lower_limits': [float(follower[name]['limit_min']) for name in joint_order],
+                'upper_limits': [float(follower[name]['limit_max']) for name in joint_order],
                 'enable_lease_s': LaunchConfiguration(
                     'control_enable_lease_s'
                 ),

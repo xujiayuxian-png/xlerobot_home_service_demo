@@ -17,11 +17,13 @@ install(DIRECTORY
 install(PROGRAMS
   scripts/robot_description_publisher
   scripts/wrist_camera_node
+  scripts/position_ready_spawner
   DESTINATION lib/${PROJECT_NAME}
 )
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_initial_pose test/test_initial_pose.py TIMEOUT 30)
   ament_add_pytest_test(
     test_fetch_deliver_demo_contract
     test/test_fetch_deliver_demo_contract.py

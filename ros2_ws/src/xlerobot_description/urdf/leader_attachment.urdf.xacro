@@ -7,13 +7,18 @@
   <xacro:property name="calibration" value="${xacro.load_yaml('$(arg calibration_file)')}"/>
   <xacro:property name="right" value="${calibration['joints']}"/>
 
+  <!-- The external Leader uses the frozen prototype's measured raw motor range.
+       Its copied Follower planning limits are not its physical attachment range.
+       Derive both URDF and hardware command limits identically; the Follower
+       retains its own calibrated limits and local teleop admission checks. -->
+
   <link name="leader_base"/>
   <xacro:macro name="leader_joint" params="name parent child calibration">
     <link name="${child}"/>
     <joint name="${name}" type="revolute">
       <parent link="${parent}"/><child link="${child}"/>
       <origin xyz="0 0 0.05" rpy="0 0 0"/><axis xyz="0 0 1"/>
-      <limit lower="${calibration['limit_min']}" upper="${calibration['limit_max']}" velocity="3" effort="35"/>
+      <limit lower="${min(calibration['direction'] * (calibration['raw_min'] - calibration['offset']), calibration['direction'] * (calibration['raw_max'] - calibration['offset'])) * 2 * pi / 4096}" upper="${max(calibration['direction'] * (calibration['raw_min'] - calibration['offset']), calibration['direction'] * (calibration['raw_max'] - calibration['offset'])) * 2 * pi / 4096}" velocity="3" effort="35"/>
     </joint>
   </xacro:macro>
   <xacro:leader_joint name="leader_shoulder_pan" parent="leader_base" child="leader_link_1" calibration="${right['shoulder_pan']}"/>
@@ -39,7 +44,7 @@
     <xacro:macro name="control_joint" params="name calibration initial_value:=0.0">
       <joint name="${name}">
         <command_interface name="position">
-          <param name="min">${calibration['limit_min']}</param><param name="max">${calibration['limit_max']}</param>
+          <param name="min">${min(calibration['direction'] * (calibration['raw_min'] - calibration['offset']), calibration['direction'] * (calibration['raw_max'] - calibration['offset'])) * 2 * pi / 4096}</param><param name="max">${max(calibration['direction'] * (calibration['raw_min'] - calibration['offset']), calibration['direction'] * (calibration['raw_max'] - calibration['offset'])) * 2 * pi / 4096}</param>
         </command_interface>
         <state_interface name="position"><param name="initial_value">${initial_value}</param></state_interface>
         <state_interface name="velocity"/>
@@ -48,8 +53,8 @@
         <param name="direction">${calibration['direction']}</param>
         <param name="raw_min">${calibration['raw_min']}</param>
         <param name="raw_max">${calibration['raw_max']}</param>
-        <param name="limit_min">${calibration['limit_min']}</param>
-        <param name="limit_max">${calibration['limit_max']}</param>
+        <param name="limit_min">${min(calibration['direction'] * (calibration['raw_min'] - calibration['offset']), calibration['direction'] * (calibration['raw_max'] - calibration['offset'])) * 2 * pi / 4096}</param>
+        <param name="limit_max">${max(calibration['direction'] * (calibration['raw_min'] - calibration['offset']), calibration['direction'] * (calibration['raw_max'] - calibration['offset'])) * 2 * pi / 4096}</param>
       </joint>
     </xacro:macro>
     <xacro:control_joint name="leader_shoulder_pan" calibration="${right['shoulder_pan']}"/>

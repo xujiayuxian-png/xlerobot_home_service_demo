@@ -227,6 +227,13 @@ TEST(LeaderBusSystemTest, RuntimeTorqueKeepsLeaderStateOnItsOwnBus)
   EXPECT_EQ(
     system.read(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
     hardware_interface::return_type::OK);
+  // Torque enable primes the measured pose, never a stale passive target.
+  EXPECT_DOUBLE_EQ(*states[0].get_optional<double>(), 0.0);
+  ASSERT_TRUE(commands[0].set_value(0.4));
+  ASSERT_EQ(system.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
+    hardware_interface::return_type::OK);
+  ASSERT_EQ(system.read(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
+    hardware_interface::return_type::OK);
   EXPECT_NEAR(*states[0].get_optional<double>(), 0.05, 1e-12);
 }
 
@@ -303,6 +310,58 @@ TEST(RightBusSystemTest, RejectsOutOfRangePositionCommandInMockMode)
 
   EXPECT_EQ(
     system.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
+    hardware_interface::return_type::ERROR);
+}
+
+void check_outside_startup(BusSystemBase & system,
+  const hardware_interface::HardwareInfo & config, std::size_t joint_index)
+{
+  ASSERT_EQ(initialize(system, config), hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(system.on_configure(rclcpp_lifecycle::State()),
+    hardware_interface::CallbackReturn::SUCCESS);
+  auto states = system.export_state_interfaces();
+  auto commands = system.export_command_interfaces();
+  ASSERT_TRUE(states[joint_index * 2].set_value(1.8));
+  ASSERT_EQ(system.on_activate(rclcpp_lifecycle::State()),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_TRUE(commands[joint_index].set_value(-1.0));
+  ASSERT_EQ(system.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
+    hardware_interface::return_type::OK);
+  ASSERT_EQ(system.read(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
+    hardware_interface::return_type::OK);
+  EXPECT_DOUBLE_EQ(*states[joint_index * 2].get_optional<double>(), 1.8);
+  // Manual repositioning clears the startup wait, not the old queued target.
+  ASSERT_TRUE(states[joint_index * 2].set_value(1.0));
+  ASSERT_EQ(system.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
+    hardware_interface::return_type::OK);
+  EXPECT_DOUBLE_EQ(*commands[joint_index].get_optional<double>(), 1.0);
+}
+
+TEST(BusStartupTest, LeaderAndBothFollowerBusesAcceptOutsideInitialObservations)
+{
+  LeaderBusSystem leader;
+  check_outside_startup(leader, leader_info(), 2);
+  RightBusSystem right;
+  check_outside_startup(right, info(true, false), 4);
+  LeftBusSystem left;
+  check_outside_startup(left, left_info(), 4);
+}
+
+TEST(BusStartupTest, PassiveLeaderAcceptsOutsideObservationButRejectsTorqueEnable)
+{
+  LeaderBusSystem leader;
+  ASSERT_EQ(initialize(leader, leader_info()), hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(leader.on_configure(rclcpp_lifecycle::State()),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(leader.on_activate(rclcpp_lifecycle::State()),
+    hardware_interface::CallbackReturn::SUCCESS);
+  auto states = leader.export_state_interfaces();
+  auto commands = leader.export_command_interfaces();
+  ASSERT_TRUE(states[4].set_value(1.8));
+  EXPECT_EQ(leader.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
+    hardware_interface::return_type::OK);
+  ASSERT_TRUE(commands.back().set_value(1.0));
+  EXPECT_EQ(leader.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
     hardware_interface::return_type::ERROR);
 }
 

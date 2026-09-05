@@ -215,6 +215,12 @@ hardware_interface::CallbackReturn BusSystemBase::on_configure(const rclcpp_life
 hardware_interface::CallbackReturn BusSystemBase::on_activate(const rclcpp_lifecycle::State &)
 {
   commands_ = positions_;
+  startup_position_pending_ = !validate_commands();
+  if (startup_position_pending_) {
+    RCLCPP_WARN(rclcpp::get_logger("xlerobot_hardware"),
+      "%s bus started in observation-only mode: initial pose is outside command limits; "
+      "torque stays off until measured joints return within limits", bus_name_.c_str());
+  }
   if (mock_hardware_) {
     return hardware_interface::CallbackReturn::SUCCESS;
   }
@@ -224,14 +230,15 @@ hardware_interface::CallbackReturn BusSystemBase::on_activate(const rclcpp_lifec
            hardware_interface::CallbackReturn::ERROR;
   }
   const bool prepared = bus_ && bus_->isConnected() && initialize_motors() &&
-    stop_wheels() && write_position_commands(positions_);
-  const bool torque_ready = prepared && (!torque_enabled_ || set_all_torque(true));
+    stop_wheels() && (startup_position_pending_ || write_position_commands(positions_));
+  const bool torque_ready = prepared &&
+    (startup_position_pending_ || !torque_enabled_ || set_all_torque(true));
   if (!torque_ready) {
     stop_wheels();
     disable_all_torque();
     return hardware_interface::CallbackReturn::ERROR;
   }
-  applied_torque_enabled_ = torque_enabled_;
+  applied_torque_enabled_ = torque_enabled_ && !startup_position_pending_;
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -299,7 +306,7 @@ hardware_interface::return_type BusSystemBase::read(
   const double dt = std::max(1.0e-6, period.seconds());
   previous_positions_ = positions_;
   if (mock_hardware_) {
-    if (read_only_) {
+    if (read_only_ || startup_position_pending_) {
       std::fill(velocities_.begin(), velocities_.end(), 0.0);
       return hardware_interface::return_type::OK;
     }
@@ -351,6 +358,45 @@ hardware_interface::return_type BusSystemBase::write(
   if (read_only_) {
     return hardware_interface::return_type::OK;
   }
+  if (runtime_torque_control_ && !std::isfinite(torque_command_)) {
+    return hardware_interface::return_type::ERROR;
+  }
+  if (startup_position_pending_) {
+    // Never turn an out-of-range observation into a clamped motor target.
+    // Discard queued commands while waiting, including wheel commands.
+    commands_ = positions_;
+    for (std::size_t i = 0; i < joints_.size(); ++i) {
+      if (!joints_[i].position_codec) {commands_[i] = 0.0;}
+    }
+    if (!validate_commands()) {return hardware_interface::return_type::OK;}
+    if (!mock_hardware_) {
+      std::lock_guard<std::mutex> lock(bus_mutex_);
+      if (!write_position_commands(positions_) ||
+        (torque_enabled_ && !set_all_torque(true)))
+      {
+        return hardware_interface::return_type::ERROR;
+      }
+    }
+    applied_torque_enabled_ = torque_enabled_;
+    startup_position_pending_ = false;
+    RCLCPP_INFO(rclcpp::get_logger("xlerobot_hardware"),
+      "%s bus initial pose is now within limits; holding measured pose", bus_name_.c_str());
+    return hardware_interface::return_type::OK;
+  }
+  // Passive Leader observations are not motor commands. Release torque before
+  // considering any stale position target left by the trajectory controller.
+  if (runtime_torque_control_ && std::isfinite(torque_command_) && torque_command_ < 0.5) {
+    if (!mock_hardware_ && applied_torque_enabled_) {
+      std::lock_guard<std::mutex> lock(bus_mutex_);
+      if (!set_all_torque(false)) {return hardware_interface::return_type::ERROR;}
+    }
+    applied_torque_enabled_ = false;
+    commands_ = positions_;
+    return hardware_interface::return_type::OK;
+  }
+  if (runtime_torque_control_ && !applied_torque_enabled_) {
+    commands_ = positions_;
+  }
   if (!validate_commands()) {
     if (!mock_hardware_) {
       std::lock_guard<std::mutex> lock(bus_mutex_);
@@ -371,6 +417,9 @@ hardware_interface::return_type BusSystemBase::write(
   if (runtime_torque_control_) {
     const bool requested = torque_command_ >= 0.5;
     if (requested != applied_torque_enabled_) {
+      if (requested && !write_position_commands(positions_)) {
+        return hardware_interface::return_type::ERROR;
+      }
       if (!set_all_torque(requested)) {
         return hardware_interface::return_type::ERROR;
       }

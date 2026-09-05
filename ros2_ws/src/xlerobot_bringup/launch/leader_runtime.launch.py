@@ -31,7 +31,8 @@ def runtime(context):
         arguments=['leader_joint_state_broadcaster', '-c', '/leader/controller_manager'],
     )
     controllers = Node(
-        package='controller_manager', executable='spawner', output='screen',
+        package='xlerobot_bringup', executable='position_ready_spawner', output='screen',
+        parameters=[description, {'joint_states_topic': '/leader/joint_states'}],
         arguments=[
             '-c', '/leader/controller_manager', '--activate-as-group',
             '--controller', 'leader_arm_controller',

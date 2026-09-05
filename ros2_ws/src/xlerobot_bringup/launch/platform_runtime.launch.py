@@ -50,7 +50,8 @@ def _runtime_nodes(context):
         ],
     )
     normal_spawner = Node(
-        package='controller_manager', executable='spawner', output='screen',
+        package='xlerobot_bringup', executable='position_ready_spawner', output='screen',
+        parameters=[description],
         arguments=[
             'right_arm_controller', 'right_gripper_controller', 'head_controller',
             '-c', '/controller_manager', '--activate-as-group',

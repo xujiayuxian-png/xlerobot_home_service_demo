@@ -9,6 +9,27 @@ import pytest
 ROOT = Path(__file__).parents[1]
 
 
+def test_teleop_uses_active_follower_calibration(tmp_path, monkeypatch):
+    import yaml
+    names = ('shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll', 'gripper')
+    config = tmp_path / 'servos.yaml'
+    config.write_text(yaml.safe_dump({'right_arm': {'joints': {
+        name: {'limit_min': 0.0 if name == 'gripper' else -1.0,
+               'limit_max': 1.7} for name in names
+    }}}))
+    module = _load_launch(ROOT / 'launch/act_collection.launch.py')
+    monkeypatch.setattr(module, 'Node', lambda **kwargs: kwargs)
+    context = LaunchContext()
+    context.launch_configurations.update({
+        'hardware_enabled': 'true', 'servo_calibration_file': str(config),
+    })
+    nodes = module.runtime(context)
+    node = next(item for item in nodes if isinstance(item, dict)
+                and item['executable'] == 'leader_follower_teleop')
+    assert node['parameters'][0]['lower_limits'] == [-1.0] * 5 + [0.0]
+    assert node['parameters'][0]['upper_limits'] == [1.7] * 6
+
+
 def _load_launch(path):
     spec = importlib.util.spec_from_file_location('act_collection_launch', path)
     module = importlib.util.module_from_spec(spec)

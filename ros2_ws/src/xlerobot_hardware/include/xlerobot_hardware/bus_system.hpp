@@ -73,6 +73,7 @@ private:
   bool hardware_enabled_{false};
   bool torque_enabled_{false};
   bool applied_torque_enabled_{false};
+  bool startup_position_pending_{false};
   bool runtime_torque_control_{false};
   double torque_command_{0.0};
   bool read_only_{false};
