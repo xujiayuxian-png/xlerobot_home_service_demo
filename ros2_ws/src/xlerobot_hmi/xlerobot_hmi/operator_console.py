@@ -131,6 +131,7 @@ def _uint8(value: Any) -> int:
 
 def _diagnostic_level_for_readiness(name: str, item: dict[str, Any]) -> int:
     """Map non-fatal ros2_control timing alarms to degraded readiness."""
+    name = name.rsplit('/', 1)[-1]
     level = _uint8(item.get('level', DiagnosticStatus.OK))
     message = str(item.get('message', ''))
     timing_status = name in {
@@ -817,8 +818,22 @@ class OperatorConsoleNode(Node):
 
     def _on_diagnostics(self, message: DiagnosticArray) -> None:
         now = time.monotonic()
+        # Jazzy's two controller managers publish the same unqualified status
+        # names. Their arrays include owned controller/hardware keys: retain
+        # the isolated Leader namespace instead of letting normal robot status
+        # overwrite a Leader warning (and vice versa). Fully qualified names
+        # from newer/upstream configurations already remain distinct.
+        leader_source = any(
+            entry.key.startswith('leader_')
+            for status in message.status
+            if status.name.startswith('controller_manager:')
+            for entry in status.values
+        )
         for status in message.status:
-            self.diagnostics[status.name] = {
+            name = (f'leader/{status.name}'
+                    if leader_source and status.name.startswith('controller_manager:')
+                    else status.name)
+            self.diagnostics[name] = {
                 'level': _uint8(status.level),
                 'message': status.message,
                 'hardware_id': status.hardware_id,

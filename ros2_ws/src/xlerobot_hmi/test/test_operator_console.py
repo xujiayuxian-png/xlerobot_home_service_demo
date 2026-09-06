@@ -9,6 +9,7 @@ from action_msgs.msg import GoalStatus
 from action_msgs.srv import CancelGoal
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
+from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path as NavigationPath
 import numpy as np
@@ -505,6 +506,36 @@ def test_controller_timing_alarm_degrades_without_blocking_runtime():
     assert _diagnostic_level_for_readiness(
         'controller_manager: Hardware Components Activity', item
     ) == 1
+    assert _diagnostic_level_for_readiness(
+        'leader/controller_manager: Hardware Components Activity', item
+    ) == 1
+
+
+def test_robot_and_leader_diagnostics_do_not_overwrite_each_other():
+    node = SimpleNamespace(diagnostics={}, events=SimpleNamespace(publish=lambda *args: None),
+                           health=lambda: {})
+    name = 'controller_manager: Hardware Components Activity'
+    def report(joint, level):
+        return DiagnosticArray(status=[
+            DiagnosticStatus(name='controller_manager: Controller Manager Activity',
+                             level=DiagnosticStatus.OK),
+            DiagnosticStatus(name=name, level=level, values=[
+                KeyValue(key=f'{joint}.state', value='active')]),
+        ])
+    leader = report('leader_bus_system', DiagnosticStatus.WARN)
+    robot = report('right_bus_system', DiagnosticStatus.OK)
+    OperatorConsoleNode._on_diagnostics(node, leader)
+    for message in [robot, leader, robot, robot, leader]:
+        OperatorConsoleNode._on_diagnostics(node, message)
+        assert node.diagnostics['leader/' + name]['level'] == 1
+        assert max(item['level'] for item in node.diagnostics.values()) == 1
+    assert node.diagnostics[name]['level'] == 0
+    assert len(node.diagnostics) == 4
+    OperatorConsoleNode._on_diagnostics(node, report('leader_bus_system', DiagnosticStatus.ERROR))
+    OperatorConsoleNode._on_diagnostics(node, robot)
+    assert node.diagnostics['leader/' + name]['level'] == 2
+    OperatorConsoleNode._on_diagnostics(node, report('leader_bus_system', DiagnosticStatus.OK))
+    assert max(item['level'] for item in node.diagnostics.values()) == 0
 
 
 def test_real_controller_error_still_blocks_runtime():
