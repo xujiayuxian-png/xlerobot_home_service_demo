@@ -23,6 +23,7 @@ export interface Task {
 }
 
 export interface Bootstrap {
+  collection_storage?: { root: string, config_file: string } | null
   release: string
   unit: string
   default_dataset_id: string

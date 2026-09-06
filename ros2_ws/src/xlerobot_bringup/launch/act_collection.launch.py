@@ -111,6 +111,7 @@ def runtime(context):
                 'release_id': LaunchConfiguration('release_id'),
                 'unit_id': LaunchConfiguration('unit_id'),
                 'default_dataset_id': LaunchConfiguration('dataset_id'),
+                'collection_config_file': LaunchConfiguration('collection_config_file'),
                 'workspace': 'collection', 'enable_engineering_tools': True,
             }],
         ),
@@ -146,6 +147,7 @@ def generate_launch_description():
             description='Explicit consent for live Leader/Follower collection.',
         ),
         DeclareLaunchArgument('artifact_root', default_value='.xlerobot/artifacts'),
+        DeclareLaunchArgument('collection_config_file', default_value=''),
         DeclareLaunchArgument('release_id', default_value='development'),
         DeclareLaunchArgument('unit_id', default_value='reference-two-wheel'),
         DeclareLaunchArgument(

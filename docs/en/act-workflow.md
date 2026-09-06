@@ -117,6 +117,16 @@ another episode; unconfirmed controller ownership requires a collection restart.
 Raw episodes live at `data.collection_root/datasets/<dataset ID in UI>/raw/`,
 with sibling `reviews/`. Point `data.dataset_root` at that dataset for conversion.
 
+The collection page displays the actual **Robot host** storage path and the
+configuration file passed to `tools/act collect --config PATH` (default:
+`config/local.yaml`). Set `data.collection_root` to change the root, then restart
+collection. The final path is `<collection_root>/datasets/<dataset_id>`; editing
+the dataset name on the page changes the destination for subsequent episodes.
+Set `data.dataset_root` to that full dataset path before converting. Changing the
+configuration does not move existing data. Initial joints outside their allowed
+range appear in a prominent banner with measured positions, limits, and recovery
+instructions; this display never commands motors or relaxes joint limits.
+
 ## Convert and train
 
 The recorder writes immutable `raw/` episodes and editable `reviews/` under the configured
@@ -163,6 +173,17 @@ do not pass those settings again. `--steps` is the total target, not extra steps
 
 Omit `--steps` to finish the original target after an interruption. A completed
 run needs a larger target. Weight-only downloads cannot resume training.
+
+For a software-only pipeline check, use a separate output directory and a short
+run (not a usable grasping model):
+
+```bash
+./tools/act train --output .xlerobot/outputs/act-smoke --steps 12 --batch-size 2
+./tools/act train --resume --output .xlerobot/outputs/act-smoke --steps 16
+./tools/act evaluate --checkpoint .xlerobot/outputs/act-smoke/checkpoints/000016/pretrained_model --output .xlerobot/outputs/act-smoke/qualification.json
+```
+
+Keep the demo checkpoint configuration unchanged during this check.
 
 The released model was trained on exactly 30 yellow-glue-stick demonstrations.
 The planned complete dataset is

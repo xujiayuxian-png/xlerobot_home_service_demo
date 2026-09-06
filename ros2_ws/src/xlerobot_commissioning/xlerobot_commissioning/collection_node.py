@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 from action_msgs.msg import GoalStatus
 from builtin_interfaces.msg import Duration
 from control_msgs.action import FollowJointTrajectory
+from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus
 from controller_manager_msgs.srv import (
     ListControllers, SwitchController, SetHardwareComponentState, ListHardwareComponents,
     LoadController, UnloadController, ConfigureController,
@@ -29,6 +30,7 @@ from xlerobot_interfaces.action import (
 )
 from xlerobot_interfaces.msg import CapabilityError
 from xlerobot_interfaces.srv import BeginEpisode, FinalizeEpisode, MarkEpisodeEvent
+from .collection_readiness import position_limits, pose_issues
 
 
 PHASES = (
@@ -216,6 +218,13 @@ class CollectionNode(Node):
             String, '/leader/robot_description', self._leader_description,
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
             callback_group=group)
+        self._follower_limits = {}
+        self.create_subscription(
+            String, '/robot_description', self._follower_description,
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
+            callback_group=group)
+        self._pose_diagnostics = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
+        self.create_timer(1.0, self._publish_pose_status, callback_group=group)
         self.create_subscription(
             JointState, '/leader/joint_states',
             lambda msg: self._state('leader', msg), 10, callback_group=group,
@@ -231,6 +240,36 @@ class CollectionNode(Node):
         )
         self.create_timer(self._control_heartbeat_period_s, self._idle_teleop_heartbeat,
                           callback_group=group)
+
+    def _follower_description(self, message):
+        try:
+            limits = position_limits(message.data)
+        except (ET.ParseError, KeyError, TypeError, ValueError):
+            limits = {}
+        with self._state_lock:
+            self._follower_limits = limits
+
+    def _publish_pose_status(self):
+        now = time.monotonic()
+        issues = []
+        waiting = []
+        with self._state_lock:
+            for side, label, limits in (
+                ('leader', '主臂', self._leader_limits),
+                ('follower', '机器人（从臂、头部、左臂）', self._follower_limits),
+            ):
+                if not limits or now - self._state_received_at[side] > self._joint_state_timeout_s:
+                    waiting.append(f'{label}：等待模型或实时关节反馈，请检查电源和 USB')
+                else:
+                    issues.extend(f'{label} {item}' for item in pose_issues(limits, self._states[side]))
+        diagnostic = DiagnosticStatus(
+            name='xlerobot/collection_initial_pose', hardware_id='two_wheel_reference',
+            level=DiagnosticStatus.ERROR if issues else DiagnosticStatus.WARN if waiting else DiagnosticStatus.OK,
+            message='；'.join(issues + waiting) or '主从臂初始位置在允许范围内',
+        )
+        message = DiagnosticArray(status=[diagnostic])
+        message.header.stamp = self.get_clock().now().to_msg()
+        self._pose_diagnostics.publish(message)
 
     def _idle_teleop_heartbeat(self):
         # Ownership outlives one recording, but not an explicit stop/new Start.

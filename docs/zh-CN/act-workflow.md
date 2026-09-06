@@ -87,6 +87,13 @@ Home/End 快捷键仅在对应阶段生效，输入框内和长按重复不触�
 原始数据位于 `data.collection_root/datasets/<页面中的数据集 ID>/raw/`，
 审核记录位于同级 `reviews/`；后续转换时让 `data.dataset_root` 指向该数据集。
 
+页面显示**机器人主机**上的实际保存路径，以及 `tools/act collect --config PATH`
+指定的配置文件（默认 `config/local.yaml`）。修改 `data.collection_root` 后重新启动数采，
+最终目录为 `<collection_root>/datasets/<dataset_id>`。页面修改数据集名称后，后续采样
+写入对应的新目录；转换配置 `data.dataset_root` 应指向这一完整目录。改配置不会搬迁旧数据。
+初始关节超范围时，页面顶部明显提示具体关节、实测值、允许范围和恢复步骤；该提示仅展示
+实时反馈，不驱动电机，也不放宽限位。
+
 ## 转换与训练
 
 采集端会在 `data.dataset_root` 下写入不可变 `raw/` 和可改选的 `reviews/`。先在
@@ -130,6 +137,16 @@ RGB `3 x 480 x 640`、六维 state/action、chunk 100、model dimension 512、FF
 
 中断后可省略 `--steps`，继续完成原定目标；已完成的训练需要更大的总步数。
 仅有推理权重、没有训练状态的下载模型不能直接续训。
+
+只验证软件流程时，用独立输出目录做短训练（产物不具备可用抓取效果）：
+
+```bash
+./tools/act train --output .xlerobot/outputs/act-smoke --steps 12 --batch-size 2
+./tools/act train --resume --output .xlerobot/outputs/act-smoke --steps 16
+./tools/act evaluate --checkpoint .xlerobot/outputs/act-smoke/checkpoints/000016/pretrained_model --output .xlerobot/outputs/act-smoke/qualification.json
+```
+
+验证过程中不要修改 Demo 正在使用的 checkpoint 配置。
 
 发布模型只用 30 条黄色胶棒示教训练。计划完整公开的数据集为
 `xujiayuxian-png/xlerobot-glue-stick-grasp-30`，许可 CC BY 4.0。羽毛球效果只作为

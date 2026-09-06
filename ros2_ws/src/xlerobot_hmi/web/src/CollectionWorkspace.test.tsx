@@ -14,6 +14,25 @@ const waiting = {
 } as CollectionState
 
 describe('two-stage collection controls', () => {
+  it('shows robot storage and updates the displayed path with dataset name', () => {
+    render(<CollectionWorkspace state={null} initialDatasetId="trial" onState={vi.fn()} onError={vi.fn()}
+      storage={{ root: '/robot/artifacts', config_file: '/robot/config/local.yaml' }} />)
+    expect(screen.getByText('/robot/artifacts/datasets/trial')).toBeTruthy()
+    expect(screen.getByText('/robot/config/local.yaml')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('数据集名称'), { target: { value: 'new-trial' } })
+    expect(screen.getByText('/robot/artifacts/datasets/new-trial')).toBeTruthy()
+  })
+
+  it('shows a prominent initial pose warning with the specific joint and recovery steps', () => {
+    const health = { diagnostics: { 'xlerobot/collection_initial_pose': {
+      level: 2, message: '主臂 leader_gripper：当前 -0.100 rad，允许 [0.000, 1.650] rad',
+    } } } as unknown as import('./types').Health
+    render(<CollectionWorkspace state={null} initialDatasetId="trial" health={health} onState={vi.fn()} onError={vi.fn()} />)
+    expect(screen.getByRole('alert').textContent).toContain('初始姿态不合适')
+    expect(screen.getByRole('alert').textContent).toContain('leader_gripper')
+    expect(screen.getByRole('alert').textContent).toContain('Reset')
+  })
+
   it('shows default keep with only reject, and can restore a rejection', async () => {
     const review = vi.spyOn(api, 'reviewEpisode').mockResolvedValue({ review_uri: 'file:///review.json' })
     const onState = vi.fn()

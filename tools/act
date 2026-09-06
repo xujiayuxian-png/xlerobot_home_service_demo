@@ -113,6 +113,7 @@ collect() {
     artifact_root:="$artifact_root" \
     unit_id:="$(config_get robot.unit_id demo-01)" \
     dataset_id:="$(config_get data.dataset_id xlerobot-glue-stick-grasp-30)" \
+    collection_config_file:="$(absolute_from_repo "$XLEROBOT_CONFIG")" \
     calibration_version:="$version" \
     right_bus:="$(config_get robot.devices.right_arm /dev/right_arm)" \
     left_bus:="$(config_get robot.devices.left_arm /dev/left_arm)" \

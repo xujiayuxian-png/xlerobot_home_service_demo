@@ -296,3 +296,8 @@ button.danger { border-color: #88474f; color: #ff9da7; background: rgba(96, 31, 
   .console-mode { margin-bottom: 5px; }.software-stop { width: 100%; }.panel-foot { align-items: flex-start; flex-direction: column; }
   .map-stage, .map-empty { height: 300px; }
 }
+/* Keep collection setup failures visible above the cameras and controls. */
+.collection-warning { border: 2px solid #f87171; background: #451a1a; color: #fee2e2; padding: 16px; border-radius: 12px; margin: 12px 0; overflow-wrap: anywhere; }
+.collection-warning h3 { margin-top: 0; color: #fca5a5; }
+.collection-storage { border: 1px solid #475569; padding: 14px; border-radius: 10px; margin: 12px 0; overflow-wrap: anywhere; }
+.collection-storage code { user-select: text; }

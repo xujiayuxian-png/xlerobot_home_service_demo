@@ -207,13 +207,16 @@ export function App() {
       onError={setError} />}
     {workspace === 'collection' && <CollectionWorkspace
       state={collection} initialDatasetId={bootstrap.default_dataset_id}
+      storage={bootstrap.collection_storage} health={health}
       onState={setCollection} onError={setError} />}
   </div>
 }
 
-export function CollectionWorkspace({ state, initialDatasetId, onState, onError }: {
+export function CollectionWorkspace({ state, initialDatasetId, storage, health, onState, onError }: {
   state: CollectionState | null
   initialDatasetId: string
+  storage?: { root: string, config_file: string } | null
+  health?: Health | null
   onState: (state: CollectionState | null) => void
   onError: (message: string) => void
 }) {
@@ -259,6 +262,7 @@ export function CollectionWorkspace({ state, initialDatasetId, onState, onError 
     finally { setRecoveryPending(false) }
   }
   const running = state?.status === 'RUNNING'
+  const poseWarning = health?.diagnostics['xlerobot/collection_initial_pose']
   const abortable = running && ![
     'STOPPING_RECORDING', 'FINALIZING', 'REVIEW',
   ].includes(state?.phase || '')
@@ -337,6 +341,16 @@ export function CollectionWorkspace({ state, initialDatasetId, onState, onError 
   return <section className="engineering-card collection-card">
     <p className="section-label">FOLLOWER NEXT-STATE · NPZ + DUAL MP4</p>
     <h2>ACT 数据采集</h2>
+    {!running && poseWarning && poseWarning.level > 0 && <div className="collection-warning" role="alert">
+      <h3>{poseWarning.level >= 2 ? '初始姿态不合适，暂不能开始准备' : '正在等待主从臂反馈'}</h3>
+      <p>{poseWarning.message}</p>
+      <p>不要强行掰动上力的关节。先托住主从臂 → 释放主从臂扭矩 → 将提示的关节摆回允许范围 → Reset → 开始。</p>
+      <p>若提示头部或左臂，请先停止运行并释放对应扭矩；“释放主从臂”按钮不会释放头部和左臂。</p>
+    </div>}
+    {state?.status === 'FAILED' && <div className="collection-warning" role="alert">
+      <h3>本次采集未能完成 · {state.phase}</h3><p>{state.message}</p>
+      <p>若涉及姿态或控制器：先托住主从臂，释放扭矩，调整姿态后 Reset，再点击开始。完整错误信息保留在这里。</p>
+    </div>}
     <div className="workflow-tabs">
       <button disabled={running || startPending} className={template === 'pick' ? 'active' : ''} onClick={() => setTemplate('pick')}>抓取模板</button>
       <button disabled={running || startPending} className={template === 'manual' ? 'active' : ''} onClick={() => setTemplate('manual')}>通用手动</button>
@@ -348,6 +362,13 @@ export function CollectionWorkspace({ state, initialDatasetId, onState, onError 
         <figcaption>WRIST · RIGHT ARM</figcaption></figure>
     </div>
     <p className="hint">数据集名称：多条采样共用一个名称。每次开始会自动生成独立的采样编号。</p>
+    {storage && <div className="collection-storage">
+      <strong>保存在机器人主机，不是浏览器所在电脑</strong>
+      <p>当前数据集目录：<code>{storage.root}/datasets/{datasetId}</code></p>
+      <p>原始数据：<code>raw/&lt;采样编号&gt;/</code>；保留 / 拒绝记录：<code>reviews/</code></p>
+      <p>配置文件：<code>{storage.config_file || '当前通过 ROS launch 启动，未指定配置文件'}</code></p>
+      <p>修改根目录：配置中的 <code>data.collection_root</code>；修改后重新启动数采。转换时将 <code>data.dataset_root</code> 指向上面的完整数据集目录。修改位置不会搬迁旧数据。</p>
+    </div>}
     <div className="field-row"><input aria-label="数据集名称" value={datasetId} disabled={running || startPending || reviewPending} onChange={event => setDatasetId(event.target.value)} placeholder="Dataset ID" />
       <input value={objectId} disabled={running || startPending} onChange={event => {
         setObjectId(event.target.value)

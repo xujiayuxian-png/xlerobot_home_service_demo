@@ -366,6 +366,7 @@ class OperatorConsoleNode(Node):
         self.declare_parameter('bind_host', '0.0.0.0')
         self.declare_parameter('port', 8080)
         self.declare_parameter('artifact_root', '.xlerobot/artifacts')
+        self.declare_parameter('collection_config_file', '')
         self.declare_parameter('release_id', 'development')
         self.declare_parameter('unit_id', 'reference-two-wheel')
         self.declare_parameter(
@@ -2010,6 +2011,10 @@ class ConsoleApplication:
             'release': self.node.parameter('release_id'),
             'unit': self.node.parameter('unit_id'),
             'default_dataset_id': self.node.parameter('default_dataset_id'),
+            'collection_storage': {
+                'root': str(self.node.artifact_root),
+                'config_file': str(self.node.parameter('collection_config_file')),
+            } if str(self.node.parameter('workspace')) == 'collection' else None,
             'site': self.node.parameter('site_id'),
             'workspace': self.node.parameter('workspace'),
             'mapping_phase': self.node.parameter('mapping_phase'),

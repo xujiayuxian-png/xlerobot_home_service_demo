@@ -16,6 +16,7 @@
   <exec_depend>trajectory_msgs</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>diagnostic_msgs</exec_depend>
   <exec_depend>xlerobot_assets</exec_depend>
   <exec_depend>xlerobot_calibration_tools</exec_depend>
   <exec_depend>xlerobot_interfaces</exec_depend>
