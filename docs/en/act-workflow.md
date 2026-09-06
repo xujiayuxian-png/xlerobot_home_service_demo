@@ -13,6 +13,16 @@ collect on Robot -> convert on GPU -> train on GPU -> evaluate checkpoint
 
 ## Collect
 
+Recovery in the collection page: support both arms, click **释放主从臂扭矩**
+(release torque), wait for confirmation, reposition by hand, then click
+**Reset / 重置状态**. An active episode is canceled and retained as incomplete
+before torque release. The shared right-arm/base bus is deactivated; the head
+stays in position. Reset clears the session display without deleting recordings,
+enabling torque, or homing. Only the next **Start** reacquires the Follower from
+its measured pose and prepares the arms; the base controller stays disabled.
+If a child action's termination cannot be confirmed, recovery reports the
+problem instead of clearing ownership blindly; restart the collection runtime.
+
 Connect the single right-arm Leader configured at `robot.devices.leader_arm`,
 render the active calibration, then run on the Robot computer:
 

@@ -9,7 +9,9 @@ import xml.etree.ElementTree as ET
 from action_msgs.msg import GoalStatus
 from builtin_interfaces.msg import Duration
 from control_msgs.action import FollowJointTrajectory
-from controller_manager_msgs.srv import ListControllers, SwitchController
+from controller_manager_msgs.srv import (
+    ListControllers, SwitchController, SetHardwareComponentState, ListHardwareComponents,
+)
 import rclpy
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -18,7 +20,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
-from std_srvs.srv import SetBool
+from std_srvs.srv import SetBool, Trigger
 from trajectory_msgs.msg import JointTrajectoryPoint
 
 from xlerobot_interfaces.action import (
@@ -112,6 +114,9 @@ class CollectionNode(Node):
         self._finish_requested = threading.Event()
         self._begin_requested = threading.Event()
         self._cleanup_blocked = False
+        self._recovery_busy = False
+        self._torque_released = False
+        self._reset_ready = False
         self._joint_state_timeout_s = float(
             self.declare_parameter('joint_state_timeout_s', 0.5).value
         )
@@ -180,6 +185,18 @@ class CollectionNode(Node):
             ListControllers, '/controller_manager/list_controllers', callback_group=group)
         self.leader_switch = self.create_client(
             SwitchController, '/leader/controller_manager/switch_controller', callback_group=group)
+        self.follower_switch = self.create_client(
+            SwitchController, '/controller_manager/switch_controller', callback_group=group)
+        self.follower_hardware = self.create_client(
+            SetHardwareComponentState, '/controller_manager/set_hardware_component_state',
+            callback_group=group)
+        self.hardware_states = self.create_client(
+            ListHardwareComponents, '/controller_manager/list_hardware_components',
+            callback_group=group)
+        self.create_service(Trigger, '/collect_episode/release_torque',
+                            self.release_torque, callback_group=group)
+        self.create_service(Trigger, '/collect_episode/reset', self.reset,
+                            callback_group=group)
         self.create_subscription(
             String, '/leader/robot_description', self._leader_description,
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
@@ -217,10 +234,135 @@ class CollectionNode(Node):
         ):
             return GoalResponse.REJECT
         with self._session_lock:
-            if self._goal_active or self._cleanup_blocked:
+            if (self._goal_active or self._cleanup_blocked
+                    or getattr(self, '_recovery_busy', False)
+                    or (getattr(self, '_torque_released', False)
+                        and not self._reset_ready)):
                 return GoalResponse.REJECT
             self._goal_active = True
         return GoalResponse.ACCEPT
+
+    def _right_hardware_state(self):
+        states = self._service(self.hardware_states, ListHardwareComponents.Request())
+        return next((c.state.id for c in states.component
+                     if c.name == 'right_bus_system'), None)
+
+    def _set_right_hardware(self, active):
+        request = SetHardwareComponentState.Request(name='right_bus_system')
+        request.target_state.id = 3 if active else 2
+        response = self._service(self.follower_hardware, request)
+        if not response.ok or response.state.id != request.target_state.id:
+            raise RuntimeError('right bus hardware transition failed')
+
+    def release_torque(self, _request, response):
+        # The HMI first cancels and drains the action. Never race its heartbeat
+        # or a still-running preparation worker by only clearing session flags.
+        with self._session_lock:
+            if self._goal_active or self._recovery_busy:
+                response.message = 'Stop the current episode before releasing torque'
+                return response
+            self._recovery_busy = True
+            self._torque_released = True
+            self._reset_ready = False
+        errors = []
+        try:
+            self._holding_leader = False
+            for operation in (lambda: self._set_teleop(False),
+                              lambda: self._set_torque(False)):
+                try:
+                    operation()
+                except Exception as error:
+                    errors.append(str(error))
+            try:
+                leader = self._controller_states(self.leader_controllers)
+                if leader.get('leader_arm_controller') == 'active':
+                    self._switch_leader(False)
+                elif leader.get('leader_arm_controller') != 'inactive':
+                    raise RuntimeError('Leader controller state is unknown')
+                self._leader_controller_owned = False
+            except Exception as error:
+                errors.append(str(error))
+            try:
+                states = self._controller_states(self.follower_controllers)
+                names = ('right_arm_controller', 'right_gripper_controller',
+                         'right_policy_controller', 'base_controller')
+                active = [name for name in names if states.get(name) == 'active']
+                if active:
+                    result = self._service(self.follower_switch, SwitchController.Request(
+                        deactivate_controllers=active, strictness=2, timeout=Duration(sec=3)))
+                    if not result.ok:
+                        raise RuntimeError('Follower controller deactivation failed')
+            except Exception as error:
+                errors.append(str(error))
+            # Hardware deactivation performs the actual servo torque-off writes,
+            # including zero wheel command. Controller deactivation alone does not.
+            try:
+                self._set_right_hardware(False)
+            except Exception as error:
+                errors.append(str(error))
+            response.success = not errors
+            response.message = ('; '.join(errors) if errors else
+                                '主从臂和夹爪已释放扭矩；手动摆好后点击 Reset。底盘已停用。')
+        finally:
+            with self._session_lock:
+                self._recovery_busy = False
+        return response
+
+    def reset(self, _request, response):
+        with self._session_lock:
+            if self._goal_active or self._recovery_busy or not self._torque_released:
+                response.message = '请先释放扭矩，等待当前采集停止'
+                return response
+            self._recovery_busy = True
+        try:
+            if self._cleanup_blocked:
+                raise RuntimeError('Child action cleanup is unconfirmed; restart collection runtime')
+            self._set_teleop(False)
+            self._set_torque(False)
+            if self._right_hardware_state() != 2:
+                raise RuntimeError('Follower torque release is unconfirmed; release again')
+            states = self._controller_states(self.follower_controllers)
+            if any(states.get(name) != 'inactive' for name in (
+                    'right_arm_controller', 'right_gripper_controller',
+                    'right_policy_controller', 'base_controller')):
+                raise RuntimeError('Follower controllers are not all inactive; release again')
+            if self._controller_states(self.leader_controllers).get('leader_arm_controller') != 'inactive':
+                raise RuntimeError('Leader controller is not inactive; release again')
+            self._begin_requested.clear()
+            self._finish_requested.clear()
+            self._reset_ready = True
+            response.success = True
+            response.message = '已重置，扭矩保持关闭；点击开始后重新上力并准备。已有数据保留。'
+        except Exception as error:
+            response.message = str(error)
+        finally:
+            with self._session_lock:
+                self._recovery_busy = False
+        return response
+
+    def _rearm_after_reset(self):
+        if not getattr(self, '_torque_released', False):
+            return
+        if not self._reset_ready:
+            raise RuntimeError('Reset is required after torque release')
+        self._validate_leader_positions()
+        with self._state_lock:
+            if time.monotonic() - self._state_received_at['follower'] > self._joint_state_timeout_s:
+                raise RuntimeError('Follower measured state is stale; torque remains off')
+        try:
+            self._set_right_hardware(True)
+            response = self._service(self.follower_switch, SwitchController.Request(
+                activate_controllers=['right_arm_controller', 'right_gripper_controller'],
+                strictness=2, timeout=Duration(sec=3)))
+            if not response.ok:
+                raise RuntimeError('Follower controller activation failed; release and Reset again')
+            # Collection never needs base motion: leave the base controller off.
+            self._torque_released = False
+            self._reset_ready = False
+        except Exception:
+            self._reset_ready = False
+            self._set_right_hardware(False)
+            raise
 
     def cancel(self, _goal_handle):
         with self._session_lock:
@@ -993,6 +1135,7 @@ class CollectionNode(Node):
                 handle.succeed()
                 return result
 
+            self._rearm_after_reset()
             self._preflight(goal)
             self._raise_if_canceled(handle)
             detected = None

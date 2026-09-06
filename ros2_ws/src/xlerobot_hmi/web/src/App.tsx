@@ -226,12 +226,28 @@ export function CollectionWorkspace({ state, initialDatasetId, onState, onError 
   const [duration, setDuration] = useState(30)
   const [homePending, setHomePending] = useState(false)
   const [startPending, setStartPending] = useState(false)
+  const [recoveryPending, setRecoveryPending] = useState(false)
+  const [recoveryMessage, setRecoveryMessage] = useState('')
+  const [needsReset, setNeedsReset] = useState(false)
+  const recover = async (operation: 'release' | 'reset') => {
+    if (recoveryPending || startPending) return
+    setRecoveryPending(true)
+    try {
+      const result = await api.recoverCollection(operation)
+      onState(result.collection)
+      setNeedsReset(operation === 'release')
+      setRecoveryMessage(result.message)
+      onError('')
+    } catch (reason) { onError(String(reason)) }
+    finally { setRecoveryPending(false) }
+  }
   const running = state?.status === 'RUNNING'
   const abortable = running && ![
     'STOPPING_TELEOP', 'FINALIZING', 'REVIEW',
   ].includes(state?.phase || '')
   const start = async (dryRun: boolean) => {
-    if (startPending) return
+    if (startPending || recoveryPending || needsReset) return
+    setRecoveryMessage('')
     setStartPending(true)
     const episodeId = `episode-${new Date().toISOString().replace(/\D/g, '').slice(0, 17)}`
     try {
@@ -262,7 +278,7 @@ export function CollectionWorkspace({ state, initialDatasetId, onState, onError 
     catch (reason) { onError(String(reason)) }
   }
   const home = async () => {
-    if (!state || homePending) return
+    if (!state || homePending || recoveryPending) return
     setHomePending(true)
     try { await api.beginCollection(state.dataset_id, state.episode_id) }
     catch (reason) { onError(String(reason)) }
@@ -271,7 +287,7 @@ export function CollectionWorkspace({ state, initialDatasetId, onState, onError 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       const target = event.target instanceof Element ? event.target : null
-      if (event.repeat || event.isComposing || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey ||
+      if (recoveryPending || event.repeat || event.isComposing || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey ||
           target?.closest('input, textarea, select, [contenteditable]')) return
       if (event.key === 'Home' && running && state?.phase === 'WAITING_HOME') {
         event.preventDefault()
@@ -314,18 +330,27 @@ export function CollectionWorkspace({ state, initialDatasetId, onState, onError 
     <label>语言指令<input value={instruction} disabled={running || startPending} onChange={event => setInstruction(event.target.value)} /></label>
     <label>最长时长 {duration}s<input disabled={running || startPending} type="range" min="5" max="120" value={duration}
       onChange={event => setDuration(Number(event.target.value))} /></label>
-    {!running && <div className="field-row"><button disabled={startPending} onClick={() => start(true)}>状态机 dry-run</button>
-      <button disabled={startPending} className="primary" onClick={() => start(false)}>开始 / 准备 pregrasp</button></div>}
+    {!running && <div className="field-row"><button disabled={startPending || recoveryPending || needsReset} onClick={() => start(true)}>状态机 dry-run</button>
+      <button disabled={startPending || recoveryPending || needsReset} className="primary" onClick={() => start(false)}>开始 / 准备 pregrasp</button></div>}
+    <div className="field-row">
+      <button className="danger" disabled={startPending || recoveryPending}
+        onClick={() => recover('release')}>释放主从臂扭矩</button>
+      <button disabled={running || startPending || recoveryPending}
+        onClick={() => recover('reset')}>Reset / 重置状态</button>
+    </div>
+    <p className="hint">异常恢复：先托住主从臂 → 释放扭矩（中止当前条，保留 incomplete）→ 手动摆好 → Reset → 开始。Reset 不上力、不回位、不删除数据；释放时底盘一并停用，头部保持。</p>
+    {recoveryPending && <p role="status">正在停止采集或处理恢复，请稍候…</p>}
+    {recoveryMessage && <p role="status">{recoveryMessage}</p>}
     {running && <div className="field-row">
       <button className="primary" onClick={home}
-        disabled={state.phase !== 'WAITING_HOME' || homePending}>
+        disabled={state.phase !== 'WAITING_HOME' || homePending || recoveryPending}>
         Home / 释放主臂并开始采集
       </button>
       <button className="primary" onClick={finish}
-        disabled={state.phase !== 'RECORDING'}>
+        disabled={state.phase !== 'RECORDING' || recoveryPending}>
         End / 结束并保存到本机
       </button>
-      <button className="danger" onClick={abort} disabled={!abortable}>
+      <button className="danger" onClick={abort} disabled={!abortable || recoveryPending}>
         Abort / 中止并保留 incomplete
       </button>
     </div>}

@@ -45,7 +45,7 @@ from rclpy.time import Time
 from sensor_msgs.msg import Image, LaserScan
 from slam_toolbox.srv import Reset, SaveMap
 from std_msgs.msg import Bool, String
-from std_srvs.srv import SetBool
+from std_srvs.srv import SetBool, Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 from xlerobot_assets import ArtifactCatalog
 from xlerobot_hmi.manual_control import ManualControlCoordinator
@@ -572,6 +572,8 @@ class OperatorConsoleNode(Node):
                 FinalizeEpisode, '/collect_episode/finalize'
             )
             self.collection_begin_client = self.create_client(BeginEpisode, '/collect_episode/begin')
+            self.collection_release_client = self.create_client(Trigger, '/collect_episode/release_torque')
+            self.collection_reset_client = self.create_client(Trigger, '/collect_episode/reset')
             self.review_client = self.create_client(
                 ReviewEpisode, '/episodes/review'
             )
@@ -1494,6 +1496,56 @@ class OperatorConsoleNode(Node):
 
     async def submit_collection(self, goal: CollectEpisode.Goal) -> dict[str, Any]:
         with self._collection_lock:
+            if getattr(self, '_collection_operation', False):
+                raise web.HTTPConflict(text='collection operation in progress')
+            self._collection_operation = True
+        try:
+            return await self._submit_collection(goal)
+        finally:
+            with self._collection_lock:
+                self._collection_operation = False
+
+    async def recover_collection(self, operation: str) -> dict[str, Any]:
+        with self._collection_lock:
+            if getattr(self, '_collection_operation', False):
+                raise web.HTTPConflict(text='collection operation in progress')
+            self._collection_operation = True
+        try:
+            state = self.collection_snapshot()
+            if state and state['status'] == 'RUNNING':
+                if operation != 'release':
+                    raise web.HTTPConflict(text='请先释放扭矩并等待采集停止')
+                try:
+                    await self.cancel_collection(state['dataset_id'], state['episode_id'])
+                except web.HTTPConflict:
+                    # Finalization may already own the episode, or complete
+                    # while cancellation is in flight. Preserve that result.
+                    deadline = asyncio.get_running_loop().time() + 30.0
+                    while (self.collection_snapshot() or {}).get('status') == 'RUNNING':
+                        if asyncio.get_running_loop().time() >= deadline:
+                            raise web.HTTPGatewayTimeout(text='采集尚未停止，未确认释放扭矩')
+                        await asyncio.sleep(0.05)
+            client = (self.collection_release_client if operation == 'release'
+                      else self.collection_reset_client)
+            if not await _wait_until_ready(client.service_is_ready, 2.0):
+                raise web.HTTPServiceUnavailable(text='collection recovery service unavailable')
+            future = client.call_async(Trigger.Request())
+            await _await_rclpy_future(future, 60.0)
+            response = future.result()
+            if not response or not response.success:
+                raise web.HTTPConflict(text=response.message if response else 'No recovery response')
+            if operation == 'reset':
+                with self._collection_lock:
+                    self.active_collection = None
+                    self.collection_goal_handle = None
+                self.events.publish('collection', None)
+            return {'message': response.message, 'collection': self.collection_snapshot()}
+        finally:
+            with self._collection_lock:
+                self._collection_operation = False
+
+    async def _submit_collection(self, goal: CollectEpisode.Goal) -> dict[str, Any]:
+        with self._collection_lock:
             if self.active_collection and self.active_collection['status'] == 'RUNNING':
                 raise web.HTTPConflict(text='a collection is already active')
         if not await _wait_until_ready(
@@ -1892,6 +1944,8 @@ class ConsoleApplication:
             ),
             web.post('/api/v1/collections/sessions', self.start_collection),
             web.get('/api/v1/collections/current', self.current_collection),
+            web.post('/api/v1/collections/release', self.release_collection),
+            web.post('/api/v1/collections/reset', self.reset_collection),
             web.post('/api/v1/datasets/{dataset_id}/episodes/{episode_id}/begin',
                      self.begin_collection),
             web.post(
@@ -3158,6 +3212,16 @@ class ConsoleApplication:
         self._require_engineering_workspace(request)
         self._require_workspace('collection')
         return web.json_response({'collection': self.node.collection_snapshot()})
+
+    async def release_collection(self, request):
+        self._require_engineering_workspace(request)
+        self._require_workspace('collection')
+        return web.json_response(await self.node.recover_collection('release'))
+
+    async def reset_collection(self, request):
+        self._require_engineering_workspace(request)
+        self._require_workspace('collection')
+        return web.json_response(await self.node.recover_collection('reset'))
 
     async def cancel_collection(self, request):
         self._require_engineering_workspace(request)

@@ -13,6 +13,21 @@ const waiting = {
 } as CollectionState
 
 describe('two-stage collection controls', () => {
+  it('requires Reset after release and never starts preparation from Reset', async () => {
+    const recover = vi.spyOn(api, 'recoverCollection').mockResolvedValue({
+      message: 'torque off', collection: null,
+    })
+    const start = vi.spyOn(api, 'startCollection')
+    render(<CollectionWorkspace state={null} initialDatasetId="trial" onState={vi.fn()} onError={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: '释放主从臂扭矩' }))
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('torque off'))
+    expect((screen.getByRole('button', { name: '开始 / 准备 pregrasp' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Reset / 重置状态' }))
+    await waitFor(() => expect(recover).toHaveBeenLastCalledWith('reset'))
+    await waitFor(() => expect((screen.getByRole('button', { name: '开始 / 准备 pregrasp' }) as HTMLButtonElement).disabled).toBe(false))
+    expect(start).not.toHaveBeenCalled()
+  })
+
   it('updates instruction when object changes and still allows editing it', () => {
     render(<CollectionWorkspace state={null} initialDatasetId="trial" onState={vi.fn()} onError={vi.fn()} />)
     fireEvent.change(screen.getByPlaceholderText('物体标签'), { target: { value: '黄色胶棒' } })

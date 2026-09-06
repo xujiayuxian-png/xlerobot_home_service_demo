@@ -29,6 +29,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  recoverCollection: (operation: 'release' | 'reset') =>
+    request<{ message: string, collection: CollectionState | null }>(
+      `/api/v1/collections/${operation}`, { method: 'POST', body: '{}' }),
   bootstrap: () => request<Bootstrap>('/api/v1/bootstrap'),
   health: () => request<Health>('/api/v1/health'),
   recentTasks: () => request<{ tasks: Task[] }>('/api/v1/tasks'),
