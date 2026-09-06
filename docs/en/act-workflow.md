@@ -95,10 +95,13 @@ limits or re-enabling torque against an old target.
    and joint data are finalized locally. Nothing is uploaded. The next Start
    stops this following session before preparing a new pregrasp; release torque
    also stops following. Feedback and lease checks remain active between episodes.
-6. Once saving succeeds, choose **接受** (accept) or **拒绝** (reject). Only
-   accepted episodes are converted; rejection does not delete raw recordings.
-   The current review is shown next to the buttons and can be changed; only the
-   review sidecar is replaced, never the raw episode.
+6. New recordings are **kept automatically** after successful saving and data
+   validation; no acceptance click is needed. Use **拒绝本条** to exclude a trial
+   from conversion, or **恢复保留** to undo rejection. Raw recordings are never
+   deleted. The last 20 completed episodes remain selectable while collecting
+   the next trial and after restarting the page. Old unreviewed episodes remain
+   unselected; explicitly keep them if wanted. Automatic selection is recorded
+   as `selection_source: automatic_on_save`, not a human review.
    The next Start prepares a new episode without overwriting the previous one.
 
 **Abort** cancels an interrupted trial and retains an incomplete recording;
@@ -117,7 +120,7 @@ with sibling `reviews/`. Point `data.dataset_root` at that dataset for conversio
 ## Convert and train
 
 The recorder writes immutable `raw/` episodes and editable `reviews/` under the configured
-`data.dataset_root`. After reviewing episodes in the Robot web UI, transfer
+`data.dataset_root`. After optionally rejecting unwanted episodes in the Robot web UI, transfer
 that whole dataset tree to the same repo-relative location on the GPU. Set the
 `transfer` values in `config/local.yaml`, then use those values in the command
 below (the example matches the documentation-only defaults):

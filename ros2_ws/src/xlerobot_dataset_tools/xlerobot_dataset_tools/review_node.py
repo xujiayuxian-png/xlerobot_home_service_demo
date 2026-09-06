@@ -46,6 +46,7 @@ class ReviewNode(Node):
                 'episode_id': request.episode_id, 'status': request.status,
                 'failure_reason': request.failure_reason, 'notes': request.notes,
                 'operator': request.operator_id,
+                'selection_source': 'manual',
             }
             if path.exists() or path.is_symlink():
                 if path.is_symlink() or not path.is_file():

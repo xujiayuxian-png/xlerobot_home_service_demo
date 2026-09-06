@@ -1573,7 +1573,7 @@ class CollectionNode(Node):
             result.episode_uri = recorded.episode_uri
             result.quality_passed = True
             result.error.code = CapabilityError.NONE
-            result.error.message = '已保存；可继续遥操放下物品并归位，不再录制。可审核或开始下一条。'
+            result.error.message = '已保存并默认保留；可继续遥操放下物品并归位，不再录制。不需要的数据可拒绝，也可直接开始下一条。'
             self._feedback(handle, 'REVIEW', 1.0, result.error.message)
             handle.succeed()
         except CollectionCanceled:

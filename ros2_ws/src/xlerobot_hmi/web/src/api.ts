@@ -1,4 +1,4 @@
-import type { Bootstrap, CollectionState, Health, MappingState, NamedPlace, Task } from './types'
+import type { Bootstrap, CollectionEpisode, CollectionState, Health, MappingState, NamedPlace, Task } from './types'
 
 export interface SiteSummary {
   site_id: string
@@ -180,6 +180,8 @@ export const api = {
     request<CollectionState>(
       `/api/v1/datasets/${encodeURIComponent(datasetId)}/episodes/`
       + `${encodeURIComponent(episodeId)}/begin`, { method: 'POST', body: '{}' }),
+  collectionEpisodes: (datasetId: string) => request<{ episodes: CollectionEpisode[] }>(
+    `/api/v1/datasets/${encodeURIComponent(datasetId)}/episodes`),
   reviewEpisode: (
     datasetId: string, episodeId: string,
     status: 'accepted' | 'rejected', notes = '',

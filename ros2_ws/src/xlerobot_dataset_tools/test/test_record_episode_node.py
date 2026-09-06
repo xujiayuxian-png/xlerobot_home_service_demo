@@ -501,6 +501,45 @@ def execute_state(tmp_path):
     return node
 
 
+@pytest.mark.parametrize('selection_fails', [False, True])
+def test_recorder_keeps_only_after_commit_and_reports_selection_failure(tmp_path, monkeypatch, selection_fails):
+    node = execute_state(tmp_path)
+    output = tmp_path / 'dataset-001/raw/episode-001'
+    events = []
+    writer = FakeWriter()
+    writer.timestamps = [0.0, .03]
+    writer.states = [[0.] * 6, [.01] * 6]
+    def finish(reason):
+        events.append('commit')
+        return output
+    writer.finish = finish
+    monkeypatch.setattr(record_episode_node, 'EpisodeWriter', lambda *a, **k: writer)
+    monkeypatch.setattr(record_episode_node.rclpy, 'ok', lambda: True)
+    def keep(path):
+        assert events == ['commit']
+        assert path == output
+        events.append('select')
+        if selection_fails:
+            raise OSError('disk full')
+    monkeypatch.setattr(record_episode_node, 'keep_new_episode', keep)
+    def feedback(message):
+        if message.state.phase == 'READY':
+            writer.mark_teleop_enabled()
+            writer.mark_recording_stopped()
+            node.armed = True
+            node.stop.set()
+    handle = SimpleNamespace(request=valid_goal(), is_cancel_requested=False,
+                             publish_feedback=feedback, abort=lambda: events.append('abort'),
+                             succeed=lambda: events.append('success'))
+    result = RecordEpisodeNode.execute(node, handle)
+    assert events == ['commit', 'select', 'abort' if selection_fails else 'success']
+    assert not writer.aborted
+    assert result.episode_uri == output.as_uri()
+    assert (result.error.code == CapabilityError.NONE) is not selection_fails
+    if selection_fails:
+        assert 'raw episode saved' in result.error.message
+
+
 def test_failsafe_timeout_aborts_instead_of_publishing_episode(
     tmp_path, monkeypatch
 ):

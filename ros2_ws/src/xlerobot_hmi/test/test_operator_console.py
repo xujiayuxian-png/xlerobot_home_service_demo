@@ -1511,7 +1511,8 @@ def test_collection_http_boundary_rejects_invalid_duration(duration):
     asyncio.run(exercise())
 
 
-def test_review_uses_active_dataset_and_completed_real_episode():
+@pytest.mark.parametrize('previous_episode', [False, True])
+def test_review_uses_active_dataset_and_completed_real_episode(tmp_path, previous_episode):
     class ReviewClient:
         def __init__(self):
             self.requests = []
@@ -1563,6 +1564,17 @@ def test_review_uses_active_dataset_and_completed_real_episode():
             events=SimpleNamespace(publish=lambda *items: None),
             history=SimpleNamespace(audit=lambda *items: audits.append(items)),
         )
+        if previous_episode:
+            node.artifact_root = tmp_path
+            episode = tmp_path / 'datasets/act-pick/raw/episode-001'
+            episode.mkdir(parents=True)
+            (episode / 'manifest.json').write_text(json.dumps({
+                'schema': 'xlerobot_raw_episode/v1', 'episode_id': 'episode-001',
+                'status': 'complete', 'frame_count': 30, 'duration_s': 1.,
+            }))
+            node.collection_snapshot = lambda: {
+                'dataset_id': 'act-pick', 'episode_id': 'episode-002', 'status': 'RUNNING',
+            }
         response = await ConsoleApplication(node).review_episode(Request())
         assert json.loads(response.text) == {
             'review_uri': 'file:///reviews/episode-001.json',

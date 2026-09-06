@@ -25,6 +25,7 @@ from xlerobot_interfaces.srv import FinalizeEpisode, MarkEpisodeEvent
 import yaml
 
 from .episode_io import EpisodeWriter, JOINT_NAMES
+from .default_selection import keep_new_episode
 
 
 IDENTIFIER = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,95}$')
@@ -566,6 +567,12 @@ class RecordEpisodeNode(Node):
                 output = writer.finish('user')
             committed = True
             result.episode_uri = output.as_uri()
+            try:
+                keep_new_episode(output)
+            except Exception as error:
+                raise RuntimeError(
+                    f'raw episode saved at {output}, but automatic selection failed: {error}'
+                ) from error
             result.topic_names = [
                 self.profile['observation']['topic'],
                 *self.camera_topics.values(),
@@ -573,7 +580,7 @@ class RecordEpisodeNode(Node):
             result.message_counts = [len(writer.states)] * len(result.topic_names)
             result.duration_s = writer.timestamps[-1]
             result.error.code = CapabilityError.NONE
-            result.error.message = 'episode finalized atomically'
+            result.error.message = 'episode finalized and kept for conversion'
             handle.succeed()
             return result
         except Exception as error:

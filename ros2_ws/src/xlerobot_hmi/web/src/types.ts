@@ -62,6 +62,15 @@ export interface NamedPlace {
   nav_offset_m: number
 }
 
+export interface CollectionEpisode {
+  dataset_id: string
+  episode_id: string
+  created_at: string
+  frame_count: number
+  duration_s: number
+  review_status?: 'accepted' | 'rejected' | null
+}
+
 export interface CollectionState {
   review_status?: 'accepted' | 'rejected'
   dataset_id: string

@@ -49,6 +49,7 @@ from std_srvs.srv import SetBool, Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 from xlerobot_assets import ArtifactCatalog
 from xlerobot_hmi.manual_control import ManualControlCoordinator
+from xlerobot_hmi.collection_history import recent_episodes
 from xlerobot_interfaces.action import (
     AutoLocalize,
     CalibrationJob,
@@ -1639,6 +1640,7 @@ class OperatorConsoleNode(Node):
             self.active_collection.update(update)
             self.collection_goal_handle = None
             state = dict(self.active_collection)
+        state = self.collection_snapshot()
         self.events.publish('collection', state)
 
     async def begin_collection(self, dataset_id: str, episode_id: str) -> dict[str, Any]:
@@ -1956,6 +1958,7 @@ class ConsoleApplication:
             web.get('/api/v1/collections/current', self.current_collection),
             web.post('/api/v1/collections/release', self.release_collection),
             web.post('/api/v1/collections/reset', self.reset_collection),
+            web.get('/api/v1/datasets/{dataset_id}/episodes', self.collection_episodes),
             web.post('/api/v1/datasets/{dataset_id}/episodes/{episode_id}/begin',
                      self.begin_collection),
             web.post(
@@ -3255,6 +3258,16 @@ class ConsoleApplication:
             request.match_info['episode_id'],
         ), status=202)
 
+    async def collection_episodes(self, request):
+        self._require_engineering_workspace(request)
+        self._require_workspace('collection')
+        try:
+            episodes = await asyncio.to_thread(
+                recent_episodes, self.node.artifact_root, request.match_info['dataset_id'])
+        except ValueError as error:
+            raise web.HTTPBadRequest(text=str(error)) from error
+        return web.json_response({'episodes': episodes})
+
     async def review_episode(self, request):
         self._require_engineering_workspace(request)
         self._require_workspace('collection')
@@ -3268,9 +3281,16 @@ class ConsoleApplication:
             or active.get('dry_run')
             or not active.get('episode_uri')
         ):
-            raise web.HTTPConflict(
-                text='only the current completed real episode can be reviewed'
-            )
+            # A previous episode remains selectable while a new one is running,
+            # and after a browser/service restart. The review service performs
+            # full raw validation before it writes any selection.
+            try:
+                previous = await asyncio.to_thread(
+                    recent_episodes, self.node.artifact_root, request.match_info['dataset_id'])
+            except (AttributeError, ValueError):
+                previous = []
+            if not any(e['episode_id'] == request.match_info['episode_id'] for e in previous):
+                raise web.HTTPConflict(text='only a completed real episode can be selected')
         message = ReviewEpisode.Request(
             dataset_id=request.match_info['dataset_id'],
             episode_id=request.match_info['episode_id'],

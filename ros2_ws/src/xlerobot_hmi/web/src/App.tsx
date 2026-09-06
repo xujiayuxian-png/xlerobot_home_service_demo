@@ -7,7 +7,7 @@ import {
 } from './observability'
 import { upsertTaskHistory } from './taskHistory'
 import type {
-  Bootstrap, CollectionState, Health, MappingState, NamedPlace,
+  Bootstrap, CollectionEpisode, CollectionState, Health, MappingState, NamedPlace,
   PerceptionState, Task,
 } from './types'
 
@@ -231,9 +231,21 @@ export function CollectionWorkspace({ state, initialDatasetId, onState, onError 
   const [needsReset, setNeedsReset] = useState(false)
   const [reviewPending, setReviewPending] = useState(false)
   const [reviewMessage, setReviewMessage] = useState('')
+  const [episodes, setEpisodes] = useState<CollectionEpisode[]>([])
+  const [historyError, setHistoryError] = useState('')
+  const [historyRevision, setHistoryRevision] = useState(0)
   const collectionStateRef = useRef(state)
   collectionStateRef.current = state
   useEffect(() => { setReviewMessage('') }, [state?.episode_id])
+  useEffect(() => {
+    let canceled = false
+    setEpisodes([])
+    setHistoryError('')
+    api.collectionEpisodes(datasetId).then(result => {
+      if (!canceled) setEpisodes(result.episodes)
+    }).catch(reason => { if (!canceled) setHistoryError(`最近记录加载失败：${String(reason)}`) })
+    return () => { canceled = true }
+  }, [datasetId, state?.episode_id, state?.status, historyRevision])
   const recover = async (operation: 'release' | 'reset') => {
     if (recoveryPending || startPending) return
     setRecoveryPending(true)
@@ -305,20 +317,21 @@ export function CollectionWorkspace({ state, initialDatasetId, onState, onError 
     window.addEventListener('keydown', keydown)
     return () => window.removeEventListener('keydown', keydown)
   })
-  const review = async (status: 'accepted' | 'rejected') => {
-    if (!state || reviewPending) return
-    const episode = state
+  const review = async (episode: { dataset_id: string, episode_id: string }, status: 'accepted' | 'rejected') => {
+    if (reviewPending) return
     setReviewPending(true)
     try {
       await api.reviewEpisode(
-        state.dataset_id, state.episode_id, status,
+        episode.dataset_id, episode.episode_id, status,
       )
       const current = collectionStateRef.current
-      if (!current || current.dataset_id !== episode.dataset_id || current.episode_id !== episode.episode_id) return
-      onState({ ...current, review_status: status })
-      setReviewMessage(status === 'accepted' ? '已接受：后续转换会选入此条数据。' : '已拒绝：后续转换会跳过此条，原始录制保留。')
+      if (current && current.dataset_id === episode.dataset_id && current.episode_id === episode.episode_id) {
+        onState({ ...current, review_status: status })
+      }
+      setHistoryRevision(value => value + 1)
+      setReviewMessage(`${episode.episode_id}：${status === 'accepted' ? '已保留，将用于后续转换。' : '已拒绝，后续转换将跳过，原始文件仍保留。'}`)
       onError('')
-    } catch (reason) { setReviewMessage(`审核保存失败：${String(reason)}`) }
+    } catch (reason) { setReviewMessage(`保留状态保存失败：${String(reason)}`) }
     finally { setReviewPending(false) }
   }
   return <section className="engineering-card collection-card">
@@ -372,11 +385,24 @@ export function CollectionWorkspace({ state, initialDatasetId, onState, onError 
       <progress max="1" value={state.progress} /><span>{state.frame_count} frames · {state.elapsed_s.toFixed(1)}s · {state.message}</span></div>}
     {state?.status === 'SUCCEEDED' && !state.dry_run && state.episode_uri &&
       <div className="field-row">
-      <span>审核：{state.review_status === 'accepted' ? '已接受' : state.review_status === 'rejected' ? '已拒绝' : '待审核'}</span>
-      <button disabled={reviewPending || startPending || recoveryPending} aria-pressed={state.review_status === 'accepted'} onClick={() => review('accepted')}>接受</button>
-      <button disabled={reviewPending || startPending || recoveryPending} aria-pressed={state.review_status === 'rejected'} onClick={() => review('rejected')}>拒绝</button></div>}
-    {reviewPending && <p role="status">正在保存审核…</p>}
+      <span>本条：{state.review_status === 'accepted' ? '已保留' : state.review_status === 'rejected' ? '已拒绝' : '未选择（不进入训练）'}</span>
+      {state.review_status !== 'accepted' && <button disabled={reviewPending || recoveryPending} onClick={() => review(state, 'accepted')}>
+        {state.review_status === 'rejected' ? '恢复保留本条' : '保留本条'}</button>}
+      {state.review_status !== 'rejected' && <button disabled={reviewPending || recoveryPending} onClick={() => review(state, 'rejected')}>拒绝本条</button>}</div>}
+    {reviewPending && <p role="status">正在保存保留状态…</p>}
     {reviewMessage && <p role="status">{reviewMessage}</p>}
+    <p className="hint">新采样正常保存并通过完整性检查后默认保留，无需点击通过。只需拒绝不想用于训练的数据；拒绝可恢复，不删除文件。旧数据不自动改选。</p>
+    <h3>最近采样（当前数据集，最多 20 条）</h3>
+    <button onClick={() => setHistoryRevision(value => value + 1)}>刷新记录</button>
+    {historyError && <p role="alert">{historyError}</p>}
+    {episodes.map(episode => <div className="field-row" key={episode.episode_id}>
+      <span>{episode.episode_id} · {episode.frame_count} 帧 · {episode.duration_s.toFixed(1)}s · {episode.review_status === 'accepted' ? '已保留' : episode.review_status === 'rejected' ? '已拒绝' : '未选择（旧数据）'}</span>
+      <button disabled={reviewPending || recoveryPending} aria-label={`${episode.episode_id} ${episode.review_status === 'rejected' ? '恢复保留' : '拒绝'}`}
+        onClick={() => review(episode, episode.review_status === 'rejected' ? 'accepted' : 'rejected')}>
+        {episode.review_status === 'rejected' ? '恢复保留' : '拒绝'}</button>
+      {!episode.review_status && <button disabled={reviewPending || recoveryPending} aria-label={`${episode.episode_id} 保留`}
+        onClick={() => review(episode, 'accepted')}>保留旧数据</button>}
+    </div>)}
     <p className="hint">End 只结束录制，遥操继续，可放下物品并手动归位；这些动作不进入已保存数据。下一次开始会结束当前遥操并准备新的 pregrasp。释放扭矩按钮会停止遥操。</p>
     <p className="hint">开始：主从臂准备到 pregrasp 后保持上力（通用手动仅主臂对齐从臂）。等待 Home：托住主臂后点击或按键盘 Home；数据就绪后交接到遥操，显示 RECORDING 再示教。End 结束并保存到本机，不会上传。输入框内不响应快捷键。等待超过 60 秒将中止本条。</p>
   </section>

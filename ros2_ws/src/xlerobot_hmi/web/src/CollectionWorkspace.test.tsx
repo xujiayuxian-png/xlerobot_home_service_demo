@@ -1,10 +1,11 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CollectionWorkspace } from './App'
 import { api } from './api'
 import type { CollectionState } from './types'
 
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
+beforeEach(() => { vi.spyOn(api, 'collectionEpisodes').mockResolvedValue({ episodes: [] }) })
 const waiting = {
   dataset_id: 'trial', episode_id: 'episode-1', template_id: 'pick',
   object_id: '羽毛球', dry_run: false, status: 'RUNNING', phase: 'WAITING_HOME',
@@ -13,21 +14,36 @@ const waiting = {
 } as CollectionState
 
 describe('two-stage collection controls', () => {
-  it('shows saved review and allows changing accepted to rejected', async () => {
+  it('shows default keep with only reject, and can restore a rejection', async () => {
     const review = vi.spyOn(api, 'reviewEpisode').mockResolvedValue({ review_uri: 'file:///review.json' })
     const onState = vi.fn()
     const props = { initialDatasetId: 'trial', onState, onError: vi.fn() }
-    const complete: CollectionState = { ...waiting, status: 'SUCCEEDED', phase: 'REVIEW', episode_uri: 'file:///episode' }
+    const complete: CollectionState = { ...waiting, status: 'SUCCEEDED', phase: 'REVIEW', episode_uri: 'file:///episode', review_status: 'accepted' }
     const view = render(<CollectionWorkspace {...props} state={complete} />)
-    expect(screen.getByText('审核：待审核')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '接受' }))
-    await waitFor(() => expect(onState).toHaveBeenCalledWith({ ...complete, review_status: 'accepted' }))
-    view.rerender(<CollectionWorkspace {...props} state={{ ...complete, review_status: 'accepted' }} />)
-    expect(screen.getByText('审核：已接受')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '拒绝' }))
+    expect(screen.getByText('本条：已保留')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '接受' })).toBeNull()
+    expect(review).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '拒绝本条' }))
     await waitFor(() => expect(review).toHaveBeenLastCalledWith('trial', 'episode-1', 'rejected'))
     await waitFor(() => expect(onState).toHaveBeenLastCalledWith({ ...complete, review_status: 'rejected' }))
-    expect(screen.getByText(/已拒绝：后续转换会跳过/)).toBeTruthy()
+    expect(screen.getByText(/已拒绝，后续转换将跳过/)).toBeTruthy()
+    view.rerender(<CollectionWorkspace {...props} state={{ ...complete, review_status: 'rejected' }} />)
+    fireEvent.click(screen.getByRole('button', { name: '恢复保留本条' }))
+    await waitFor(() => expect(review).toHaveBeenLastCalledWith('trial', 'episode-1', 'accepted'))
+  })
+
+  it('can reject a previous episode while recording another without changing current state', async () => {
+    vi.mocked(api.collectionEpisodes).mockResolvedValue({ episodes: [{
+      dataset_id: 'trial', episode_id: 'older-episode', created_at: '',
+      frame_count: 30, duration_s: 1, review_status: 'accepted',
+    }] })
+    const review = vi.spyOn(api, 'reviewEpisode').mockResolvedValue({ review_uri: 'file:///review.json' })
+    const onState = vi.fn()
+    render(<CollectionWorkspace state={{ ...waiting, phase: 'RECORDING' }} initialDatasetId="trial" onState={onState} onError={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'older-episode 拒绝' }))
+    await waitFor(() => expect(review).toHaveBeenCalledWith('trial', 'older-episode', 'rejected'))
+    await waitFor(() => expect(screen.getByText(/older-episode：已拒绝/)).toBeTruthy())
+    expect(onState).not.toHaveBeenCalled()
   })
 
   it('requires Reset after release and never starts preparation from Reset', async () => {
