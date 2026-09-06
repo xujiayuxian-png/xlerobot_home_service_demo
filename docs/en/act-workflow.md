@@ -44,7 +44,11 @@ still need to be within their allowed ranges before starting a demonstration.
 Leader URDF and hardware command limits are derived consistently from the
 attachment's calibrated raw range, offset and direction, preserving the
 prototype's physical motor bounds rather than its copied Follower-style
-planning limits. Teleop output uses the active Follower calibration's limits.
+planning limits. Teleop retains the prototype's 1:1 joint mapping and clamps
+outputs to the active Follower calibration's limits. Moving the passive Leader
+past a Follower boundary holds the Follower at that boundary without ending
+collection; following continues as the Leader returns in range. This includes
+slightly negative closed-gripper readings and does not alter calibration values.
 Startup does not automatically home the arms or begin recording.
 The Leader position controller stays `inactive` while idle or teleoperating.
 Start checks measured pose and controller readiness, then acquires position

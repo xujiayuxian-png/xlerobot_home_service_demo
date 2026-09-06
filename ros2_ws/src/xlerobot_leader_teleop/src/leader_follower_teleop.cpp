@@ -91,13 +91,11 @@ private:
     std::array<double, 6> candidate{};
     for (std::size_t i = 0; i < source_names_.size(); ++i) {
       const auto found = values.find(source_names_[i]);
-      if (found == values.end() || !std::isfinite(found->second) ||
-        found->second < lower_[i] || found->second > upper_[i])
+      if (found == values.end() || !std::isfinite(found->second))
       {
         std::lock_guard<std::mutex> lock(mutex_);
         complete_ = false;
-        input_error_ = "Leader " + source_names_[i] + " missing, non-finite, or outside Follower limits [" +
-          std::to_string(lower_[i]) + ", " + std::to_string(upper_[i]) + "]";
+        input_error_ = "Leader " + source_names_[i] + " missing or non-finite";
         if (found != values.end()) {
           input_error_ += "; measured=" + std::to_string(found->second);
         }
@@ -105,7 +103,10 @@ private:
         enabled_ = false;
         return;
       }
-      candidate[i] = found->second;
+      // Preserve the verified prototype's 1:1 mapping followed by Follower
+      // output saturation. Passive Leader travel is not a Follower command
+      // limit violation (notably a slightly negative closed gripper reading).
+      candidate[i] = std::clamp(found->second, lower_[i], upper_[i]);
     }
     std::lock_guard<std::mutex> lock(mutex_);
     positions_ = candidate;

@@ -75,6 +75,7 @@ def test_enable_heartbeat_expires_and_false_is_immediate() -> None:
                 '--ros-args',
                 '-p', 'enable_lease_s:=0.25',
                 '-p', 'leader_timeout_s:=1.0',
+                '-p', 'lower_limits:=[-2.05, -1.4, -1.65, -1.75, -3.09, 0.0]',
             ],
             env=environment,
             stdout=subprocess.DEVNULL,
@@ -84,6 +85,7 @@ def test_enable_heartbeat_expires_and_false_is_immediate() -> None:
         rclpy.init()
         node = rclpy.create_node('leader_follower_watchdog_runtime_test')
         commands = []
+        gripper_commands = []
         publisher = node.create_publisher(
             JointState, '/leader/joint_states', 10
         )
@@ -93,6 +95,9 @@ def test_enable_heartbeat_expires_and_false_is_immediate() -> None:
             lambda message: commands.append(message),
             20,
         )
+        node.create_subscription(
+            JointTrajectory, '/right_gripper_controller/joint_trajectory',
+            gripper_commands.append, 20)
         client = node.create_client(
             SetBool, '/leader_follower_teleop/set_enabled'
         )
@@ -146,7 +151,36 @@ def test_enable_heartbeat_expires_and_false_is_immediate() -> None:
         assert len(commands) == after_false
 
         call_enabled(node, client, True, publish_state)
-        state.position[0] = 9.0
+        # Boundary saturation must not terminate teleop or require re-enabling
+        # it. Include the actual closed-gripper reading that aborted the trial,
+        # every arm boundary, and returning in range across repeated cycles.
+        lower = [-2.05, -1.4, -1.65, -1.75, -3.09, 0.0]
+        upper = [2.05, 1.7, 1.4, 1.75, 3.09, 1.65]
+        baseline = [0.0, 0.1, -0.1, 0.05, 0.0, 0.2]
+        cases = [baseline[:5] + [-0.010738], baseline[:5] + [1.9],
+                 [v - 0.1 for v in lower], [v + 0.1 for v in upper], baseline]
+        for values in cases * 2:
+            state.position = values
+            expected = [max(lo, min(hi, value)) for value, lo, hi in zip(values, lower, upper)]
+            before_arm, before_gripper = len(commands), len(gripper_commands)
+
+            def arrived():
+                return (len(commands) > before_arm and len(gripper_commands) > before_gripper
+                        and list(commands[-1].points[0].positions) == expected[:5]
+                        and list(gripper_commands[-1].points[0].positions) == expected[5:])
+
+            deadline = time.monotonic() + 2.0
+            while not arrived() and time.monotonic() < deadline:
+                call_enabled(node, client, True, publish_state)
+                spin_until(node, arrived, 0.04, publish_state)
+            assert arrived(), (values, expected)
+
+        for message in commands:
+            assert all(lo <= value <= hi for value, lo, hi in
+                       zip(message.points[0].positions, lower[:5], upper[:5]))
+        assert all(0 <= message.points[0].positions[0] <= 1.65 for message in gripper_commands)
+
+        state.position[0] = float('nan')
         spin_until(node, lambda: False, 0.1, publish_state)
         invalid = client.call_async(SetBool.Request(data=True))
         assert spin_until(node, invalid.done, 2.0, publish_state)
