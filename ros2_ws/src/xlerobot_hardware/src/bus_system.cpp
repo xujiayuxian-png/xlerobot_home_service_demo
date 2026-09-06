@@ -187,6 +187,9 @@ hardware_interface::CallbackReturn BusSystemBase::on_init(
 
 hardware_interface::CallbackReturn BusSystemBase::on_configure(const rclcpp_lifecycle::State &)
 {
+  // Recovery must not inherit an earlier torque lease or controller NaN.
+  if (runtime_torque_control_) {torque_command_ = 0.0;}
+  applied_torque_enabled_ = false;
   for (std::size_t i = 0; i < joints_.size(); ++i) {
     positions_[i] = joints_[i].initial_position;
     previous_positions_[i] = positions_[i];
@@ -203,7 +206,9 @@ hardware_interface::CallbackReturn BusSystemBase::on_configure(const rclcpp_life
     return hardware_interface::CallbackReturn::ERROR;
   }
   std::lock_guard<std::mutex> lock(bus_mutex_);
-  if (!connect_and_probe() || !read_position_joints(0.01)) {
+  if (!connect_and_probe() ||
+    (runtime_torque_control_ && !disable_all_torque()) || !read_position_joints(0.01))
+  {
     disconnect();
     return hardware_interface::CallbackReturn::ERROR;
   }
@@ -214,6 +219,7 @@ hardware_interface::CallbackReturn BusSystemBase::on_configure(const rclcpp_life
 
 hardware_interface::CallbackReturn BusSystemBase::on_activate(const rclcpp_lifecycle::State &)
 {
+  if (runtime_torque_control_) {torque_command_ = 0.0;}
   commands_ = positions_;
   startup_position_pending_ = !validate_commands();
   if (startup_position_pending_) {
@@ -244,6 +250,7 @@ hardware_interface::CallbackReturn BusSystemBase::on_activate(const rclcpp_lifec
 
 hardware_interface::CallbackReturn BusSystemBase::on_deactivate(const rclcpp_lifecycle::State &)
 {
+  if (runtime_torque_control_) {torque_command_ = 0.0;}
   applied_torque_enabled_ = false;
   std::fill(velocities_.begin(), velocities_.end(), 0.0);
   const auto left = find_joint("left_wheel_joint");

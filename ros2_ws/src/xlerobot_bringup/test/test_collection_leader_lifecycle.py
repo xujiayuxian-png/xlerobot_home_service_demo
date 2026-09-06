@@ -4,12 +4,16 @@ from pathlib import Path
 import signal
 import subprocess
 import time
+import threading
 import xml.etree.ElementTree as ET
 
 from ament_index_python.packages import get_package_share_directory
 from builtin_interfaces.msg import Duration
 from control_msgs.action import FollowJointTrajectory
-from controller_manager_msgs.srv import ListControllers, SwitchController
+from controller_manager_msgs.srv import (
+    ListControllers, SwitchController, ListHardwareComponents,
+    SetHardwareComponentState, LoadController, UnloadController, ConfigureController,
+)
 import pytest
 import rclpy
 from rclpy.action import ActionClient
@@ -128,6 +132,55 @@ def test_leader_position_ownership_is_scoped_to_preparation(tmp_path, monkeypatc
             assert call(torque, SetBool.Request(data=False)).success
             assert controller_state()['leader_arm_controller'] == 'inactive'
             spin_until(lambda: abs(dict(zip(states[-1].name, states[-1].position))['leader_shoulder_pan'] - target) < .03)
+
+        # Reproduce the missing-feedback state without motor devices. Reset
+        # must rebuild the controllers and observe new samples, not just accept
+        # a torque service response from an inactive controller.
+        from xlerobot_commissioning.collection_node import CollectionNode
+        assert call(switch, SwitchController.Request(
+            deactivate_controllers=['leader_torque_controller', 'leader_joint_state_broadcaster'],
+            strictness=2, timeout=Duration(sec=2))).ok
+        hardware = node.create_client(SetHardwareComponentState, '/leader/controller_manager/set_hardware_component_state')
+        request = SetHardwareComponentState.Request(name='leader_bus_system')
+        request.target_state.id = 1
+        assert call(hardware, request).ok
+        recovery = object.__new__(CollectionNode)
+        recovery._state_lock = threading.Lock()
+        recovery._states = {'leader': {}}
+        recovery._state_received_at = {'leader': 0.0}
+        recovery._leader_passive_start = True
+        recovery._holding_leader = False
+        recovery._control_heartbeat_period_s = .2
+        recovery.torque = torque
+        recovery.leader_controllers = listing
+        recovery.leader_switch = switch
+        recovery.leader_hardware = hardware
+        for field, kind, service in (
+            ('leader_hardware_states', ListHardwareComponents, 'list_hardware_components'),
+            ('leader_load', LoadController, 'load_controller'),
+            ('leader_unload', UnloadController, 'unload_controller'),
+            ('leader_configure', ConfigureController, 'configure_controller'),
+        ):
+            setattr(recovery, field, node.create_client(kind, '/leader/controller_manager/' + service))
+        def observe(message):
+            with recovery._state_lock:
+                recovery._states['leader'] = dict(zip(message.name, message.position))
+                recovery._state_received_at['leader'] = time.monotonic()
+        node.create_subscription(JointState, '/leader/joint_states', observe, 10)
+        errors = []
+        def recover():
+            try:
+                recovery._recover_leader_passive()
+            except Exception as error:
+                errors.append(error)
+        worker = threading.Thread(target=recover, daemon=True)
+        worker.start()
+        spin_until(lambda: not worker.is_alive(), timeout=30)
+        assert not errors, errors
+        assert controller_state() == {
+            'leader_arm_controller': 'inactive',
+            'leader_torque_controller': 'active',
+            'leader_joint_state_broadcaster': 'active'}
     finally:
         if process is not None and process.poll() is None:
             process.send_signal(signal.SIGINT)

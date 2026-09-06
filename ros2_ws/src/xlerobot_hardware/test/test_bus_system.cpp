@@ -237,6 +237,24 @@ TEST(LeaderBusSystemTest, RuntimeTorqueKeepsLeaderStateOnItsOwnBus)
   EXPECT_NEAR(*states[0].get_optional<double>(), 0.05, 1e-12);
 }
 
+TEST(LeaderBusSystemTest, LifecycleRecoveryDiscardsOldTorqueLease)
+{
+  LeaderBusSystem system;
+  ASSERT_EQ(initialize(system, leader_info()), hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(system.on_configure(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(system.on_activate(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
+  auto commands = system.export_command_interfaces();
+  ASSERT_TRUE(commands.back().set_value(1.0));
+  ASSERT_EQ(system.on_deactivate(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
+  EXPECT_DOUBLE_EQ(*commands.back().get_optional<double>(), 0.0);
+  ASSERT_TRUE(commands.back().set_value(1.0));
+  ASSERT_EQ(system.on_configure(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
+  EXPECT_DOUBLE_EQ(*commands.back().get_optional<double>(), 0.0);
+  ASSERT_TRUE(commands.back().set_value(1.0));
+  ASSERT_EQ(system.on_activate(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
+  EXPECT_DOUBLE_EQ(*commands.back().get_optional<double>(), 0.0);
+}
+
 TEST(RightBusSystemTest, RealModeRequiresSecondHardwareEnableKey)
 {
   RightBusSystem system;

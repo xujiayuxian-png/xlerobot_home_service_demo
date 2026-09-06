@@ -11,6 +11,7 @@ from builtin_interfaces.msg import Duration
 from control_msgs.action import FollowJointTrajectory
 from controller_manager_msgs.srv import (
     ListControllers, SwitchController, SetHardwareComponentState, ListHardwareComponents,
+    LoadController, UnloadController, ConfigureController,
 )
 import rclpy
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
@@ -193,6 +194,18 @@ class CollectionNode(Node):
         self.hardware_states = self.create_client(
             ListHardwareComponents, '/controller_manager/list_hardware_components',
             callback_group=group)
+        self.leader_hardware_states = self.create_client(
+            ListHardwareComponents, '/leader/controller_manager/list_hardware_components',
+            callback_group=group)
+        self.leader_hardware = self.create_client(
+            SetHardwareComponentState, '/leader/controller_manager/set_hardware_component_state',
+            callback_group=group)
+        self.leader_load = self.create_client(
+            LoadController, '/leader/controller_manager/load_controller', callback_group=group)
+        self.leader_unload = self.create_client(
+            UnloadController, '/leader/controller_manager/unload_controller', callback_group=group)
+        self.leader_configure = self.create_client(
+            ConfigureController, '/leader/controller_manager/configure_controller', callback_group=group)
         self.create_service(Trigger, '/collect_episode/release_torque',
                             self.release_torque, callback_group=group)
         self.create_service(Trigger, '/collect_episode/reset', self.reset,
@@ -267,8 +280,7 @@ class CollectionNode(Node):
         errors = []
         try:
             self._holding_leader = False
-            for operation in (lambda: self._set_teleop(False),
-                              lambda: self._set_torque(False)):
+            for operation in (lambda: self._set_teleop(False),):
                 try:
                     operation()
                 except Exception as error:
@@ -277,9 +289,13 @@ class CollectionNode(Node):
                 leader = self._controller_states(self.leader_controllers)
                 if leader.get('leader_arm_controller') == 'active':
                     self._switch_leader(False)
-                elif leader.get('leader_arm_controller') != 'inactive':
+                elif leader.get('leader_arm_controller') not in (None, 'inactive', 'unconfigured'):
                     raise RuntimeError('Leader controller state is unknown')
                 self._leader_controller_owned = False
+            except Exception as error:
+                errors.append(str(error))
+            try:
+                self._release_leader_hardware()
             except Exception as error:
                 errors.append(str(error))
             try:
@@ -308,17 +324,36 @@ class CollectionNode(Node):
                 self._recovery_busy = False
         return response
 
+    def _release_leader_hardware(self):
+        with self._state_lock:
+            if not getattr(self, '_leader_passive_start', False):
+                raise RuntimeError('Leader passive hardware configuration is unconfirmed')
+        states = self._controller_states(self.leader_controllers)
+        active = [name for name in (
+            'leader_arm_controller', 'leader_torque_controller', 'leader_joint_state_broadcaster')
+            if states.get(name) == 'active']
+        if active:
+            result = self._service(self.leader_switch, SwitchController.Request(
+                deactivate_controllers=active, strictness=2, timeout=Duration(sec=3)))
+            if not result.ok:
+                raise RuntimeError('Leader controllers could not stop')
+        request = SetHardwareComponentState.Request(name='leader_bus_system')
+        request.target_state.id = 2
+        result = self._service(self.leader_hardware, request)
+        if not result.ok or result.state.id != 2:
+            raise RuntimeError('Leader hardware torque release is unconfirmed')
+
     def reset(self, _request, response):
         with self._session_lock:
             if self._goal_active or self._recovery_busy or not self._torque_released:
                 response.message = '请先释放扭矩，等待当前采集停止'
                 return response
             self._recovery_busy = True
+            self._reset_ready = False
         try:
             if self._cleanup_blocked:
                 raise RuntimeError('Child action cleanup is unconfirmed; restart collection runtime')
             self._set_teleop(False)
-            self._set_torque(False)
             if self._right_hardware_state() != 2:
                 raise RuntimeError('Follower torque release is unconfirmed; release again')
             states = self._controller_states(self.follower_controllers)
@@ -326,8 +361,7 @@ class CollectionNode(Node):
                     'right_arm_controller', 'right_gripper_controller',
                     'right_policy_controller', 'base_controller')):
                 raise RuntimeError('Follower controllers are not all inactive; release again')
-            if self._controller_states(self.leader_controllers).get('leader_arm_controller') != 'inactive':
-                raise RuntimeError('Leader controller is not inactive; release again')
+            self._recover_leader_passive()
             self._begin_requested.clear()
             self._finish_requested.clear()
             self._reset_ready = True
@@ -339,6 +373,68 @@ class CollectionNode(Node):
             with self._session_lock:
                 self._recovery_busy = False
         return response
+
+    def _recover_leader_passive(self):
+        """Restore feedback after a hardware error, never position ownership."""
+        with self._state_lock:
+            passive_start = getattr(self, '_leader_passive_start', False)
+        if not passive_start:
+            raise RuntimeError('Leader description must declare torque_enabled=false for passive recovery')
+        hardware = self._service(self.leader_hardware_states, ListHardwareComponents.Request())
+        state = next((c.state.id for c in hardware.component if c.name == 'leader_bus_system'), None)
+        controllers = self._controller_states(self.leader_controllers)
+        names = ('leader_arm_controller', 'leader_torque_controller', 'leader_joint_state_broadcaster')
+        if state not in (1, 2, 3):
+            raise RuntimeError(f'Leader hardware is unavailable (state={state}); check power/USB')
+        if controllers.get(names[0]) == 'active':
+            raise RuntimeError('Leader position controller is still active; release torque first')
+        self._holding_leader = False
+        if controllers.get('leader_torque_controller') == 'active':
+            self._set_torque(False)
+        if state != 3 or any(controllers.get(name) != 'active' for name in names[1:]):
+            active = [name for name in names if controllers.get(name) == 'active']
+            if active:
+                result = self._service(self.leader_switch, SwitchController.Request(
+                    deactivate_controllers=active, strictness=2, timeout=Duration(sec=3)))
+                if not result.ok:
+                    raise RuntimeError('Leader controller stop failed during recovery')
+            # A failed write cycle can leave an inactive torque controller with
+            # claimed interfaces. Reload through controller_manager, not serial.
+            for name in names:
+                if name in controllers:
+                    if not self._service(self.leader_unload, UnloadController.Request(name=name)).ok:
+                        raise RuntimeError(f'Could not unload {name}')
+            for target in (2, 3):
+                request = SetHardwareComponentState.Request(name='leader_bus_system')
+                request.target_state.id = target
+                result = self._service(self.leader_hardware, request)
+                if not result.ok or result.state.id != target:
+                    raise RuntimeError('Leader passive hardware recovery failed; check power/USB')
+            for name in names:
+                if not self._service(self.leader_load, LoadController.Request(name=name)).ok:
+                    raise RuntimeError(f'Could not load {name}')
+                if not self._service(self.leader_configure, ConfigureController.Request(name=name)).ok:
+                    raise RuntimeError(f'Could not configure {name}')
+            result = self._service(self.leader_switch, SwitchController.Request(
+                activate_controllers=list(names[1:]), strictness=2, timeout=Duration(sec=3)))
+            if not result.ok:
+                raise RuntimeError('Leader feedback/torque controller activation failed')
+        self._set_torque(False)
+        started = time.monotonic()
+        deadline = started + 3.0
+        while time.monotonic() < deadline:
+            with self._state_lock:
+                measured = dict(self._states['leader'])
+                received = self._state_received_at['leader']
+            if received > started and all(
+                    name in measured and math.isfinite(measured[name]) for name in LEADER_JOINTS):
+                controllers = self._controller_states(self.leader_controllers)
+                if (controllers.get(names[0]) == 'inactive'
+                        and all(controllers.get(name) == 'active' for name in names[1:])):
+                    return
+                raise RuntimeError('Leader controller recovery is unconfirmed')
+            time.sleep(0.02)
+        raise RuntimeError('Leader recovery received no fresh joint feedback; check power/USB')
 
     def _rearm_after_reset(self):
         if not getattr(self, '_torque_released', False):
@@ -483,6 +579,13 @@ class CollectionNode(Node):
             limits = {}
         with self._state_lock:
             self._leader_limits = limits
+            try:
+                hardware = root.find("./ros2_control[@name='leader_bus_system']/hardware")
+                self._leader_passive_start = (
+                    hardware.find("param[@name='torque_enabled']").text.strip().lower() == 'false'
+                    and hardware.find("param[@name='runtime_torque_control']").text.strip().lower() == 'true')
+            except (AttributeError, UnboundLocalError):
+                self._leader_passive_start = False
 
     def _validate_leader_positions(self, target=None):
         with self._state_lock:

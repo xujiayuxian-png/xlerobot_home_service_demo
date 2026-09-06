@@ -23,6 +23,8 @@ def recovery_node():
     node._set_torque = Mock()
     node._set_right_hardware = Mock()
     node._right_hardware_state = Mock(return_value=2)
+    node._recover_leader_passive = Mock()
+    node._release_leader_hardware = Mock()
     node._controller_states = Mock(return_value=dict.fromkeys([
         'leader_arm_controller', 'right_arm_controller', 'right_gripper_controller',
         'right_policy_controller', 'base_controller'], 'inactive'))
@@ -55,6 +57,15 @@ def test_release_refuses_to_race_live_goal():
     node._goal_active = True
     assert not node.release_torque(None, Trigger.Response()).success
     node._set_right_hardware.assert_not_called()
+
+
+def test_release_uses_hardware_confirmation_when_leader_controllers_are_missing():
+    node = recovery_node()
+    node._controller_states = lambda client: {}
+    result = node.release_torque(None, Trigger.Response())
+    assert result.success
+    node._release_leader_hardware.assert_called_once()
+    node._set_torque.assert_not_called()
 
 
 def test_release_attempts_hardware_off_even_if_teleop_service_fails():
@@ -121,3 +132,55 @@ def test_stale_follower_cannot_be_rearmed():
     with pytest.raises(RuntimeError, match='stale'):
         node._rearm_after_reset()
     node._set_right_hardware.assert_not_called()
+
+
+def test_reset_does_not_report_ready_if_leader_recovery_fails():
+    node = recovery_node()
+    node._torque_released = node._reset_ready = True
+    node._recover_leader_passive.side_effect = RuntimeError('no fresh feedback')
+    response = node.reset(None, Trigger.Response())
+    assert not response.success and 'no fresh feedback' in response.message
+    assert not node._reset_ready
+
+
+def test_passive_recovery_reloads_failed_controllers_and_requires_new_feedback():
+    from xlerobot_commissioning.collection_node import LEADER_JOINTS
+    node = recovery_node()
+    node._state_lock = threading.Lock()
+    node._leader_passive_start = True
+    node._states = {'leader': dict.fromkeys(LEADER_JOINTS, 0.0)}
+    node._state_received_at = {'leader': 0.0}
+    for name in ('leader_hardware_states', 'leader_hardware', 'leader_load',
+                 'leader_unload', 'leader_configure', 'leader_switch'):
+        setattr(node, name, object())
+    states = dict.fromkeys(('leader_arm_controller', 'leader_torque_controller',
+                           'leader_joint_state_broadcaster'), 'inactive')
+    node._controller_states = lambda client: dict(states)
+    events = []
+    timer = None
+    def service(client, request):
+        nonlocal timer
+        if client is node.leader_hardware_states:
+            return SimpleNamespace(component=[SimpleNamespace(
+                name='leader_bus_system', state=SimpleNamespace(id=1))])
+        if client is node.leader_hardware:
+            events.append(('hardware', request.target_state.id))
+            return SimpleNamespace(ok=True, state=request.target_state)
+        if client is node.leader_switch:
+            assert request.activate_controllers == ['leader_torque_controller', 'leader_joint_state_broadcaster']
+            for name in request.activate_controllers:
+                states[name] = 'active'
+            timer = threading.Timer(.05, lambda: node._state_received_at.update(leader=time.monotonic()))
+            timer.start()
+        else:
+            operation = ('unload' if client is node.leader_unload else
+                         'load' if client is node.leader_load else 'configure')
+            events.append((operation, request.name))
+        return SimpleNamespace(ok=True)
+    node._service = service
+    CollectionNode._recover_leader_passive(node)
+    timer.join()
+    assert [event for event in events if event[0] == 'hardware'] == [('hardware', 2), ('hardware', 3)]
+    assert len([event for event in events if event[0] == 'unload']) == 3
+    assert states['leader_arm_controller'] == 'inactive'
+    assert all(call.args == (False,) for call in node._set_torque.call_args_list)

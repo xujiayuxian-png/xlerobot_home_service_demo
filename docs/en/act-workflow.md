@@ -20,6 +20,10 @@ before torque release. The shared right-arm/base bus is deactivated; the head
 stays in position. Reset clears the session display without deleting recordings,
 enabling torque, or homing. Only the next **Start** reacquires the Follower from
 its measured pose and prepares the arms; the base controller stays disabled.
+Reset also restores a failed Leader bus and its controllers with torque off,
+then requires fresh feedback for all six joints. Its trajectory controller
+remains inactive. Torque release is confirmed through the hardware lifecycle,
+not merely a successful service response from an inactive torque controller.
 If a child action's termination cannot be confirmed, recovery reports the
 problem instead of clearing ownership blindly; restart the collection runtime.
 
