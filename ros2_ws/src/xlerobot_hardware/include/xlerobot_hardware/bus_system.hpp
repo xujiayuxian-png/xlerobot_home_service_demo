@@ -64,6 +64,7 @@ private:
   bool set_all_torque(bool enabled);
   bool disable_all_torque();
   bool validate_commands() const;
+  void reset_commands_to_hold();
   void disconnect();
   std::size_t find_joint(const std::string & name) const;
 

@@ -194,7 +194,7 @@ hardware_interface::CallbackReturn BusSystemBase::on_configure(const rclcpp_life
     positions_[i] = joints_[i].initial_position;
     previous_positions_[i] = positions_[i];
     velocities_[i] = 0.0;
-    commands_[i] = positions_[i];
+    commands_[i] = joints_[i].position_codec ? positions_[i] : 0.0;
   }
   if (mock_hardware_) {
     return hardware_interface::CallbackReturn::SUCCESS;
@@ -212,7 +212,7 @@ hardware_interface::CallbackReturn BusSystemBase::on_configure(const rclcpp_life
     disconnect();
     return hardware_interface::CallbackReturn::ERROR;
   }
-  commands_ = positions_;
+  reset_commands_to_hold();
   previous_positions_ = positions_;
   return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -220,7 +220,7 @@ hardware_interface::CallbackReturn BusSystemBase::on_configure(const rclcpp_life
 hardware_interface::CallbackReturn BusSystemBase::on_activate(const rclcpp_lifecycle::State &)
 {
   if (runtime_torque_control_) {torque_command_ = 0.0;}
-  commands_ = positions_;
+  reset_commands_to_hold();
   startup_position_pending_ = !validate_commands();
   if (startup_position_pending_) {
     RCLCPP_WARN(rclcpp::get_logger("xlerobot_hardware"),
@@ -371,10 +371,7 @@ hardware_interface::return_type BusSystemBase::write(
   if (startup_position_pending_) {
     // Never turn an out-of-range observation into a clamped motor target.
     // Discard queued commands while waiting, including wheel commands.
-    commands_ = positions_;
-    for (std::size_t i = 0; i < joints_.size(); ++i) {
-      if (!joints_[i].position_codec) {commands_[i] = 0.0;}
-    }
+    reset_commands_to_hold();
     if (!validate_commands()) {return hardware_interface::return_type::OK;}
     if (!mock_hardware_) {
       std::lock_guard<std::mutex> lock(bus_mutex_);
@@ -398,11 +395,11 @@ hardware_interface::return_type BusSystemBase::write(
       if (!set_all_torque(false)) {return hardware_interface::return_type::ERROR;}
     }
     applied_torque_enabled_ = false;
-    commands_ = positions_;
+    reset_commands_to_hold();
     return hardware_interface::return_type::OK;
   }
   if (runtime_torque_control_ && !applied_torque_enabled_) {
-    commands_ = positions_;
+    reset_commands_to_hold();
   }
   if (!validate_commands()) {
     if (!mock_hardware_) {
@@ -431,7 +428,7 @@ hardware_interface::return_type BusSystemBase::write(
         return hardware_interface::return_type::ERROR;
       }
       applied_torque_enabled_ = requested;
-      commands_ = positions_;
+      reset_commands_to_hold();
     }
     if (!applied_torque_enabled_) {
       return hardware_interface::return_type::OK;
@@ -529,7 +526,7 @@ bool BusSystemBase::parse_and_validate_joints()
   positions_.assign(joints_.size(), 0.0);
   previous_positions_ = positions_;
   velocities_ = positions_;
-  commands_ = positions_;
+  reset_commands_to_hold();
   return true;
 }
 
@@ -674,6 +671,16 @@ bool BusSystemBase::set_all_torque(bool enabled)
     ok = changed && ok;
   }
   return ok;
+}
+
+void BusSystemBase::reset_commands_to_hold()
+{
+  commands_.resize(positions_.size());
+  for (std::size_t i = 0; i < joints_.size(); ++i) {
+    // Arms hold measured POSITION. Wheels must hold zero VELOCITY, never
+    // their accumulated odometry. This also applies without a base controller.
+    commands_[i] = joints_[i].position_codec ? positions_[i] : 0.0;
+  }
 }
 
 bool BusSystemBase::validate_commands() const

@@ -197,6 +197,45 @@ TEST(LeftBusSystemTest, MockOwnsHeadAndLeftArmTogether)
   EXPECT_EQ(system.export_state_interfaces().size(), 16u);
 }
 
+TEST(RightBusSystemTest, ReactivationNeverTurnsWheelOdometryIntoVelocity)
+{
+  RightBusSystem system;
+  auto config = info(true, false);
+  config.hardware_parameters["torque_enabled"] = "true";
+  ASSERT_EQ(initialize(system, config), hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(system.on_configure(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(system.on_activate(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
+  auto commands = system.export_command_interfaces();
+  auto states = system.export_state_interfaces();
+  for (int attempt = 0; attempt < 3; ++attempt) {
+    // Represent ordinary earlier navigation / manually rolled wheel odometry.
+    ASSERT_TRUE(commands[0].set_value(1.2));
+    ASSERT_TRUE(commands[1].set_value(-0.7));
+    ASSERT_TRUE(commands[2].set_value(0.4));
+    ASSERT_EQ(system.read(rclcpp::Time(0), rclcpp::Duration::from_seconds(1.0)),
+      hardware_interface::return_type::OK);
+    const double left_position = *states[0].get_optional<double>();
+    const double right_position = *states[2].get_optional<double>();
+    const double arm_position = *states[4].get_optional<double>();
+    ASSERT_NE(left_position, 0.0);
+    ASSERT_NE(right_position, 0.0);
+    ASSERT_EQ(system.on_deactivate(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
+    // Exactly the collection Release -> Reset -> Start hardware transition.
+    ASSERT_EQ(system.on_activate(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
+    EXPECT_DOUBLE_EQ(*commands[0].get_optional<double>(), 0.0);
+    EXPECT_DOUBLE_EQ(*commands[1].get_optional<double>(), 0.0);
+    EXPECT_DOUBLE_EQ(*commands[2].get_optional<double>(), arm_position);
+    for (int cycle = 0; cycle < 5; ++cycle) {
+      ASSERT_EQ(system.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(.02)),
+        hardware_interface::return_type::OK);
+      ASSERT_EQ(system.read(rclcpp::Time(0), rclcpp::Duration::from_seconds(.02)),
+        hardware_interface::return_type::OK);
+    }
+    EXPECT_DOUBLE_EQ(*states[0].get_optional<double>(), left_position);
+    EXPECT_DOUBLE_EQ(*states[2].get_optional<double>(), right_position);
+  }
+}
+
 TEST(LeaderBusSystemTest, RuntimeTorqueKeepsLeaderStateOnItsOwnBus)
 {
   LeaderBusSystem system;
