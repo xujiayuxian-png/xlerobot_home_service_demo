@@ -1,5 +1,7 @@
 string dataset_id
 string episode_id
+# teleop_enabled starts sampling; recording_stopped freezes it without stopping
+# teleoperation. teleop_disabled remains accepted for previously recorded runs.
 string event
 ---
 CapabilityError error

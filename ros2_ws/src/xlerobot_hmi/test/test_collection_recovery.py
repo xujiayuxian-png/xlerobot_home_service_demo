@@ -1,5 +1,6 @@
 import asyncio
 import threading
+import json
 from types import SimpleNamespace
 
 from aiohttp import web
@@ -7,6 +8,18 @@ import pytest
 from std_srvs.srv import Trigger
 
 from xlerobot_hmi.operator_console import OperatorConsoleNode
+
+
+def test_collection_snapshot_reads_current_review_after_refresh(tmp_path):
+    node = object.__new__(OperatorConsoleNode)
+    node._collection_lock = threading.Lock()
+    node.artifact_root = tmp_path
+    node.active_collection = {'dataset_id': 'trial', 'episode_id': 'one', 'status': 'SUCCEEDED'}
+    path = tmp_path / 'datasets/trial/reviews/one.json'
+    path.parent.mkdir(parents=True)
+    for status in ('accepted', 'rejected'):
+        path.write_text(json.dumps({'status': status}))
+        assert node.collection_snapshot()['review_status'] == status
 
 
 @pytest.mark.parametrize('operation,success', [('release', True), ('reset', True), ('reset', False)])

@@ -13,6 +13,23 @@ const waiting = {
 } as CollectionState
 
 describe('two-stage collection controls', () => {
+  it('shows saved review and allows changing accepted to rejected', async () => {
+    const review = vi.spyOn(api, 'reviewEpisode').mockResolvedValue({ review_uri: 'file:///review.json' })
+    const onState = vi.fn()
+    const props = { initialDatasetId: 'trial', onState, onError: vi.fn() }
+    const complete: CollectionState = { ...waiting, status: 'SUCCEEDED', phase: 'REVIEW', episode_uri: 'file:///episode' }
+    const view = render(<CollectionWorkspace {...props} state={complete} />)
+    expect(screen.getByText('审核：待审核')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '接受' }))
+    await waitFor(() => expect(onState).toHaveBeenCalledWith({ ...complete, review_status: 'accepted' }))
+    view.rerender(<CollectionWorkspace {...props} state={{ ...complete, review_status: 'accepted' }} />)
+    expect(screen.getByText('审核：已接受')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '拒绝' }))
+    await waitFor(() => expect(review).toHaveBeenLastCalledWith('trial', 'episode-1', 'rejected'))
+    await waitFor(() => expect(onState).toHaveBeenLastCalledWith({ ...complete, review_status: 'rejected' }))
+    expect(screen.getByText(/已拒绝：后续转换会跳过/)).toBeTruthy()
+  })
+
   it('requires Reset after release and never starts preparation from Reset', async () => {
     const recover = vi.spyOn(api, 'recoverCollection').mockResolvedValue({
       message: 'torque off', collection: null,

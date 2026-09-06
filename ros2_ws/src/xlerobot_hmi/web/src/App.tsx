@@ -229,6 +229,11 @@ export function CollectionWorkspace({ state, initialDatasetId, onState, onError 
   const [recoveryPending, setRecoveryPending] = useState(false)
   const [recoveryMessage, setRecoveryMessage] = useState('')
   const [needsReset, setNeedsReset] = useState(false)
+  const [reviewPending, setReviewPending] = useState(false)
+  const [reviewMessage, setReviewMessage] = useState('')
+  const collectionStateRef = useRef(state)
+  collectionStateRef.current = state
+  useEffect(() => { setReviewMessage('') }, [state?.episode_id])
   const recover = async (operation: 'release' | 'reset') => {
     if (recoveryPending || startPending) return
     setRecoveryPending(true)
@@ -243,7 +248,7 @@ export function CollectionWorkspace({ state, initialDatasetId, onState, onError 
   }
   const running = state?.status === 'RUNNING'
   const abortable = running && ![
-    'STOPPING_TELEOP', 'FINALIZING', 'REVIEW',
+    'STOPPING_RECORDING', 'FINALIZING', 'REVIEW',
   ].includes(state?.phase || '')
   const start = async (dryRun: boolean) => {
     if (startPending || recoveryPending || needsReset) return
@@ -301,13 +306,20 @@ export function CollectionWorkspace({ state, initialDatasetId, onState, onError 
     return () => window.removeEventListener('keydown', keydown)
   })
   const review = async (status: 'accepted' | 'rejected') => {
-    if (!state) return
+    if (!state || reviewPending) return
+    const episode = state
+    setReviewPending(true)
     try {
-      const value = await api.reviewEpisode(
+      await api.reviewEpisode(
         state.dataset_id, state.episode_id, status,
       )
-      onError(`${status === 'accepted' ? '已接受' : '已拒绝'}：${value.review_uri}`)
-    } catch (reason) { onError(String(reason)) }
+      const current = collectionStateRef.current
+      if (!current || current.dataset_id !== episode.dataset_id || current.episode_id !== episode.episode_id) return
+      onState({ ...current, review_status: status })
+      setReviewMessage(status === 'accepted' ? '已接受：后续转换会选入此条数据。' : '已拒绝：后续转换会跳过此条，原始录制保留。')
+      onError('')
+    } catch (reason) { setReviewMessage(`审核保存失败：${String(reason)}`) }
+    finally { setReviewPending(false) }
   }
   return <section className="engineering-card collection-card">
     <p className="section-label">FOLLOWER NEXT-STATE · NPZ + DUAL MP4</p>
@@ -322,7 +334,8 @@ export function CollectionWorkspace({ state, initialDatasetId, onState, onError 
       <figure><img src="/api/v1/cameras/wrist/stream" alt="右腕相机实时预览" />
         <figcaption>WRIST · RIGHT ARM</figcaption></figure>
     </div>
-    <div className="field-row"><input value={datasetId} disabled={running || startPending} onChange={event => setDatasetId(event.target.value)} placeholder="Dataset ID" />
+    <p className="hint">数据集名称：多条采样共用一个名称。每次开始会自动生成独立的采样编号。</p>
+    <div className="field-row"><input aria-label="数据集名称" value={datasetId} disabled={running || startPending || reviewPending} onChange={event => setDatasetId(event.target.value)} placeholder="Dataset ID" />
       <input value={objectId} disabled={running || startPending} onChange={event => {
         setObjectId(event.target.value)
         setInstruction(`抓住${event.target.value}`)
@@ -330,12 +343,12 @@ export function CollectionWorkspace({ state, initialDatasetId, onState, onError 
     <label>语言指令<input value={instruction} disabled={running || startPending} onChange={event => setInstruction(event.target.value)} /></label>
     <label>最长时长 {duration}s<input disabled={running || startPending} type="range" min="5" max="120" value={duration}
       onChange={event => setDuration(Number(event.target.value))} /></label>
-    {!running && <div className="field-row"><button disabled={startPending || recoveryPending || needsReset} onClick={() => start(true)}>状态机 dry-run</button>
-      <button disabled={startPending || recoveryPending || needsReset} className="primary" onClick={() => start(false)}>开始 / 准备 pregrasp</button></div>}
+    {!running && <div className="field-row"><button disabled={startPending || recoveryPending || needsReset || reviewPending} onClick={() => start(true)}>状态机 dry-run</button>
+      <button disabled={startPending || recoveryPending || needsReset || reviewPending} className="primary" onClick={() => start(false)}>开始 / 准备 pregrasp</button></div>}
     <div className="field-row">
       <button className="danger" disabled={startPending || recoveryPending}
         onClick={() => recover('release')}>释放主从臂扭矩</button>
-      <button disabled={running || startPending || recoveryPending}
+      <button disabled={running || startPending || recoveryPending || reviewPending}
         onClick={() => recover('reset')}>Reset / 重置状态</button>
     </div>
     <p className="hint">异常恢复：先托住主从臂 → 释放扭矩（中止当前条，保留 incomplete）→ 手动摆好 → Reset → 开始。Reset 不上力、不回位、不删除数据；释放时底盘一并停用，头部保持。</p>
@@ -354,12 +367,17 @@ export function CollectionWorkspace({ state, initialDatasetId, onState, onError 
         Abort / 中止并保留 incomplete
       </button>
     </div>}
+    {state && <p>本条采样：{state.episode_id}</p>}
     {state && <div className="collection-progress"><strong>{state.phase}</strong>
       <progress max="1" value={state.progress} /><span>{state.frame_count} frames · {state.elapsed_s.toFixed(1)}s · {state.message}</span></div>}
     {state?.status === 'SUCCEEDED' && !state.dry_run && state.episode_uri &&
       <div className="field-row">
-      <button onClick={() => review('accepted')}>接受</button>
-      <button onClick={() => review('rejected')}>拒绝</button></div>}
+      <span>审核：{state.review_status === 'accepted' ? '已接受' : state.review_status === 'rejected' ? '已拒绝' : '待审核'}</span>
+      <button disabled={reviewPending || startPending || recoveryPending} aria-pressed={state.review_status === 'accepted'} onClick={() => review('accepted')}>接受</button>
+      <button disabled={reviewPending || startPending || recoveryPending} aria-pressed={state.review_status === 'rejected'} onClick={() => review('rejected')}>拒绝</button></div>}
+    {reviewPending && <p role="status">正在保存审核…</p>}
+    {reviewMessage && <p role="status">{reviewMessage}</p>}
+    <p className="hint">End 只结束录制，遥操继续，可放下物品并手动归位；这些动作不进入已保存数据。下一次开始会结束当前遥操并准备新的 pregrasp。释放扭矩按钮会停止遥操。</p>
     <p className="hint">开始：主从臂准备到 pregrasp 后保持上力（通用手动仅主臂对齐从臂）。等待 Home：托住主臂后点击或按键盘 Home；数据就绪后交接到遥操，显示 RECORDING 再示教。End 结束并保存到本机，不会上传。输入框内不响应快捷键。等待超过 60 秒将中止本条。</p>
   </section>
 }

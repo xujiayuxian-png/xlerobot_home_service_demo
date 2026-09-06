@@ -63,6 +63,7 @@ export interface NamedPlace {
 }
 
 export interface CollectionState {
+  review_status?: 'accepted' | 'rejected'
   dataset_id: string
   episode_id: string
   template_id: 'pick' | 'manual'

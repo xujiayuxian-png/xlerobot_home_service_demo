@@ -104,6 +104,10 @@ class EpisodeWriter:
         self.manifest['teleop_disabled_at'] = datetime.now(timezone.utc).isoformat()
         self._write_manifest()
 
+    def mark_recording_stopped(self) -> None:
+        self.manifest['recording_stopped_at'] = datetime.now(timezone.utc).isoformat()
+        self._write_manifest()
+
     def append(self, state, images: dict[str, np.ndarray], timestamp: float) -> None:
         state = np.asarray(state, dtype=np.float64)
         if state.shape != (len(JOINT_NAMES),) or not np.isfinite(state).all():
@@ -144,7 +148,7 @@ class EpisodeWriter:
         if not self.manifest.get('teleop_enabled_at'):
             self.abort('teleop enable boundary is missing')
             raise RuntimeError('teleop enable boundary is missing')
-        if not self.manifest.get('teleop_disabled_at'):
+        if not (self.manifest.get('recording_stopped_at') or self.manifest.get('teleop_disabled_at')):
             self.abort('teleop disable boundary is missing')
             raise RuntimeError('teleop disable boundary is missing')
         if not self.states:
@@ -220,7 +224,9 @@ def validate_episode(path: Path) -> dict:
         raise ValueError('episode is not a complete xlerobot_raw_episode/v1')
     if manifest.get('action_semantics') != 'follower_next_state':
         raise ValueError('episode action semantics do not match the ACT baseline')
-    for boundary in ('teleop_enabled_at', 'teleop_disabled_at'):
+    stop_boundary = ('recording_stopped_at' if manifest.get('recording_stopped_at')
+                     else 'teleop_disabled_at')
+    for boundary in ('teleop_enabled_at', stop_boundary):
         if not isinstance(manifest.get(boundary), str) or not manifest[boundary]:
             raise ValueError(f'episode is missing {boundary}')
     with np.load(path / 'data.npz') as data:

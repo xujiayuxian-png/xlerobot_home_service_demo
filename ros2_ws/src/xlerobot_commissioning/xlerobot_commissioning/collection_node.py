@@ -34,7 +34,7 @@ from xlerobot_interfaces.srv import BeginEpisode, FinalizeEpisode, MarkEpisodeEv
 PHASES = (
     'PREFLIGHT', 'DETECT_OBJECT', 'RECORDER_ADMISSION',
     'PREPARE_PREGRASP', 'ALIGN_LEADER', 'WAITING_HOME', 'STARTING_RECORDING', 'RECORDING',
-    'STOPPING_TELEOP', 'FINALIZING', 'REVIEW',
+    'STOPPING_RECORDING', 'FINALIZING', 'REVIEW',
 )
 TARGET_JOINTS = (
     'right_arm_shoulder_pan', 'right_arm_shoulder_lift',
@@ -118,6 +118,8 @@ class CollectionNode(Node):
         self._recovery_busy = False
         self._torque_released = False
         self._reset_ready = False
+        self._post_recording_teleop = False
+        self._stop_idle_teleop_on_start = False
         self._joint_state_timeout_s = float(
             self.declare_parameter('joint_state_timeout_s', 0.5).value
         )
@@ -227,6 +229,19 @@ class CollectionNode(Node):
             goal_callback=self.goal, cancel_callback=self.cancel,
             callback_group=group,
         )
+        self.create_timer(self._control_heartbeat_period_s, self._idle_teleop_heartbeat,
+                          callback_group=group)
+
+    def _idle_teleop_heartbeat(self):
+        # Ownership outlives one recording, but not an explicit stop/new Start.
+        with self._session_lock:
+            if not getattr(self, '_post_recording_teleop', False):
+                return
+            try:
+                self._set_teleop(True)
+            except Exception as error:
+                self._post_recording_teleop = False
+                self.get_logger().error(f'Post-recording teleop stopped: {error}')
 
     def goal(self, goal):
         if goal.template_id not in {'pick', 'manual'}:
@@ -253,6 +268,9 @@ class CollectionNode(Node):
                         and not self._reset_ready)):
                 return GoalResponse.REJECT
             self._goal_active = True
+            if not goal.dry_run and getattr(self, '_post_recording_teleop', False):
+                self._post_recording_teleop = False
+                self._stop_idle_teleop_on_start = True
         return GoalResponse.ACCEPT
 
     def _right_hardware_state(self):
@@ -277,6 +295,7 @@ class CollectionNode(Node):
             self._recovery_busy = True
             self._torque_released = True
             self._reset_ready = False
+            self._post_recording_teleop = False
         errors = []
         try:
             self._holding_leader = False
@@ -464,7 +483,7 @@ class CollectionNode(Node):
         with self._session_lock:
             if (
                 not self._goal_active
-                or self._phase in {'STOPPING_TELEOP', 'FINALIZING', 'REVIEW'}
+                or self._phase in {'STOPPING_RECORDING', 'FINALIZING', 'REVIEW'}
             ):
                 return CancelResponse.REJECT
         return CancelResponse.ACCEPT
@@ -504,7 +523,7 @@ class CollectionNode(Node):
                 response.error.code = CapabilityError.NONE
                 response.error.message = 'graceful finalization already requested'
                 return response
-            if self._phase in {'STOPPING_TELEOP', 'FINALIZING', 'REVIEW'}:
+            if self._phase in {'STOPPING_RECORDING', 'FINALIZING', 'REVIEW'}:
                 response.error.code = CapabilityError.NONE
                 response.error.message = 'graceful finalization is already in progress'
                 return response
@@ -1191,6 +1210,8 @@ class CollectionNode(Node):
     ) -> list[str]:
         """Release locally owned controls and report every unconfirmed release."""
         errors = []
+        with self._session_lock:
+            self._post_recording_teleop = False
         if teleop_enabled:
             try:
                 self._set_teleop(False)
@@ -1238,6 +1259,9 @@ class CollectionNode(Node):
                 handle.succeed()
                 return result
 
+            if getattr(self, '_stop_idle_teleop_on_start', False):
+                self._set_teleop(False)
+                self._stop_idle_teleop_on_start = False
             self._rearm_after_reset()
             self._preflight(goal)
             self._raise_if_canceled(handle)
@@ -1475,19 +1499,18 @@ class CollectionNode(Node):
                 time.sleep(0.1)
 
             self._feedback(
-                handle, 'STOPPING_TELEOP', 0.86,
-                'holding Follower before recorder stop',
+                handle, 'STOPPING_RECORDING', 0.86,
+                'stopping recording; teleoperation remains enabled',
             )
-            self._set_teleop(False)
-            teleop_enabled = False
-            self._wait_follower_stopped(handle)
+            with self._session_lock:
+                self._post_recording_teleop = True
             self._raise_if_canceled(handle)
             stop_event = self._service(
                 self.episode_event,
                 MarkEpisodeEvent.Request(
                     dataset_id=goal.dataset_id,
                     episode_id=goal.episode_id,
-                    event='teleop_disabled',
+                    event='recording_stopped',
                 ),
             )
             if stop_event.error.code != CapabilityError.NONE:
@@ -1550,8 +1573,8 @@ class CollectionNode(Node):
             result.episode_uri = recorded.episode_uri
             result.quality_passed = True
             result.error.code = CapabilityError.NONE
-            result.error.message = 'episode ready for review'
-            self._feedback(handle, 'REVIEW', 1.0, 'immutable episode finalized')
+            result.error.message = '已保存；可继续遥操放下物品并归位，不再录制。可审核或开始下一条。'
+            self._feedback(handle, 'REVIEW', 1.0, result.error.message)
             handle.succeed()
         except CollectionCanceled:
             cleanup_errors = self._release_controls(

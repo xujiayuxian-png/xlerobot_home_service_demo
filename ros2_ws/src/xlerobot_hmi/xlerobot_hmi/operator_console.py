@@ -1492,7 +1492,17 @@ class OperatorConsoleNode(Node):
 
     def collection_snapshot(self) -> dict[str, Any] | None:
         with self._collection_lock:
-            return dict(self.active_collection) if self.active_collection else None
+            state = dict(self.active_collection) if self.active_collection else None
+        if state and state.get('status') == 'SUCCEEDED' and hasattr(self, 'artifact_root'):
+            path = (self.artifact_root / 'datasets' / state['dataset_id'] /
+                    'reviews' / (state['episode_id'] + '.json'))
+            try:
+                review = json.loads(path.read_text(encoding='utf-8'))
+                if review.get('status') in {'accepted', 'rejected'}:
+                    state['review_status'] = review['status']
+            except (OSError, ValueError, AttributeError):
+                pass
+        return state
 
     async def submit_collection(self, goal: CollectEpisode.Goal) -> dict[str, Any]:
         with self._collection_lock:
@@ -3276,7 +3286,10 @@ class ConsoleApplication:
             'episode_id': message.episode_id,
             'status': message.status,
         })
-        return web.json_response({'review_uri': response.review_uri})
+        snapshot = self.node.collection_snapshot()
+        self.node.events.publish('collection', snapshot)
+        return web.json_response({'review_uri': response.review_uri,
+                                  'review_status': message.status})
 
     async def _call_service(self, client, request, timeout_s: float):
         if not await _wait_until_ready(client.service_is_ready, 2.0):

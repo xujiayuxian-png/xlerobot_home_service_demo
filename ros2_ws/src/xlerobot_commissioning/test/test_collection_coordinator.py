@@ -251,7 +251,7 @@ def coordinator(events):
                 events.append('recorder_start')
                 node.recorder.emit_first_sample()
             else:
-                assert _request.event == 'teleop_disabled'
+                assert _request.event == 'recording_stopped'
                 events.append('recorder_stop')
             return response
         assert client is node.finalize
@@ -266,7 +266,7 @@ def coordinator(events):
     return node
 
 
-def test_manual_end_disables_teleop_then_finalizes_and_succeeds(monkeypatch):
+def test_manual_end_keeps_teleop_and_finalizes_recording(monkeypatch):
     monkeypatch.setattr(collection_node.time, 'sleep', lambda _seconds: None)
     events = []
     node = coordinator(events)
@@ -279,15 +279,51 @@ def test_manual_end_disables_teleop_then_finalizes_and_succeeds(monkeypatch):
     assert events.index('recorder_admitted') < events.index('torque_on')
     assert events.index('recorder_start') < events.index('teleop_on')
     assert events.index('recorder_first_sample') < events.index('teleop_on')
-    assert events.index('teleop_off') < events.index('recorder_finalize')
-    assert events.index('teleop_off') < events.index('recorder_stop')
-    assert events.index('teleop_off') < events.index('follower_stopped') < events.index('recorder_stop')
+    assert 'teleop_off' not in events[events.index('teleop_on'):]
+    assert 'follower_stopped' not in events
+    assert node._post_recording_teleop
+    before = list(events)
+    for _ in range(5):
+        node._idle_teleop_heartbeat()
+    assert events[len(before):] == ['teleop_on'] * 5
     assert events.index('recorder_stop') < events.index('recorder_finalize')
     assert events.index('recorder_finalize') < events.index('action_succeeded')
     assert 'recorder_cancel' not in events
     assert 'finish_response:0' in events
     assert node.recorder.goal.max_duration.sec == 73
     assert node.recorder.goal.max_duration.nanosec == 0
+
+
+def test_idle_teleop_failure_stops_renewals_without_silent_resume():
+    events = []
+    node = coordinator(events)
+    node._post_recording_teleop = True
+    def fail(_enabled):
+        raise RuntimeError('stale Leader')
+    node._set_teleop = fail
+    node.get_logger = lambda: SimpleNamespace(error=lambda text: events.append(text))
+    node._idle_teleop_heartbeat()
+    assert not node._post_recording_teleop
+    node._set_teleop = lambda value: events.append('unexpected resume')
+    node._idle_teleop_heartbeat()
+    assert events == ['Post-recording teleop stopped: stale Leader']
+
+
+def test_next_start_transfers_post_recording_teleop_before_preparation(monkeypatch):
+    monkeypatch.setattr(collection_node.time, 'sleep', lambda _seconds: None)
+    events = []
+    node = coordinator(events)
+    node._goal_active = False
+    node._post_recording_teleop = True
+    handle = CollectionHandle(node, events, ending='finish')
+    assert node.goal(handle.request) == collection_node.GoalResponse.ACCEPT
+    assert not node._post_recording_teleop
+    node._idle_teleop_heartbeat()
+    assert not events
+    result = node.execute(handle)
+    assert result.error.code == CapabilityError.NONE
+    assert events.index('teleop_off') < events.index('torque_on')
+    assert node._post_recording_teleop
 
 
 def test_prepared_session_does_not_release_or_record_until_home():
@@ -402,7 +438,7 @@ def test_stop_marker_failure_cancels_incomplete_before_finalize(monkeypatch):
     def fail_stop_marker(client, request, timeout=5.0):
         if (
             client is node.episode_event
-            and request.event == 'teleop_disabled'
+            and request.event == 'recording_stopped'
         ):
             events.append('recorder_stop_failed')
             response = MarkEpisodeEvent.Response()
@@ -418,7 +454,7 @@ def test_stop_marker_failure_cancels_incomplete_before_finalize(monkeypatch):
 
     assert result.error.code == CapabilityError.BACKEND_FAILURE
     assert 'stop marker persistence failed' in result.error.message
-    assert events.index('teleop_off') < events.index('recorder_stop_failed')
+    assert events.index('recorder_stop_failed') < events.index('teleop_off')
     assert events.index('recorder_stop_failed') < events.index(
         'recorder_cancel'
     )
@@ -1338,7 +1374,7 @@ def test_progress_counts_recorder_frames_not_leader_messages(monkeypatch):
     frames = []
 
     def feedback(message):
-        if message.state.phase in ('RECORDING', 'STOPPING_TELEOP', 'REVIEW'):
+        if message.state.phase in ('RECORDING', 'STOPPING_RECORDING', 'REVIEW'):
             frames.append(message.frame_count)
         normal(message)
 

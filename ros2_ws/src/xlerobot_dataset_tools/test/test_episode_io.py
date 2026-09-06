@@ -2,6 +2,7 @@ import json
 
 import cv2
 import numpy as np
+import pytest
 
 from xlerobot_dataset_tools.episode_io import EpisodeWriter, validate_episode
 
@@ -10,7 +11,8 @@ def frame(value: int) -> np.ndarray:
     return np.full((480, 640, 3), value, dtype=np.uint8)
 
 
-def test_writer_preserves_follower_next_state_and_atomically_publishes(tmp_path):
+@pytest.mark.parametrize('stop_event', ['teleop_disabled', 'recording_stopped'])
+def test_writer_preserves_follower_next_state_and_atomically_publishes(tmp_path, stop_event):
     writer = EpisodeWriter(
         tmp_path, 'episode-001', instruction='抓住羽毛球', object_label='羽毛球',
         profile_id='two_wheel_pick', revision='test', unit_id='robot-1',
@@ -21,7 +23,7 @@ def test_writer_preserves_follower_next_state_and_atomically_publishes(tmp_path)
     writer.append(np.arange(6), {'head': frame(10), 'wrist': frame(20)}, 0.0)
     writer.append(np.arange(6) + 1, {'head': frame(11), 'wrist': frame(21)}, 1 / 30)
     writer.append(np.arange(6) + 2, {'head': frame(12), 'wrist': frame(22)}, 2 / 30)
-    writer.mark_teleop_disabled()
+    getattr(writer, 'mark_' + stop_event)()
     output = writer.finish('user')
     assert output == tmp_path / 'episode-001'
     assert not list(tmp_path.glob('.incomplete-*'))
@@ -34,7 +36,9 @@ def test_writer_preserves_follower_next_state_and_atomically_publishes(tmp_path)
     assert manifest['frame_count'] == 2
     assert manifest['action_semantics'] == 'follower_next_state'
     assert manifest['teleop_enabled_at']
-    assert manifest['teleop_disabled_at']
+    assert manifest[stop_event + '_at']
+    if stop_event == 'recording_stopped':
+        assert not manifest['teleop_disabled_at']
     for name in ('head', 'wrist'):
         capture = cv2.VideoCapture(str(output / 'videos' / f'{name}.mp4'))
         assert round(capture.get(cv2.CAP_PROP_FRAME_COUNT)) == 2

@@ -38,10 +38,11 @@ def test_review_contract_is_dataset_scoped_and_idempotent(tmp_path, monkeypatch)
     assert sidecar.read_bytes() == first_bytes
 
     request.notes = 'changed'
+    request.status = 'rejected'
     changed = ReviewNode.review(node, request, ReviewEpisode.Response())
-    assert changed.error.code == CapabilityError.INVALID_GOAL
-    assert 'immutable' in changed.error.message
-    assert sidecar.read_bytes() == first_bytes
+    assert changed.error.code == CapabilityError.NONE
+    assert json.loads(sidecar.read_text())['status'] == 'rejected'
+    assert manifest.read_text() == '{}\n'
 
 
 def test_review_rejects_incomplete_or_invalid_raw_episode(tmp_path):

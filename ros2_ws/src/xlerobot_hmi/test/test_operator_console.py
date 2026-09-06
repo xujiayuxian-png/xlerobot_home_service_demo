@@ -1560,11 +1560,13 @@ def test_review_uses_active_dataset_and_completed_real_episode():
                 'episode_uri': 'file:///raw/episode-001',
             },
             review_client=client,
+            events=SimpleNamespace(publish=lambda *items: None),
             history=SimpleNamespace(audit=lambda *items: audits.append(items)),
         )
         response = await ConsoleApplication(node).review_episode(Request())
         assert json.loads(response.text) == {
             'review_uri': 'file:///reviews/episode-001.json',
+            'review_status': 'accepted',
         }
         assert len(client.requests) == 1
         message = client.requests[0]

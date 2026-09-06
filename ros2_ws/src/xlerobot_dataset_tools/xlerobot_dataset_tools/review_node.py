@@ -54,14 +54,11 @@ class ReviewNode(Node):
                 comparable = {
                     key: existing.get(key) for key in requested
                 } if isinstance(existing, dict) else {}
-                if comparable != requested:
-                    raise ValueError(
-                        'episode review is immutable and already differs'
-                    )
-                response.error.code = CapabilityError.NONE
-                response.error.message = 'identical episode review already exists'
-                response.review_uri = path.as_uri()
-                return response
+                if comparable == requested:
+                    response.error.code = CapabilityError.NONE
+                    response.error.message = 'identical episode review already exists'
+                    response.review_uri = path.as_uri()
+                    return response
             document = {
                 **requested,
                 'reviewed_at': datetime.now(timezone.utc).isoformat(),

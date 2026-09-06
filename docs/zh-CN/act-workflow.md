@@ -69,9 +69,12 @@ episode；原始录制不进入 Git。
    注意：准备失败、取消或超时会退出流程并释放主臂扭矩，不等同于到位等待。
    若提示主臂未到位，错误信息会列出具体关节的目标、实测值和误差；不要强行开始遥操。
 5. 完成后点击 **End / 结束并保存到本机**（也可按键盘 End）；达到最长时长也会正常结束。
-   系统先停止随动并确认从臂停止，再保存双相机视频和关节数据，不会上传。
+   系统只停止录制，继续随动；可遥操放下物品并归位，这些动作不进入已保存数据。
+   双相机视频和关节数据保存在本机，不会上传。下一次开始会先停止当前遥操再准备
+   pregrasp；释放扭矩也会停止遥操。两条采样之间仍检查反馈和遥操心跳。
 6. 等待保存成功，选择 **接受** 或 **拒绝**。只有接受的 episode 进入转换；拒绝
-   不删除原始文件。再次点击“开始”会准备新的一条，不覆盖上一条。
+   不删除原始文件。按钮旁显示当前审核结果，允许改选，只替换审核标签、不改原始数据。
+   再次点击“开始”会准备新的一条，不覆盖上一条。
 
 **Abort** 用于中止异常采集，会保留 incomplete，不要用它代替正常结束。
 **状态机 dry-run** 只验证状态流程，不录制数据，也不证明相机或机械臂已准备好。
@@ -84,16 +87,20 @@ Home/End 快捷键仅在对应阶段生效，输入框内和长按重复不触�
 
 ## 转换与训练
 
-采集端会在 `data.dataset_root` 下写入 `raw/` 和不可变 `reviews/`。先在
+采集端会在 `data.dataset_root` 下写入不可变 `raw/` 和可改选的 `reviews/`。先在
 `config/local.yaml` 中填写 `transfer` 的 SSH 目标，再通过 Robot Web
 UI 完成审核后，把整个数据集目录传到 GPU 的同一仓库相对路径。以示例配置为例（先替换
 文档地址）：
 
 ```bash
 # Robot 端；--ignore-existing 防止重跑时替换已有 episode。
-rsync -a --checksum --ignore-existing \
+rsync -a --checksum --ignore-existing --exclude reviews/ \
   .xlerobot/artifacts/datasets/xlerobot-glue-stick-grasp-30/ \
   operator@192.0.2.10:xlerobot_home_service_demo/.xlerobot/artifacts/datasets/xlerobot-glue-stick-grasp-30/
+# 单独同步改选后的审核标签，不覆盖原始 episode。
+rsync -a --checksum \
+  .xlerobot/artifacts/datasets/xlerobot-glue-stick-grasp-30/reviews/ \
+  operator@192.0.2.10:xlerobot_home_service_demo/.xlerobot/artifacts/datasets/xlerobot-glue-stick-grasp-30/reviews/
 ```
 
 然后在 GPU 端执行：

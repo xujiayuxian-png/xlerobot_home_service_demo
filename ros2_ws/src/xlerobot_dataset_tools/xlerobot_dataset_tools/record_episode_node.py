@@ -258,10 +258,10 @@ class RecordEpisodeNode(Node):
                 response.error.code = CapabilityError.NOT_FOUND
                 response.error.message = 'episode is not recording'
                 return response
-            if not self.writer.manifest.get('teleop_disabled_at'):
+            if not (self.writer.manifest.get('recording_stopped_at') or self.writer.manifest.get('teleop_disabled_at')):
                 response.error.code = CapabilityError.INVALID_GOAL
                 response.error.message = (
-                    'teleoperation must be confirmed disabled before finalization'
+                    'recording stop boundary is required before finalization'
                 )
                 return response
             self.armed = False
@@ -281,7 +281,7 @@ class RecordEpisodeNode(Node):
                 response.error.code = CapabilityError.NOT_FOUND
                 response.error.message = 'episode is not recording'
                 return response
-            if request.event not in {'teleop_enabled', 'teleop_disabled'}:
+            if request.event not in {'teleop_enabled', 'teleop_disabled', 'recording_stopped'}:
                 response.error.code = CapabilityError.INVALID_GOAL
                 response.error.message = 'unsupported episode event'
                 return response
@@ -300,8 +300,8 @@ class RecordEpisodeNode(Node):
                 response.error.code = CapabilityError.NONE
                 response.error.message = 'episode recording is already enabled'
                 return response
-            if request.event == 'teleop_disabled':
-                if self.writer.manifest.get('teleop_disabled_at'):
+            if request.event in {'teleop_disabled', 'recording_stopped'}:
+                if self.writer.manifest.get('recording_stopped_at') or self.writer.manifest.get('teleop_disabled_at'):
                     response.recorded_at = self.get_clock().now().to_msg()
                     response.error.code = CapabilityError.NONE
                     response.error.message = (
@@ -326,7 +326,13 @@ class RecordEpisodeNode(Node):
                                 'disable boundary'
                             )
                             return response
-                        self.writer.mark_teleop_disabled()
+                        if request.event == 'recording_stopped':
+                            self.writer.mark_recording_stopped()
+                        else:
+                            self.writer.mark_teleop_disabled()
+                        # Freeze sampling before releasing the I/O lock: a
+                        # sample already queued for append must not cross End.
+                        self.armed = False
                 except Exception as error:
                     response.error.code = CapabilityError.BACKEND_FAILURE
                     response.error.message = (
@@ -343,7 +349,7 @@ class RecordEpisodeNode(Node):
                     'teleoperation disable boundary recorded'
                 )
                 return response
-            if self.writer.manifest.get('teleop_disabled_at'):
+            if self.writer.manifest.get('recording_stopped_at') or self.writer.manifest.get('teleop_disabled_at'):
                 response.error.code = CapabilityError.INVALID_GOAL
                 response.error.message = (
                     'recording cannot restart after teleoperation was disabled'
@@ -553,7 +559,7 @@ class RecordEpisodeNode(Node):
                     raise RuntimeError(
                         'teleop_enabled event is missing; incomplete data retained'
                     )
-                if not writer.manifest.get('teleop_disabled_at'):
+                if not (writer.manifest.get('recording_stopped_at') or writer.manifest.get('teleop_disabled_at')):
                     raise RuntimeError(
                         'teleop_disabled event is missing; incomplete data retained'
                     )

@@ -1,6 +1,7 @@
 import threading
 import time
 from types import SimpleNamespace
+import pytest
 
 from rclpy.action import CancelResponse, GoalResponse
 
@@ -38,6 +39,9 @@ class FakeWriter:
 
     def mark_teleop_disabled(self):
         self.manifest['teleop_disabled_at'] = 'test'
+
+    def mark_recording_stopped(self):
+        self.manifest['recording_stopped_at'] = 'test'
 
     def finish(self, reason):
         self.finished.append(reason)
@@ -298,7 +302,8 @@ def test_start_event_rejects_stale_input_without_arming():
     assert node.writer.manifest['teleop_enabled_at'] == ''
 
 
-def test_disable_event_stops_sampling_and_allows_scoped_finalize():
+@pytest.mark.parametrize('event', ['teleop_disabled', 'recording_stopped'])
+def test_disable_event_stops_sampling_and_allows_scoped_finalize(event):
     now = time.monotonic()
     node = recorder_state(now)
     node.active = True
@@ -316,7 +321,7 @@ def test_disable_event_stops_sampling_and_allows_scoped_finalize():
         MarkEpisodeEvent.Request(
             dataset_id='dataset-001',
             episode_id='episode-001',
-            event='teleop_disabled',
+            event=event,
         ),
         MarkEpisodeEvent.Response(),
     )
@@ -324,7 +329,10 @@ def test_disable_event_stops_sampling_and_allows_scoped_finalize():
     assert boundary.error.code == CapabilityError.NONE
     assert node.armed is False
     assert not node.stop.is_set()
-    assert node.writer.manifest['teleop_disabled_at'] == 'test'
+    assert node.writer.manifest[event + '_at'] == 'test'
+    for _ in range(5):
+        node._sample()
+    assert not node.writer.appended
 
     finalized = RecordEpisodeNode.finalize(
         node,

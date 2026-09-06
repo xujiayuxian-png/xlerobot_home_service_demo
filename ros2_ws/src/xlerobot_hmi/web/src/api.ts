@@ -184,7 +184,7 @@ export const api = {
     datasetId: string, episodeId: string,
     status: 'accepted' | 'rejected', notes = '',
   ) =>
-    request<{ review_uri: string }>(
+    request<{ review_uri: string, review_status?: 'accepted' | 'rejected' }>(
       `/api/v1/datasets/${encodeURIComponent(datasetId)}/episodes/`
       + `${encodeURIComponent(episodeId)}/review`, {
       method: 'POST', body: JSON.stringify({ status, notes, failure_reason: '' }),

@@ -90,10 +90,15 @@ limits or re-enabling torque against an old target.
    Leader torque; this is not the ready/waiting state. Alignment errors report
    the affected joint's target, measured position, and error; do not force teleop.
 5. Click **End / 结束并保存到本机** (or press End), or let the duration expire.
-   Following stops and measured Follower rest is checked before camera videos
-   and joint data are finalized locally. Nothing is uploaded.
+   Recording stops while following continues. Put the object down and return
+   the arms by teleoperation; these movements are not recorded. Camera videos
+   and joint data are finalized locally. Nothing is uploaded. The next Start
+   stops this following session before preparing a new pregrasp; release torque
+   also stops following. Feedback and lease checks remain active between episodes.
 6. Once saving succeeds, choose **接受** (accept) or **拒绝** (reject). Only
    accepted episodes are converted; rejection does not delete raw recordings.
+   The current review is shown next to the buttons and can be changed; only the
+   review sidecar is replaced, never the raw episode.
    The next Start prepares a new episode without overwriting the previous one.
 
 **Abort** cancels an interrupted trial and retains an incomplete recording;
@@ -111,7 +116,7 @@ with sibling `reviews/`. Point `data.dataset_root` at that dataset for conversio
 
 ## Convert and train
 
-The recorder writes `raw/` and immutable `reviews/` under the configured
+The recorder writes immutable `raw/` episodes and editable `reviews/` under the configured
 `data.dataset_root`. After reviewing episodes in the Robot web UI, transfer
 that whole dataset tree to the same repo-relative location on the GPU. Set the
 `transfer` values in `config/local.yaml`, then use those values in the command
@@ -119,9 +124,13 @@ below (the example matches the documentation-only defaults):
 
 ```bash
 # Robot computer; --ignore-existing prevents a rerun from replacing an episode.
-rsync -a --checksum --ignore-existing \
+rsync -a --checksum --ignore-existing --exclude reviews/ \
   .xlerobot/artifacts/datasets/xlerobot-glue-stick-grasp-30/ \
   operator@192.0.2.10:xlerobot_home_service_demo/.xlerobot/artifacts/datasets/xlerobot-glue-stick-grasp-30/
+# Synchronize revised review labels as well; raw episodes remain unchanged.
+rsync -a --checksum \
+  .xlerobot/artifacts/datasets/xlerobot-glue-stick-grasp-30/reviews/ \
+  operator@192.0.2.10:xlerobot_home_service_demo/.xlerobot/artifacts/datasets/xlerobot-glue-stick-grasp-30/reviews/
 ```
 
 Then, on the GPU:
