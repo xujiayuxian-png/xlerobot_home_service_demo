@@ -2,6 +2,15 @@
   ros__parameters:
     update_rate: 50
     enforce_command_limits: true
+    # Six-servo synchronous USB/serial reads take ~1.37 ms on the reference
+    # Leader. Jazzy measures synchronous execution mean against zero; its
+    # generic 1 ms warning therefore fires even with a stable 50 Hz loop.
+    # Budget 10% / 20% of the 20 ms period for mean I/O time. Keep the original
+    # 100 / 200 us jitter thresholds and all periodicity/deadline checks.
+    diagnostics.threshold.hardware_components.execution_time.mean_error.warn: 2000.0
+    diagnostics.threshold.hardware_components.execution_time.mean_error.error: 4000.0
+    diagnostics.threshold.hardware_components.execution_time.standard_deviation.warn: 100.0
+    diagnostics.threshold.hardware_components.execution_time.standard_deviation.error: 200.0
     leader_joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
     leader_arm_controller:

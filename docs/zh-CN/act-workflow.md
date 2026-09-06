@@ -94,6 +94,13 @@ Home/End 快捷键仅在对应阶段生效，输入框内和长按重复不触�
 初始关节超范围时，页面顶部明显提示具体关节、实测值、允许范围和恢复步骤；该提示仅展示
 实时反馈，不驱动电机，也不放宽限位。
 
+参考 Leader 以 50 Hz 读取六个串口舵机，正常读取耗时约 1.37 ms；这是 I/O 延迟，
+不是周期之间的抖动。Leader 配置对**硬件平均执行耗时**设置 2 ms 警告 / 4 ms 错误，
+耗时标准差仍使用 100 / 200 微秒，周期、截止时间、反馈及租约检查不变。参见
+[Jazzy 诊断定义](https://control.ros.org/jazzy/doc/ros2_control/controller_manager/doc/userdoc.html#parameters)。
+上游合并提示 `High execution jitter or mean error` 必须结合均值和标准差判断，
+不能仅凭这段文字认定发生了抖动。
+
 ## 转换与训练
 
 采集端会在 `data.dataset_root` 下写入不可变 `raw/` 和可改选的 `reviews/`。先在

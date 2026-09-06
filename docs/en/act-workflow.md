@@ -127,6 +127,15 @@ configuration does not move existing data. Initial joints outside their allowed
 range appear in a prominent banner with measured positions, limits, and recovery
 instructions; this display never commands motors or relaxes joint limits.
 
+The reference Leader reads six serial servos at 50 Hz. A read normally takes
+about 1.37 ms; this is I/O latency, not the variation between cycles. The Leader
+profile budgets 2 ms warning / 4 ms error for **mean hardware execution time**,
+and retains 100 / 200 microseconds for execution-time standard deviation.
+Periodicity, deadline, feedback and lease checks remain unchanged. See the
+[Jazzy diagnostic definitions](https://control.ros.org/jazzy/doc/ros2_control/controller_manager/doc/userdoc.html#parameters).
+The combined upstream message "High execution jitter or mean error" must be
+interpreted with the measured mean and standard deviation, not as proof of jitter.
+
 ## Convert and train
 
 The recorder writes immutable `raw/` episodes and editable `reviews/` under the configured

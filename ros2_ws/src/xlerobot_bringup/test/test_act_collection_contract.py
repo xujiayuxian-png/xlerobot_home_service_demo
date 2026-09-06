@@ -9,6 +9,22 @@ import pytest
 ROOT = Path(__file__).parents[1]
 
 
+def test_leader_serial_mean_budget_preserves_jitter_and_control_period():
+    import yaml
+    config = yaml.safe_load((ROOT / 'config/leader_controllers.yaml').read_text())
+    params = config['/leader/controller_manager']['ros__parameters']
+    period_us = 1_000_000 / params['update_rate']
+    prefix = 'diagnostics.threshold.hardware_components.execution_time.'
+    assert params['update_rate'] == 50
+    assert params[prefix + 'mean_error.warn'] == period_us * .1 == 2000.
+    assert params[prefix + 'mean_error.error'] == period_us * .2 == 4000.
+    assert params[prefix + 'standard_deviation.warn'] == 100.
+    assert params[prefix + 'standard_deviation.error'] == 200.
+    assert params['enforce_command_limits'] is True
+    assert not any('periodicity' in key for key in params)
+    assert not any('overruns' in key for key in params)
+
+
 def test_teleop_uses_active_follower_calibration(tmp_path, monkeypatch):
     import yaml
     names = ('shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll', 'gripper')
