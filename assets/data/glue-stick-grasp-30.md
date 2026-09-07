@@ -13,7 +13,7 @@ language:
 # XLeRobot yellow-glue-stick grasp: 30 demonstrations
 
 All **30 original demonstrations** used to train
-`xujiayuxian-png/xlerobot-act-local-grasp-v1`. They show the reference right arm
+`lissajous/xlerobot-act-local-grasp-v1`. They show the reference right arm
 grasping a yellow glue stick, with the task text “拿起黄色胶棒”.
 This is not the later collection-tool acceptance dataset.
 
@@ -59,7 +59,7 @@ License text: https://creativecommons.org/licenses/by/4.0/legalcode
 
 ## Availability
 
-Intended dataset ID: `xujiayuxian-png/xlerobot-glue-stick-grasp-30`.
-Initial upload is pending. The source repository's data manifest records the
-immutable publication revision once available. Large data and videos are not
-committed to the source Git repository.
+Dataset ID: `lissajous/xlerobot-glue-stick-grasp-30`.
+Uploaded as a private release candidate; public release is pending.
+The source repository's data manifest records its immutable revision and
+availability. Large data and videos are not committed to the source Git repository.

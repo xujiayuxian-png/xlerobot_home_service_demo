@@ -9,8 +9,8 @@ the 30-demo dataset to run inference.
 
 | Asset | Source / acquisition |
 | --- | --- |
-| ACT checkpoint | `xujiayuxian-png/xlerobot-act-local-grasp-v1`; initial upload pending |
-| 30 yellow-glue-stick demonstrations | `xujiayuxian-png/xlerobot-glue-stick-grasp-30`; initial upload pending, optional for inference |
+| ACT checkpoint | `lissajous/xlerobot-act-local-grasp-v1`; uploaded privately; public release pending |
+| 30 yellow-glue-stick demonstrations | `lissajous/xlerobot-glue-stick-grasp-30`; uploaded privately; public release pending, optional for inference |
 | SAM 2 | Downloaded and checked by `tools/setup gpu` |
 | Qwen VLM | Load the recorded model in LM Studio; see [installation](install.md) |
 | Whisper | Downloaded and checked by `tools/setup robot` |
@@ -25,7 +25,7 @@ Current revisions and SHA-256 records are in
 [dataset inventory](../../assets/data/manifest.yaml).
 A separate [dataset checksum list](../../assets/data/xlerobot-glue-stick-grasp-30.sha256.json)
 identifies the exact converted training files.
-A pending revision is **not** a working public download.
+A private upload is **not** an available public download.
 
 After the ACT publication revision is recorded, run on the GPU computer:
 

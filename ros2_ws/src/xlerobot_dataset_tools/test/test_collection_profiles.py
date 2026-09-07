@@ -135,7 +135,7 @@ def test_public_candidate_plan_reports_30_accepted_and_excluded_states(
     })
     assert convert_accepted.main([
         '--dataset', str(dataset), '--version', 'v1',
-        '--repo-id', 'xujiayuxian-png/xlerobot-glue-stick-grasp-30',
+        '--repo-id', 'lissajous/xlerobot-glue-stick-grasp-30',
         '--dry-run',
     ]) == 0
     report = json.loads(capsys.readouterr().out)

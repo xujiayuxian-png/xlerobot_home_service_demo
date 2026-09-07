@@ -148,7 +148,7 @@ RGB `3 x 480 x 640`、六维 state/action、chunk 100、model dimension 512、FF
 验证过程中不要修改 Demo 正在使用的 checkpoint 配置。
 
 发布模型只用 30 条黄色胶棒示教训练。计划完整公开的数据集为
-`xujiayuxian-png/xlerobot-glue-stick-grasp-30`，许可 CC BY 4.0。羽毛球效果只作为
+`lissajous/xlerobot-glue-stick-grasp-30`，许可 CC BY 4.0。羽毛球效果只作为
 定性的 OOD 证据。
 
 ## 6. 检查 checkpoint 与下载
@@ -168,6 +168,6 @@ RGB `3 x 480 x 640`、六维 state/action、chunk 100、model dimension 512、FF
 但启动服务前都会严格核对所列文件。
 
 `download` 操作按 Apache-2.0 模型 ID
-`xujiayuxian-png/xlerobot-act-local-grasp-v1`、immutable Hub revision 和全部固定
-摘要下载；首次上传与 revision 写入 manifest 前有意不可用。发布后再使用公开入口
+`lissajous/xlerobot-act-local-grasp-v1`、immutable Hub revision 和全部固定
+摘要下载；私有候选尚未公开时有意不可用。公开并更新清单后再使用入口
 `tools/act download`。

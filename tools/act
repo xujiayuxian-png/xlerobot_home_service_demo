@@ -135,7 +135,7 @@ convert_dataset() {
   python=$(act_python)
   dataset=$(absolute_from_repo "$(config_get data.dataset_root '')")
   version=$(config_get data.conversion_version v1)
-  repo_id=$(config_get data.repo_id xujiayuxian-png/xlerobot-glue-stick-grasp-30)
+  repo_id=$(config_get data.repo_id lissajous/xlerobot-glue-stick-grasp-30)
   while (($#)); do
     case $1 in
       --dataset)
@@ -181,7 +181,7 @@ run_workflow() {
   conversion_version=$(config_get data.conversion_version v1)
   XLEROBOT_ACT_DATASET_ROOT="$dataset_root/derived/$conversion_version/lerobot"
   XLEROBOT_ACT_DATASET_REPO_ID=$(config_get \
-    data.repo_id xujiayuxian-png/xlerobot-glue-stick-grasp-30)
+    data.repo_id lissajous/xlerobot-glue-stick-grasp-30)
   XLEROBOT_ACT_OUTPUT=$(absolute_from_repo "$(config_get models.act_training_output '')")
   XLEROBOT_ACT_CHECKPOINT=$(absolute_from_repo "$(config_get models.act_checkpoint '')")
   XLEROBOT_ACT_MANIFEST=$(absolute_from_repo "$(config_get models.act_manifest '')")

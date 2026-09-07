@@ -7,7 +7,7 @@ tags:
   - xlerobot
   - imitation-learning
 datasets:
-  - xujiayuxian-png/xlerobot-glue-stick-grasp-30
+  - lissajous/xlerobot-glue-stick-grasp-30
 language:
   - zh
 ---
@@ -25,7 +25,7 @@ state. Commands are executed by the robot-local streaming executor, not the GPU.
 
 Trained only on **30 yellow-glue-stick demonstrations** (6,149 converted
 training frames at 30 Hz). The corresponding dataset is
-`xujiayuxian-png/xlerobot-glue-stick-grasp-30`, licensed CC BY 4.0.
+`lissajous/xlerobot-glue-stick-grasp-30`, licensed CC BY 4.0.
 Shuttlecock and other-object examples are qualitative generalization
 demonstrations. No statistical success rate or general grasp capability is claimed.
 
@@ -70,7 +70,9 @@ not a physical grasp benchmark.
 
 ## Availability and license
 
-Apache-2.0. Intended model ID:
-`xujiayuxian-png/xlerobot-act-local-grasp-v1`.
-The initial upload is pending; the source repository's download manifest
-remains the source of truth for availability, revision and exact file hashes.
+Apache-2.0. Model ID:
+`lissajous/xlerobot-act-local-grasp-v1`.
+Uploaded as a private release candidate; public release is pending.
+The source repository's download manifest remains the source of truth for
+availability, revision and exact file hashes. Private upload does not enable
+the public download command.

@@ -17,7 +17,7 @@ opening cameras or motors.
 | GPD fails but centroid works | Read the reported GPD candidate/workspace failure; GPD intentionally never silently falls back. |
 | Port 8766 fails | Check CUDA, checkpoint directory, manifest and token with doctor. |
 | ACT unauthorized | Put the same `XLEROBOT_ACT_TOKEN` in both computers' `.env` files. |
-| Public model download unavailable | Check [asset availability](assets.md); pending initial upload is not a machine setup failure. |
+| Public model download unavailable | Check [asset availability](assets.md); pending public release is not a machine setup failure. |
 | Camera missing/frozen | Stop the workspace before reconnecting. Use USB 3 for the D455; check cable, bandwidth and stable wrist-camera path. |
 | Device alias missing | Fix the stable udev alias; do not replace it with a changing `/dev/ttyUSB*` index. |
 | Voice does not hear/speak | Check input/output selection, KWS/Whisper files and locally generated prompts; see [install](install.md). |

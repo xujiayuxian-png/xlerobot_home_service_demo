@@ -2,9 +2,9 @@ schema: xlerobot_data_assets/v1
 
 datasets:
   xlerobot_glue_stick_grasp_30:
-    repo_id: xujiayuxian-png/xlerobot-glue-stick-grasp-30
-    revision: null  # Filled with the immutable Hub commit after publication.
-    public_download: pending-upload
+    repo_id: lissajous/xlerobot-glue-stick-grasp-30
+    revision: d393230f3638ab3d6a86fee586c7725105933660
+    public_download: private-upload  # Not yet publicly downloadable.
     license: CC-BY-4.0
     bundled: false
     demonstrations: 30

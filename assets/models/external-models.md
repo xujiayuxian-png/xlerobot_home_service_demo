@@ -11,8 +11,8 @@ redistributing an asset.
   `manifest.yaml` and `THIRD_PARTY_NOTICES.md`.
 - SAM 2 code and the Hiera Tiny checkpoint are fetched at the immutable
   revisions in `manifest.yaml`.
-- The project-owned ACT checkpoint is Apache-2.0, but its first Hub upload is
-  still pending; the 30-demonstration training dataset is a separate CC BY 4.0
+- The project-owned ACT checkpoint is Apache-2.0 and uploaded privately,
+  awaiting public release; the 30-demonstration training dataset is a separate CC BY 4.0
   release described under `../data/`.
 - The local voice path uses the exact sherpa-onnx release asset and immutable
   faster-whisper snapshot recorded in `voice-runtime.manifest.json`. Robot

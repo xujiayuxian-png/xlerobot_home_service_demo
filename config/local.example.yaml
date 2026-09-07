@@ -69,7 +69,7 @@ data:
   # This directory contains raw/, reviews/, and versioned derived/ outputs.
   dataset_root: .xlerobot/artifacts/datasets/xlerobot-glue-stick-grasp-30
   conversion_version: v1
-  repo_id: xujiayuxian-png/xlerobot-glue-stick-grasp-30
+  repo_id: lissajous/xlerobot-glue-stick-grasp-30
 
 demo:
   grasp_backend: act

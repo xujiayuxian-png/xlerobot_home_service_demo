@@ -90,7 +90,7 @@ class WorkflowTest(unittest.TestCase):
     def test_train_command_locks_deployed_wrist_only_contract(self):
         arguments = argparse.Namespace(
             dataset="local/data",
-            repo_id="xujiayuxian-png/xlerobot-glue-stick-grasp-30",
+            repo_id="lissajous/xlerobot-glue-stick-grasp-30",
             output="outputs/model",
             job_name="test",
             steps=5000,
@@ -100,7 +100,7 @@ class WorkflowTest(unittest.TestCase):
         )
         command = train_command(arguments)
         self.assertIn(
-            "--dataset.repo_id=xujiayuxian-png/xlerobot-glue-stick-grasp-30",
+            "--dataset.repo_id=lissajous/xlerobot-glue-stick-grasp-30",
             command,
         )
         self.assertIn("--dataset.root=local/data", command)
@@ -180,7 +180,18 @@ class WorkflowTest(unittest.TestCase):
             "assets/models/xlerobot-act-local-grasp-v1.manifest.json"
         )
         document = json.loads(manifest.read_text(encoding="utf-8"))
+        document['revision'] = None
+        document['availability'] = 'pending-upload'
         with self.assertRaisesRegex(ValueError, "immutable Hub revision"):
+            _validate_manifest(document)
+
+    def test_private_upload_cannot_authorize_public_serving(self):
+        document = json.loads(Path(
+            'assets/models/xlerobot-act-local-grasp-v1.manifest.json'
+        ).read_text(encoding='utf-8'))
+        document['revision'] = '1' * 40
+        document['availability'] = 'private-upload'
+        with self.assertRaisesRegex(ValueError, 'not marked published'):
             _validate_manifest(document)
 
 

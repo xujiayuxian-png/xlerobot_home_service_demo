@@ -73,7 +73,7 @@ when publishing a cache or derived bundle.
 - ACT requirements lock SHA-256:
   `2fa6a5ae09036ea3200be998ce32b9ade64690970cf07b6054c96ed89cf1e479`
 
-The project-owned model `xujiayuxian-png/xlerobot-act-local-grasp-v1` is a
+The project-owned model `lissajous/xlerobot-act-local-grasp-v1` is a
 separate Apache-2.0 artifact; its model card and exact file hashes live under
 `assets/models/`. The CC BY 4.0 training dataset is also a separate release.
 

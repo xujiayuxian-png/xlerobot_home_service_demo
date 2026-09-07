@@ -65,8 +65,8 @@ detector is AGPL-3.0; the KWS model terms are unresolved and it is downloaded
 directly from its provider, not bundled here. See the installation guide and
 [third-party notices](THIRD_PARTY_NOTICES.md).
 
-**Model availability:** the initial public ACT weight and dataset uploads are
-still pending. The [asset page](docs/en/assets.md) records availability.
+**Model availability:** ACT weights and data are uploaded privately; public
+release is pending. The [asset page](docs/en/assets.md) records availability.
 Before publication, the demo needs the verified local checkpoint and its
 manifest. You do not need to collect data or train a model to use the released
 demo checkpoint.

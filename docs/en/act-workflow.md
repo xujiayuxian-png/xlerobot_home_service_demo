@@ -164,7 +164,7 @@ Keep the demo checkpoint configuration unchanged during this check.
 
 The released model was trained on exactly 30 yellow-glue-stick demonstrations.
 The planned complete dataset is
-`xujiayuxian-png/xlerobot-glue-stick-grasp-30` under CC BY 4.0. Shuttlecock
+`lissajous/xlerobot-glue-stick-grasp-30` under CC BY 4.0. Shuttlecock
 behavior is qualitative OOD evidence only.
 
 ## 6. Check the checkpoint and download
@@ -186,7 +186,7 @@ accepts either this local qualification schema or the fixed public-download
 schema, and verifies every listed hash before serving.
 
 The `download` operation uses the Apache-2.0 model ID
-`xujiayuxian-png/xlerobot-act-local-grasp-v1`, an immutable Hub revision, and
-all fixed manifest hashes. It remains deliberately unavailable until the first
-upload and revision are recorded; after that publication, run the documented
-entry point `tools/act download`.
+`lissajous/xlerobot-act-local-grasp-v1`, an immutable Hub revision, and
+all fixed manifest hashes. It remains deliberately unavailable while the Hub
+release candidate is private. After public release and a manifest update,
+run the documented entry point `tools/act download`.

@@ -15,7 +15,7 @@ Doctor 检查配置、环境、路径、摘要和 HTTP 服务，不打开相机�
 | centroid 可用但 GPD 失败 | 看具体候选/工作空间错误；GPD 本来就不会静默切成 centroid。 |
 | 8766 启动失败 | 用 doctor 检查 CUDA、checkpoint、manifest 和 token。 |
 | ACT unauthorized | 两台电脑 `.env` 使用相同 `XLEROBOT_ACT_TOKEN`。 |
-| 公开模型无法下载 | 看[资产状态](assets.md)，首次上传 pending 不属于本机安装故障。 |
+| 公开模型无法下载 | 看[资产状态](assets.md)，等待公开发布不属于本机安装故障。 |
 | 相机没画面或冻结 | 先停工作区再重插；D455 使用 USB 3，检查线材、带宽和腕相机稳定路径。 |
 | 设备别名不存在 | 修复 udev 别名，不要换成不断变化的 `/dev/ttyUSB*` 序号。 |
 | 语音听不到或不播报 | 检查输入/输出设备、KWS/Whisper 及本地生成的 prompts，见[安装](install.md)。 |

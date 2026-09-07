@@ -17,8 +17,8 @@ The default demo needs three independently supplied model runtimes:
    Ultralytics dependency is an explicitly selected AGPL-3.0 extra.
 
 The ACT checksum set identifies the model tested by the original project. The
-model is designated Apache-2.0, but its first Hub upload and immutable revision
-are still pending.
+model is designated Apache-2.0 and has been uploaded as a private Hub release
+candidate. Public release remains pending.
 
 Robot setup downloads the named `Systran/faster-whisper-small` snapshot. Voice
 mode also needs the sherpa-onnx KWS artifact, but its model/word-list terms are

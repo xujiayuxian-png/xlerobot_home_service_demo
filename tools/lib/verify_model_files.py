@@ -12,8 +12,8 @@ import re
 
 
 MODEL_ID = 'xlerobot-act-local-grasp-v1'
-MODEL_REPO_ID = 'xujiayuxian-png/xlerobot-act-local-grasp-v1'
-DATASET_REPO_ID = 'xujiayuxian-png/xlerobot-glue-stick-grasp-30'
+MODEL_REPO_ID = 'lissajous/xlerobot-act-local-grasp-v1'
+DATASET_REPO_ID = 'lissajous/xlerobot-glue-stick-grasp-30'
 SHA256 = re.compile(r'^[0-9a-f]{64}$')
 REVISION = re.compile(r'^[0-9a-f]{40}$')
 EXPECTED_STRUCTURE = {

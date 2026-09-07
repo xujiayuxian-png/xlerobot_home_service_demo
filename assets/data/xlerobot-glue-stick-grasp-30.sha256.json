@@ -1,6 +1,6 @@
 {
   "schema": "xlerobot_dataset_checksums/v1",
-  "repo_id": "xujiayuxian-png/xlerobot-glue-stick-grasp-30",
+  "repo_id": "lissajous/xlerobot-glue-stick-grasp-30",
   "episodes": 30,
   "frames": 6149,
   "files": {

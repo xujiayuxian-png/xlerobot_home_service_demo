@@ -8,8 +8,8 @@ ACT 权重与源码分开分发。推理不需要下载 30 条训练数据。
 
 | 资产 | 来源或取得方式 |
 | --- | --- |
-| ACT 权重 | `xujiayuxian-png/xlerobot-act-local-grasp-v1`；首次上传待完成 |
-| 30 条黄色胶棒示教 | `xujiayuxian-png/xlerobot-glue-stick-grasp-30`；首次上传待完成，推理不需要 |
+| ACT 权重 | `lissajous/xlerobot-act-local-grasp-v1`；已私有上传，待公开 |
+| 30 条黄色胶棒示教 | `lissajous/xlerobot-glue-stick-grasp-30`；已私有上传，待公开，推理不需要 |
 | SAM 2 | `tools/setup gpu` 下载并校验 |
 | Qwen VLM | 在 LM Studio 加载指定模型，见[安装说明](install.md) |
 | Whisper | `tools/setup robot` 下载并校验 |
@@ -20,11 +20,11 @@ ACT 权重与源码分开分发。推理不需要下载 30 条训练数据。
 精确版本和 SHA-256 记录见[模型清单](../../assets/models/manifest.yaml)、
 [ACT 下载 manifest](../../assets/models/xlerobot-act-local-grasp-v1.manifest.json)、
 [语音 manifest](../../assets/models/voice-runtime.manifest.json)、
-[数据清单](../../assets/data/manifest.yaml)。revision 为 pending 不代表公开下载已经可用。
+[数据清单](../../assets/data/manifest.yaml)。私有上传不代表公开下载已经可用。
 [数据 SHA256 清单](../../assets/data/xlerobot-glue-stick-grasp-30.sha256.json)
 记录了实际转换训练文件的身份。
 
-ACT 上传完成、发布 revision 写入后，在 GPU 主机执行：
+ACT 公开发布、清单更新为可下载后，在 GPU 主机执行：
 
 ```bash
 ./tools/act download
