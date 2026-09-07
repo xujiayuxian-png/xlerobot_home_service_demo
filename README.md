@@ -199,6 +199,14 @@ Project code, documentation and ACT weights: [Apache-2.0](LICENSE).
 The 30-demo dataset: [CC BY 4.0](https://huggingface.co/datasets/lissajous/xlerobot-glue-stick-grasp-30).
 [Third-party assets retain their own terms.](THIRD_PARTY_NOTICES.md)
 
+<h2 align="center">Follow the author</h2>
+
+<p align="center">
+  <strong>徐头头 · Xiaohongshu</strong><br/>
+  <a href="docs/images/xiaohongshu.jpg"><img src="docs/images/xiaohongshu.jpg" width="360" alt="Xiaohongshu profile QR card for 徐头头, account LISSAGOGOGO"/></a><br/>
+  <sub>Scan in Xiaohongshu, or search <strong>LISSAGOGOGO</strong>. Click the card for full resolution.</sub>
+</p>
+
 ---
 
 [Documentation](docs/en/README.md) · [Troubleshooting](docs/en/troubleshooting.md)

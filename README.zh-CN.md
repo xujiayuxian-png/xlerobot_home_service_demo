@@ -190,6 +190,14 @@ Demo、建图和数采已在参考真机上使用既有标定完成流程验证�
 30 条示教数据：[CC BY 4.0](https://huggingface.co/datasets/lissajous/xlerobot-glue-stick-grasp-30)。
 [第三方资产保留各自条款。](THIRD_PARTY_NOTICES.md)
 
+<h2 align="center">关注作者</h2>
+
+<p align="center">
+  <strong>徐头头 · 小红书</strong><br/>
+  <a href="docs/images/xiaohongshu.jpg"><img src="docs/images/xiaohongshu.jpg" width="360" alt="徐头头的小红书主页二维码名片，小红书号 LISSAGOGOGO"/></a><br/>
+  <sub>打开小红书扫码，或搜索 <strong>LISSAGOGOGO</strong>；点击名片可查看原图。</sub>
+</p>
+
 ---
 
 [文档目录](docs/zh-CN/README.md) · [常见问题](docs/zh-CN/troubleshooting.md)
