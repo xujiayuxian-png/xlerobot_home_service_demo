@@ -1,68 +1,64 @@
 # Two grasp routes
 
-Both routes use the same calibrated robot description, object request,
-pregrasp planning, robot-local controller path, and grasp verification. The
-choice is carried explicitly in `ExecuteTask.grasp_backend`; there is no silent
-fallback from one route to another.
+[Documentation](README.md) · [中文](../zh-CN/grasping.md)
 
-ACT is the main demo backend; centroid and GPD are alternative grasp backends,
-not separate robot stacks. All use the same active geometry/servo calibration,
-timestamped TF, grasp alignment and robot-local execution workspace. Classical
-perception does not require another head-camera or hand-eye solver export.
-Calibration sample bounds record where the fit was measured; they are not a
-second runtime workspace. Same-unit imported calibration retains its provenance
-without claiming newly measured accuracy, particularly at contact height.
+ACT is the main demo route. Centroid and GPD are alternative grasp backends,
+not separate robot stacks. All share the active robot calibration, task
+interfaces, pregrasp planning and local controller path.
 
-GPD runs in the GPU computer's Ubuntu/WSL environment, alongside SAM2 on port
-8765. Its native checkout/build is local state under `.xlerobot/vendor/gpd`;
-`./tools/setup gpu --with-gpd` builds the pinned revision for a clean install.
+| Backend | Target/contact method | GPU dependency |
+| --- | --- | --- |
+| `act` | RGB-D coarse target → MoveIt pregrasp → wrist-image ACT chunks | LM Studio + ACT on 8766 |
+| `centroid` | VLM box → SAM 2 → RGB-D body/table geometry → top grasp | LM Studio + SAM 2 on 8765 |
+| `gpd` | Same segmented cloud → GPD candidate ranking → constrained top grasp | LM Studio + SAM 2/GPD on 8765 |
 
-## Classical RGB-D route
+## Hybrid ACT
 
-The classical service on port 8765 combines VLM grounding, prompted SAM 2
-segmentation, aligned D455 depth, table/object geometry, and a top-grasp target.
+ACT handles the local contact phase, not navigation or the whole arm approach.
+The GPU receives measured six-joint state and wrist RGB, returning 100-step
+action chunks. The robot-local streaming executor validates ordering and
+command bounds before execution.
 
-- `centroid` selects the deterministic object centroid/top geometry path. It is
-  the smallest dependency and best debugging baseline.
-- `gpd` asks the pinned GPD backend for candidates and applies the same
-  XLeRobot workspace/top-grasp filtering before execution.
+The [model card](../../assets/models/act-local-grasp.md) records structure and
+limits. Training used 30 yellow-glue-stick demonstrations only.
+Shuttlecock and other objects are qualitative generalization examples.
 
-The service returns perception proposals only. The ROS manipulation side still
-owns planning and execution.
+## Classical geometry
 
-## Hybrid ACT route
+Centroid and GPD share segmentation, calibrated frames and workspace filtering.
+The manipulation side plans the descend/close/lift sequence with MoveIt.
+The GPU returns candidates only; it never controls motors.
 
-`act` first uses calibrated vision and MoveIt to reach a deterministic
-pregrasp. It then sends the measured six-joint state and the checkpoint's wrist
-image to port 8766. The returned 100-step chunks are proposals; the local
-streaming executor enforces joint ordering and command bounds before the normal
-controller path.
+This implementation supports the reference **top-grasp** geometry, not general
+6-DoF grasping. A GPD failure stays a GPD failure, without silent centroid fallback.
+Install GPD in GPU Ubuntu/WSL with `./tools/setup gpu --with-gpd`; the pinned
+native build is under ignored `.xlerobot/vendor/gpd`.
 
-The exact model contract, runtime pins, and checkpoint hashes are in
-`../../assets/models/act-local-grasp.md` and `manifest.yaml`. It was trained
-only on 30 yellow-glue-stick demonstrations. Shuttlecock and other objects are
-qualitative OOD demonstrations with no success-rate or generalization claim.
-The Apache-2.0 weight upload is pending, so use the verified local checkpoint
-until an immutable Hub revision is recorded.
+## Run one backend per trial
 
-## Running a comparison
-
-Start the GPU services, start the robot stack once, and submit one explicitly
-named backend per trial:
+Complete [demo prerequisites](demo.md), then start once:
 
 ```bash
-# GPU computer
+# GPU: start LM Studio first
 ./tools/run gpu
 
-# Robot computer, terminal 1
+# Robot, terminal 1
 ./tools/run demo --hardware
-
-# Robot computer, terminal 2
-./tools/run grasp centroid --hardware
-./tools/run grasp gpd --hardware
-./tools/run grasp act --hardware
 ```
 
-Use the same object placement, active calibration, source place, and lighting
-when comparing routes. Record success/failure and latency separately; do not
-treat fallback behavior as a success for the requested backend.
+From a second Robot terminal, execute **one** of:
+
+```bash
+./tools/run grasp act --hardware
+./tools/run grasp centroid --hardware
+./tools/run grasp gpd --hardware
+```
+
+These commands submit a **full fetch-and-deliver task**, not just an arm action.
+For yellow-glue-stick trials, set `demo.object_id: 黄色胶棒` before submitting
+the CLI request. The web UI also accepts an object name and explicit backend;
+voice uses the configured default backend.
+
+Use consistent object placement, active calibration, table place and lighting
+for comparisons. Record the requested and actual backend and the final result.
+Do not interpret a single successful trial as a statistical success rate.

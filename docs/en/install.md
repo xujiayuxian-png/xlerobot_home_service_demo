@@ -1,5 +1,15 @@
 # Source installation
 
+## Before running setup
+
+On Robot, install [ROS 2 Jazzy for Ubuntu 24.04](https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html)
+first; setup expects `/opt/ros/jazzy/setup.bash`.
+On GPU, install the NVIDIA driver/WSL GPU support and
+[Miniconda](https://www.anaconda.com/docs/getting-started/installation).
+Both machines need network access to download dependencies and models.
+Use [LM Studio's local server](https://lmstudio.ai/docs/developer/core/server)
+for the VLM; it must be reachable from the Robot computer.
+
 ## Supported computers
 
 The robot and GPU are separate Ubuntu 24.04 x86_64 machines. The robot needs a
@@ -11,11 +21,13 @@ Clone recursively on both machines, copy the two ignored local templates, and
 edit them for your LAN and files:
 
 ```bash
-git clone --recurse-submodules <repository-url>
+git clone --recurse-submodules REPOSITORY_URL xlerobot_home_service_demo
 cd xlerobot_home_service_demo
 cp config/local.example.yaml config/local.yaml
 cp .env.example .env
 ```
+
+Replace `REPOSITORY_URL` with this source repository's clone URL.
 
 Generate a different ACT token for your installation and put the same token in
 the robot and GPU `.env` files. Never expose ports 8765 or 8766 to the public
@@ -79,3 +91,30 @@ versions are recorded locally under `.xlerobot/environment/`, which is ignored.
 defaults. `.env` contains only secrets. Algorithm and ROS controller parameters
 remain inside their owning packages. Maps, named-place files, calibration,
 models, and recordings stay outside source control.
+
+## Local configuration checklist
+
+All relative paths are relative to the repository on the computer running the
+command, not your terminal's directory.
+
+| Fields | What to set |
+| --- | --- |
+| `robot.unit_id`, `calibration.unit` | Same identity for this physical robot |
+| `robot.site_id` | Name for this site's map and places |
+| `robot.devices.*` | Stable serial/video paths; microphone and speaker selection |
+| `services.*_url` | Addresses Robot can reach; LM Studio may be on Windows while ACT/GPD run in WSL |
+| `models.act_checkpoint`, `models.act_manifest` | GPU-local weight directory and its qualification/download manifest |
+| `site.map`, `site.places` | Robot-local paths from [mapping](mapping.md), filled after activation |
+| `demo.*` | Object, backend, source place, voice/web and port |
+| `data.*`, `transfer.*` | Needed for your own [collection/training](act-workflow.md), not inference |
+
+Do not change pinned model IDs/revisions to arbitrary versions. Keep tokens only
+in `.env`; do not paste them into YAML or shell commands.
+
+## Check and continue
+
+Run doctor on each machine. On first installation, missing unit calibration,
+site files or unstarted services identify remaining work, not a reason to
+reinstall everything. Obtain [model assets](assets.md), complete
+[calibration](calibration.md) and [mapping](mapping.md), then use the startup
+order in [the demo guide](demo.md). Resolve all errors before live demo startup.

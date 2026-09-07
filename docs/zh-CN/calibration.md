@@ -1,20 +1,29 @@
 # 单机标定
 
-标定是本地资产，不是从参考机复制的一组常数。工具把不可变版本保存到
-`.xlerobot/units/<unit>/versions/`，`active` 只指向已验证版本，并将 checksum 完整
-的 active bundle 渲染到 `runtime/`。
+[文档目录](README.md) · [English](../en/calibration.md)
 
-按顺序完成：
+## 准备与顺序
 
-1. 舵机零位、方向、raw 范围与关节范围。
-2. 底盘轮径和轮距。
-3. 固定 4 x 4 AprilTag 板的头部 D455 外参。
-4. Tag 随夹爪移动的右臂 hand-eye。
-5. 最终机械安装下的抓取对齐补偿。
+已有可用标定时，先保留它为 active，新测量只写 draft。
+“采样保存”“求解成草稿”和“激活成运行标定”是三件不同的事。
 
-可打印 PDF 和对应 SVG 源文件位于
-[`assets/calibration_boards`](../../assets/calibration_boards/)。按 100% 比例打印
-PDF、贴到刚性平面，并实测 tag 边长。
+| 步骤 | 准备或测量什么 | 完成时应该看到什么 |
+| --- | --- | --- |
+| 舵机 | 总线 ID、关节方向、零位与 raw 行程 | 关节集合、范围和限位校验通过 |
+| 头相机 | 刚性固定的 36h11 4×4 板，ID 0–15，tag 边长 40 mm | 不同头部姿态采样，求解并保存有效 draft |
+| 右臂手眼 | 夹爪上固定 36h11 Tag 23，边长 60 mm，由 D455 观察 | 不同机械臂姿态采样，求解并保存有效 draft |
+| 底盘 | 用卷尺等测量直行距离与旋转角度 | 轮径/轮距拟合通过 |
+| 抓取对齐 | 同一点的视觉/FK 坐标，以及单独测量的静止下垂量 | 视觉补偿和重力下垂分别保存 |
+| 激活 / render | 同一机器的五项完整结果 | `status` 显示预期 active 版本与有效 runtime |
+
+依赖链为 `servo → head-camera → right-handeye`。底盘实测可独立进行；
+四项结构标定齐全后做抓取对齐。每项开始前，停止其他 Demo、建图或数采工作区。
+
+打印 [头相机标定板 PDF](../../assets/calibration_boards/head_4x4_ids_0-15_40mm.pdf) 和
+[Tag 23 PDF](../../assets/calibration_boards/handeye_tag23_60mm.pdf)，比例 100%。
+头部板 tag 间距 12 mm；打印后用尺确认真实尺寸，不使用截图打印。
+
+## 采集并保存草稿
 
 先把 `config/local.example.yaml` 复制到 Git 忽略的 `config/local.yaml`，填写单机 ID
 和稳定设备路径。真机采集全部经过同一个公开入口，并要求显式确认硬件：
@@ -87,9 +96,11 @@ right-handeye` 链路并行；到 grasp-alignment staged render 和最终发布�
 直接读取分项草稿。回滚使用：
 
 ```bash
-./tools/calibrate rollback --version <version>
+./tools/calibrate rollback --version VERSION_ID
 ./tools/calibrate render
 ```
+
+把 `VERSION_ID` 替换为要恢复的实际已保存版本。
 
 同一台机器人已有可用标定时，可以导入完整运行快照并保留原数值和来源。
 输入目录需包含 `geometry.yaml`、`servos.yaml`、`controllers.yaml`、
@@ -111,3 +122,34 @@ right-handeye` 链路并行；到 grasp-alignment staged render 和最终发布�
 
 回放通过只证明求解器与数据合同正常，不代表你的机器人已完成标定。不要提交
 `.xlerobot/`。
+
+## 底盘与抓取对齐怎么测
+
+[底盘测量模板](../../examples/calibration/base_measurements.yaml)中的数字只是格式示例。
+把名义轮径/轮距、命令距离/角度和实际测量值替换成自己的记录。
+底盘页面只是填写表单，不会替你执行直行或旋转试验。
+
+[抓取对齐模板](../../examples/calibration/grasp_alignment_measurements.yaml)
+目前没有现场采集页面，需要在最终安装和头部姿态下准备本机 YAML，至少三组：
+
+- `vision_xyz_m`：视觉测量点，在 `base_link` 中，以米为单位。
+- `fk_xyz_m`：对应同一点的机器人 FK 坐标，使用相同坐标系。
+- `settled_z_shortfall_m`：单独实测的静止向下偏差，为非负距离。
+- `head_pose_rad`、`workspace_m`：真实头部姿态和测量区域。
+
+不要把同一份下垂误差同时算进坐标补偿和单独下垂量。
+求解器分别拟合 `FK − vision` 的平均补偿和平均下垂。
+另外留出未参与拟合的点，用来检查对齐效果。
+
+## 怎么看求解结果
+
+头相机至少 12 组，手眼至少 20 组；反复采同一姿态不够，
+还要满足姿态覆盖度和可观测性检查。保持 tag 可见，同时改变位置和朝向。
+
+手眼质量门为平移 RMS 小于 10 mm、p95 小于 15 mm、旋转 RMS 小于 5°。
+最大误差单独报告，不用它作为唯一拒绝依据。
+完整阈值见 [quality.yaml](../../ros2_ws/src/xlerobot_calibration_tools/config/quality.yaml)。
+拟合残差小，不等于实机对齐已经验证。
+
+激活新版本后，用未参与拟合的点和一次受控抓取检查效果，
+再把它视为旧可用标定的替代版本。回放通过不代表实机精度验收。

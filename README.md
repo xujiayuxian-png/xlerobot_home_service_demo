@@ -1,196 +1,152 @@
 # XLeRobot Home Service Demo
 
-[中文说明](README.zh-CN.md)
+[中文](README.zh-CN.md) · [Documentation](docs/en/README.md)
 
-This repository is the reproducible engineering record for one modified,
-two-wheel XLeRobot that can hear a request, navigate to a table, grasp a
-shuttlecock, find the nearest person, and deliver it. It is intentionally not a
-general robot framework or a course.
+**A slightly modified XLeRobot that hears a request, fetches an object from a
+table, and delivers it to a person—with the code and tools to reproduce it.**
 
-**Watch the complete robot demo:**
-[XLeRobot fetch-and-deliver on Bilibili](https://www.bilibili.com/video/BV1srNg6XEZj).
+[Complete robot demo](https://www.bilibili.com/video/BV1srNg6XEZj)
+· [ACT grasping](https://www.bilibili.com/video/BV18RK66JEdP)
+· [Web console](https://www.bilibili.com/video/BV1GSK66XEqf)
 
-The two things worth copying are the unit-calibration workflow and the two
-grasp routes:
+The focus is **calibration and two grasp routes** on one two-wheel reference
+robot, not a general framework or a course:
 
-```text
-object request
-├── classical: VLM/SAM2 + RGB-D geometry ── centroid or optional GPD target
-└── hybrid ACT: calibrated MoveIt pregrasp ── wrist-image ACT action chunks
-                                      │
-                         robot-local validated execution
-                                      │
-                            grasp check and delivery
-```
+- **Hybrid ACT, the main demo:** RGB-D target → calibrated MoveIt pregrasp →
+  wrist-image ACT action chunks → robot-local execution.
+- **Classical geometry:** VLM + SAM 2 + RGB-D → centroid or GPD top-grasp plan →
+  MoveIt execution. GPD runs on the GPU computer and never silently falls back
+  to centroid.
 
-The default demo is `act` + `羽毛球`, with voice and the web console enabled.
-The ACT model was trained on only 30 yellow-glue-stick demonstrations, so the
-shuttlecock run is a qualitative out-of-distribution example, not a general
-grasp claim. `centroid` and `gpd` select the classical route for comparison.
+Both routes use the same robot stack, calibration and task flow. The default
+is `act` + `羽毛球` (shuttlecock), with voice and web enabled. The checkpoint
+was trained on **30 yellow-glue-stick demonstrations only**; shuttlecock
+grasping is a qualitative generalization demo, not a success-rate or general
+grasping claim.
 
-## 1. Reference hardware
+## 1. Match the reference hardware
 
-- Robot computer: Ubuntu 24.04 x86_64, ROS 2 Jazzy.
-- Modified differential-drive XLeRobot with two Feetech wheel servos, dual
-  SO-101-style arms, pan/tilt head, 2D lidar, head-mounted RealSense D455, and a
-  right-wrist USB camera.
-- GPU computer: Ubuntu 24.04 under WSL2, tested with an RTX 3080.
-- LM Studio serves `qwen/qwen3-vl-4b`; this repository runs classical proposal
-  service port `8765` and ACT service port `8766`.
+- Robot: modified two-wheel XLeRobot, two SO-101-style arms, pan/tilt head,
+  D455, right-wrist USB camera, LD06-style lidar, microphone and speaker.
+- Robot computer: Ubuntu 24.04 x86_64 + ROS 2 Jazzy.
+- GPU computer: NVIDIA Ubuntu/WSL2; verified on Ubuntu 24.04 WSL2 + RTX 3080.
+- VLM: LM Studio serving `qwen/qwen3-vl-4b`.
+- A single right Leader arm is needed **only for collecting your own data**.
 
-See [the hardware notes](docs/en/hardware.md) before assuming an upstream
-XLeRobot has the same wiring, frames, servo IDs, or camera mounts.
+See [BOM, wiring and mounting](docs/en/hardware.md). This is not a drop-in
+configuration for every upstream XLeRobot.
 
-## 2. Install on the Robot and GPU computers
+## 2. Install on the two computers
 
-Clone the same source on the GPU and robot computers:
+On both computers, clone the same repository and edit the local templates:
 
 ```bash
-git clone --recurse-submodules <repository-url>
+git clone --recurse-submodules REPOSITORY_URL xlerobot_home_service_demo
 cd xlerobot_home_service_demo
 cp config/local.example.yaml config/local.yaml
 cp .env.example .env
 ```
 
-Edit both local files. Use the same ACT token on both computers, and put the
-GPU computer's LAN URLs in `config/local.yaml`.
-
-On the GPU computer, start LM Studio first, then install the two pinned Python
-environments:
+Device names, LAN URLs and file paths belong in `config/local.yaml`. Put the
+same ACT token in both `.env` files. See the [installation guide](docs/en/install.md)
+for prerequisites and the configuration checklist.
 
 ```bash
+# GPU computer
 ./tools/setup gpu
-# Add --with-gpd if you want the optional native GPD candidate generator.
-```
+# Use ./tools/setup gpu --with-gpd to include the native GPD backend.
 
-Before the initial Hub release, copy the vetted local checkpoint together with
-its generated `model-manifest.json` qualification record to the two paths
-configured as `models.act_checkpoint` and `models.act_manifest`. After an
-immutable Hub revision is published, `tools/act download` performs this step.
-The doctor deliberately fails until one of those two verifiable sources is in
-place.
-
-On the Robot computer, install ROS dependencies, the web console, voice
-runtime, the optional AGPL person detector, and local voice prompts:
-
-```bash
+# Robot computer
 ./tools/setup robot --with-person-detector --with-kws-model --generate-voice-prompts
 ```
 
-Default voice needs `--with-kws-model`. That flag downloads directly from the
-upstream provider after warning that the KWS weight/word-list terms are still
-unclear; this repository neither bundles nor mirrors those files. See the
-[complete installation notes](docs/en/install.md).
+The full voice/person-finding demo needs these explicit extras. The person
+detector is AGPL-3.0; the KWS model terms are unresolved and it is downloaded
+directly from its provider, not bundled here. See the installation guide and
+[third-party notices](THIRD_PARTY_NOTICES.md).
 
-## 3. Check both computers
+**Model availability:** the initial public ACT weight and dataset uploads are
+still pending. The [asset page](docs/en/assets.md) records availability.
+Before publication, the demo needs the verified local checkpoint and its
+manifest. You do not need to collect data or train a model to use the released
+demo checkpoint.
 
-Run the read-only doctor before calibration or a demo:
+## 3. Check dependencies
 
 ```bash
 ./tools/doctor gpu
 ./tools/doctor robot
 ```
 
-It checks exact environments, model hashes, service health, local artifacts,
-and stable device names. It does not open a camera or motor device. Every
-`ERROR` includes the failing boundary; common repairs are listed in
-[troubleshooting](docs/en/troubleshooting.md).
+Doctor is read-only and does not open cameras or motors. On a first setup,
+missing calibration, map and unstarted services are expected unfinished steps;
+complete them below and repeat doctor before running the demo.
 
-## 4. Calibrate this unit
+## 4. Calibrate, then prepare the site
 
-Do not copy another robot's numbers. The public workflow builds one immutable
-bundle in this order:
+Follow the [calibration guide](docs/en/calibration.md):
 
 ```text
-servo -> head-camera -> right-handeye
-base -------------------------------> grasp-alignment -> activate -> render
+servo → head-camera → right-handeye ─┐
+base (independent measurements) ────┴→ grasp-alignment → activate → render
 ```
 
-Start with `./tools/calibrate status`. Live collection is available as
-`./tools/calibrate capture <workflow> --hardware`; the two included camera
-replays run without hardware. After all five components pass:
+Then [build a map, save the table place, validate and activate the site](docs/en/mapping.md).
+A calibrated robot still needs its own map and `table` location. Do not copy
+another robot's calibration or home map.
+
+## 5. Try each grasp backend
 
 ```bash
-./tools/calibrate activate
-./tools/calibrate render
-./tools/calibrate status
-```
-
-The demo accepts only the checksum-valid rendered active bundle. Follow the
-[calibration guide](docs/en/calibration.md) for targets, capture commands,
-quality gates, resume, and rollback.
-
-## 5. Run centroid, GPD, and ACT explicitly
-
-Start the proposal services on the GPU and the calibrated Robot stack once:
-
-```bash
-# GPU computer
+# GPU computer: start LM Studio first, then
 ./tools/run gpu
 
 # Robot computer, terminal 1
 ./tools/run demo --hardware
-```
 
-Then submit exactly one backend per request from a second Robot terminal:
-
-```bash
+# Robot computer, terminal 2: submit ONE of these per trial
+./tools/run grasp act --hardware
 ./tools/run grasp centroid --hardware
 ./tools/run grasp gpd --hardware
-./tools/run grasp act --hardware
 ```
 
-These commands run the same fetch-and-deliver task while fixing its grasp
-backend. GPD failure is reported as GPD failure; it never silently becomes a
-centroid result. The traditional route is intentionally limited to this
-top-grasp setup. See [the two-route guide](docs/en/grasping.md).
+`grasp` submits a **complete fetch-and-deliver task** with the selected backend;
+it is not a standalone arm-only command. The target comes from `demo.object_id`.
+See [backend behavior and comparisons](docs/en/grasping.md).
 
-## 6. Run the complete voice and web demo
+## 6. Run the complete voice + web demo
 
-`./tools/run demo --hardware` starts the eight-stage Robot stack but does not
-submit a task by itself:
+The running `tools/run demo --hardware` stack waits for a request; it does not
+submit one automatically. Open `http://<robot-host>:8080` or say “小乐小乐”,
+then request the object. Follow the [demo guide](docs/en/demo.md).
 
 ```text
-localize -> navigate/dock -> perceive object -> grasp and verify
--> find person -> approach -> speak -> hand over
+localize → navigate/dock → perceive → grasp and verify
+→ find person → approach → speak → hand over
 ```
 
-Use the microphone or open `http://<robot-host>:8080`. Both interfaces default
-to `act` and `羽毛球`; the web UI also exposes `centroid` and `gpd`. Every task
-record stores both the requested and actual backend. See the
-[full-demo guide](docs/en/demo.md).
+## 7. Tools, troubleshooting and assets
 
-## 7. Troubleshooting, assets, and repository boundary
+Want to collect your own demonstrations? Follow the separate
+[ACT collection → conversion → training guide](docs/en/act-workflow.md).
+Normal recording is **Start → Home → End → next episode**; valid recordings
+are kept by default, and End lets you continue teleoperating to put the object down.
 
-Included: ROS source, configuration templates, calibration solvers and sample
-replays, both grasp implementations, ACT HTTP service, and five top-level
-commands (`setup`, `doctor`, `calibrate`, `act`, `run`). There is no simulation
-or mock framework.
+| Entry point | Use |
+| --- | --- |
+| `tools/setup robot\|gpu` | Install from source |
+| `tools/doctor robot\|gpu` | Check local dependencies and services |
+| `tools/calibrate` | Capture, solve, activate, replay and roll back calibration |
+| `tools/act` | Collect, convert, train, evaluate and download |
+| `tools/run` | GPU services, mapping, backend-selected tasks or the demo |
 
-Not included in Git: a map of your home, unit calibration, recordings, model
-weights, credentials, or the historical prerecorded MP3 clips. Model IDs,
-known hashes, and availability are recorded in
-[the asset manifest](assets/models/manifest.yaml). The ACT model is designated
-Apache-2.0 and the 30-demo dataset CC BY 4.0; their fixed Hub repository IDs are
-published as metadata, but both initial uploads are still pending.
+[Troubleshooting](docs/en/troubleshooting.md) · [Models and data](docs/en/assets.md)
+· [Source layout](docs/en/README.md#source-layout)
 
-The ACT data-to-model workflow is intentionally one entry point:
+Local configuration, maps, calibration, recordings, weights and logs are not
+committed. Runtime assets normally live under ignored `.xlerobot/`. There is no
+simulation/mock framework, deployment bundle or systemd installation.
 
-```bash
-./tools/act collect --hardware
-./tools/act convert --dry-run
-./tools/act train --dry-run
-./tools/act evaluate --checkpoint PATH --output PATH/model-manifest.json
-```
-
-The fifth operation, `tools/act download`, becomes usable only after the public
-manifest records the immutable initial Hub revision. See the
-[ACT workflow](docs/en/act-workflow.md).
-
-The two-stage ACT behavior is also shown in the
-[ACT route video](https://www.bilibili.com/video/BV18RK66JEdP).
-
-Project-owned source and documentation are Apache-2.0. Third-party code,
-models, and generated assets keep their own terms; see
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
-[model notes](assets/models/external-models.md).
+Project-owned code and documentation: [Apache-2.0](LICENSE). ACT weights:
+Apache-2.0. The 30-demo dataset: CC BY 4.0. Third-party assets retain their own
+terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

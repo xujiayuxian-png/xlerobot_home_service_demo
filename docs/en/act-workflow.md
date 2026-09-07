@@ -1,145 +1,113 @@
-# ACT data-to-model workflow
+# ACT: collect, convert and train
 
-The calibrated pregrasp and learned contact phase are shown in the
-[two-stage ACT video](https://www.bilibili.com/video/BV18RK66JEdP).
+[Documentation](README.md) · [中文](../zh-CN/act-workflow.md)
 
-The five public ACT operations follow one auditable path:
+This is optional for running the demo: use the [published checkpoint](assets.md)
+unless you want to train your own grasp. The [ACT video](https://www.bilibili.com/video/BV18RK66JEdP)
+shows the calibrated pregrasp followed by learned contact.
 
-```text
-collect on Robot -> convert on GPU -> train on GPU -> evaluate checkpoint
-                                                        |
-                                  manifest-pinned download after publication
-```
+## 1. Start collection on Robot
 
-## Collect
-
-Recovery in the collection page: support both arms, click **释放主从臂扭矩**
-(release torque), wait for confirmation, reposition by hand, then click
-**Reset / 重置状态**. An active episode is canceled and retained as incomplete
-before torque release. The shared right-arm/base bus is deactivated; the head
-stays in position. Reset clears the session display without deleting recordings,
-enabling torque, or homing. Only the next **Start** reacquires the Follower from
-its measured pose and prepares the arms; the base controller stays disabled.
-Reset also restores a failed Leader bus and its controllers with torque off,
-then requires fresh feedback for all six joints. Its trajectory controller
-remains inactive. Torque release is confirmed through the hardware lifecycle,
-not merely a successful service response from an inactive torque controller.
-If a child action's termination cannot be confirmed, recovery reports the
-problem instead of clearing ownership blindly; restart the collection runtime.
-
-Connect the single right-arm Leader configured at `robot.devices.leader_arm`,
-render the active calibration, then run on the Robot computer:
+Prepare the calibrated robot, D455, wrist camera, object and the single right
+Leader configured at `robot.devices.leader_arm`. Stop the demo or mapping
+workspace first. Collection does not require a site map.
 
 ```bash
 ./tools/act collect --hardware
 ```
 
-At startup, the head centers pan and moves tilt to **0.8 rad** over 3 seconds
-so the D455 looks at the table. This does not move either arm or the gripper.
-Override the viewing angle for a different table height within active calibration limits:
+Open `http://<robot-host>:8080` (or the configured `demo.web_port`).
+Startup moves only the head to centered pan and **0.8 rad tilt** over 3 seconds,
+not either arm or gripper. Set another calibrated viewing angle at launch with
+`--head-tilt RAD`; keep it fixed throughout a dataset.
 
-```bash
-./tools/act collect --hardware --head-tilt 0.8
+![Collection workspace, offline layout preview](../images/collection-ui.png)
+
+*Current frontend with example identifiers; no robot connection or camera data.*
+
+## 2. Record one episode
+
+| Action | What happens / what to wait for |
+| --- | --- |
+| Choose dataset, object and template | Changing the object auto-fills the instruction; you can override it. |
+| **开始 / 准备 pregrasp** (Start) | Pick mode detects the object, opens the Follower gripper and prepares both arms concurrently. Wait for `WAITING_HOME`; Leader torque remains on, no recording yet. |
+| **Home / 释放主臂并开始采集** | Support the Leader, then press Home. Wait for `RECORDING` before moving it; following and recording start and Leader torque is released. |
+| **End / 结束并保存到本机** | Stops recording and saves locally. Following continues so you can put down the object and return. Those later movements are not recorded. |
+| Next **Start** | Stops between-episode following, then prepares a new episode. No existing episode is overwritten. |
+
+**抓取模板** (pick) uses the demo's shared perception/pregrasp path and needs its
+VLM connection. **通用手动** (manual) skips perception and automatic Follower
+pregrasp, aligning the Leader to the current Follower pose. Manual mode with
+a 10–15 second limit is useful for a first recording.
+
+Home/End also work as keyboard shortcuts, except while typing or holding a key.
+Home first obtains the initial sample and checks alignment while holding
+torque. Wait for `RECORDING`, not merely the button click.
+Waiting for Home beyond 60 seconds cancels the attempt; it does not auto-start.
+Cancellation/preparation failure can release Leader torque, so keep it supported.
+
+Reaching the duration limit acts like End. **Abort** instead cancels the episode
+and retains incomplete data; it is not the normal save button.
+The displayed frame count is the actual recorder count.
+The UI's state-machine dry-run does not record data or prove hardware readiness.
+
+## 3. Keep or reject
+
+A successfully saved, complete recording is **kept by default**. Do nothing to
+use it for training; click **拒绝本条** to exclude it or **恢复保留** to undo rejection.
+The most recent 20 complete episodes remain selectable after the next episode,
+page refresh or restart. Older unreviewed recordings need explicit selection.
+
+Reviews change selection, never raw files. Automatic keep is recorded as
+`selection_source: automatic_on_save`, not human review. Collection uploads nothing.
+
+## 4. Find and configure your data
+
+The page displays the **Robot computer's** storage path and configuration file.
+The dataset ID names the whole collection; each timestamped episode ID names
+one recording.
+
+```yaml
+data:
+  collection_root: .xlerobot/artifacts
+  dataset_id: my-grasps
+  dataset_root: .xlerobot/artifacts/datasets/my-grasps
+  conversion_version: v1
+  repo_id: local/my-grasps
 ```
 
-Keep the same view throughout a dataset and do not adjust the head while recording.
+```text
+<collection_root>/datasets/<dataset ID>/
+├── raw/<episode ID>/   manifest.json, data.npz, videos/
+├── reviews/           editable keep/reject records
+└── derived/<version>/lerobot/   conversion output
+```
 
-This launches the source collection workspace and can move the right Follower
-arm. Review each immutable episode in the web UI. The reference release keeps
-all raw recordings outside Git.
+Set `collection_root` in `config/local.yaml` and restart collection to change
+the storage root. `--config PATH` selects another local configuration.
+Changing the dataset name on the page affects subsequent episodes only.
+Point `data.dataset_root` at that full dataset path before conversion; when
+editing the configuration also keep `data.dataset_id` consistent with it.
+Configuration changes do not move old data.
 
-Open `http://<Robot address>:8080` (use the configured `demo.web_port`). Opening
-the workspace does not start a demonstration. An initial pose outside command
-limits does not prevent driver startup: the affected bus reports real positions
-but keeps torque off and discards commands. Once manually repositioned within
-limits, it resumes holding the measured pose, not a queued target. Both arms
-still need to be within their allowed ranges before starting a demonstration.
+## If preparation or following stops
 
-Leader URDF and hardware command limits are derived consistently from the
-attachment's calibrated raw range, offset and direction, preserving the
-prototype's physical motor bounds rather than its copied Follower-style
-planning limits. Teleop retains the prototype's 1:1 joint mapping and clamps
-outputs to the active Follower calibration's limits. Moving the passive Leader
-past a Follower boundary holds the Follower at that boundary without ending
-collection; following continues as the Leader returns in range. This includes
-slightly negative closed-gripper readings and does not alter calibration values.
-Startup does not automatically home the arms or begin recording.
-The Leader position controller stays `inactive` while idle or teleoperating.
-Start checks measured pose and controller readiness, then acquires position
-control from that pose. An out-of-range observation does not prevent opening
-the workspace, but preparation reports the affected joint instead of widening
-limits or re-enabling torque against an old target.
+Support both arms → **释放主从臂扭矩** → wait for confirmation → reposition →
+**Reset / 重置状态** → Start. Reset clears the session, not recordings; it does
+not home the arms or turn on their torque. The next Start prepares them.
+The release operation also deactivates the shared right-arm/base bus, but does
+**not** release the head or left arm.
 
-1. For a first 10–15 second trial, select **通用手动** (manual). It starts from
-   the Follower's current pose without detection or automatic pregrasp.
-   **抓取模板** (pick) instead detects the object and moves the Follower above
-   it using the Demo's shared pregrasp path.
-2. Check the dataset ID. Changing the object auto-fills the grasp instruction,
-   which can still be edited. Use a
-   separate dataset for trials instead of mixing them into training recordings.
-3. Click **开始 / 准备 pregrasp** (prepare). Pick mode opens the Follower gripper,
-   then prepares both arms concurrently from the same validated pregrasp target.
-   Manual mode only aligns the Leader to the current Follower pose. Once ready,
-   `WAITING_HOME` holds Leader torque without recording; do not drag it yet.
-4. Support the Leader and click **Home / 释放主臂并开始采集** (or press Home).
-   `STARTING_RECORDING` retains torque while obtaining the first recorded sample
-   and checking alignment. It then releases Leader position-controller ownership,
-   enables following, and releases Leader torque. Demonstrate once `RECORDING` appears. Waiting for Home
-   longer than 60 seconds cancels the attempt; it never auto-starts recording.
-   Preparation failure, cancellation, or timeout exits the session and releases
-   Leader torque; this is not the ready/waiting state. Alignment errors report
-   the affected joint's target, measured position, and error; do not force teleop.
-5. Click **End / 结束并保存到本机** (or press End), or let the duration expire.
-   Recording stops while following continues. Put the object down and return
-   the arms by teleoperation; these movements are not recorded. Camera videos
-   and joint data are finalized locally. Nothing is uploaded. The next Start
-   stops this following session before preparing a new pregrasp; release torque
-   also stops following. Feedback and lease checks remain active between episodes.
-6. New recordings are **kept automatically** after successful saving and data
-   validation; no acceptance click is needed. Use **拒绝本条** to exclude a trial
-   from conversion, or **恢复保留** to undo rejection. Raw recordings are never
-   deleted. The last 20 completed episodes remain selectable while collecting
-   the next trial and after restarting the page. Old unreviewed episodes remain
-   unselected; explicitly keep them if wanted. Automatic selection is recorded
-   as `selection_source: automatic_on_save`, not a human review.
-   The next Start prepares a new episode without overwriting the previous one.
+A prominent banner identifies out-of-range initial joints. Do not force a
+powered joint. If the issue is the head or left arm, stop and release the
+corresponding hardware separately. If release or controller ownership cannot
+be confirmed, stop the collection runtime before recovery.
+See [collection troubleshooting](troubleshooting.md#collection).
 
-**Abort** cancels an interrupted trial and retains an incomplete recording;
-it is not the normal save button. **状态机 dry-run** exercises phase transitions
-only: it does not record data or establish camera/hardware readiness.
+## 5. Transfer, convert and train
 
-Home/End shortcuts are phase-gated and ignore typing fields and key repeats.
-The displayed frame count comes from the recorder, not Leader messages. Invalid
-teleop input, stale feedback, or lease expiry ends the attempt rather than
-silently resuming it on the next heartbeat. Correct the issue before starting
-another episode; unconfirmed controller ownership requires a collection restart.
-
-Raw episodes live at `data.collection_root/datasets/<dataset ID in UI>/raw/`,
-with sibling `reviews/`. Point `data.dataset_root` at that dataset for conversion.
-
-The collection page displays the actual **Robot host** storage path and the
-configuration file passed to `tools/act collect --config PATH` (default:
-`config/local.yaml`). Set `data.collection_root` to change the root, then restart
-collection. The final path is `<collection_root>/datasets/<dataset_id>`; editing
-the dataset name on the page changes the destination for subsequent episodes.
-Set `data.dataset_root` to that full dataset path before converting. Changing the
-configuration does not move existing data. Initial joints outside their allowed
-range appear in a prominent banner with measured positions, limits, and recovery
-instructions; this display never commands motors or relaxes joint limits.
-
-The reference Leader reads six serial servos at 50 Hz. A read normally takes
-about 1.37 ms; this is I/O latency, not the variation between cycles. The Leader
-profile budgets 2 ms warning / 4 ms error for **mean hardware execution time**,
-and retains 100 / 200 microseconds for execution-time standard deviation.
-Periodicity, deadline, feedback and lease checks remain unchanged. See the
-[Jazzy diagnostic definitions](https://control.ros.org/jazzy/doc/ros2_control/controller_manager/doc/userdoc.html#parameters).
-The combined upstream message "High execution jitter or mean error" must be
-interpreted with the measured mean and standard deviation, not as proof of jitter.
-
-## Convert and train
-
-The recorder writes immutable `raw/` episodes and editable `reviews/` under the configured
-`data.dataset_root`. After optionally rejecting unwanted episodes in the Robot web UI, transfer
+Set `data.dataset_root` to the collection directory containing immutable `raw/`
+episodes and editable `reviews/`. After optionally rejecting unwanted episodes in the Robot web UI, transfer
 that whole dataset tree to the same repo-relative location on the GPU. Set the
 `transfer` values in `config/local.yaml`, then use those values in the command
 below (the example matches the documentation-only defaults):
@@ -199,7 +167,7 @@ The planned complete dataset is
 `xujiayuxian-png/xlerobot-glue-stick-grasp-30` under CC BY 4.0. Shuttlecock
 behavior is qualitative OOD evidence only.
 
-## Evaluate and download
+## 6. Check the checkpoint and download
 
 With the default 5,000-step run, training prints the concrete final checkpoint
 path. Qualify that exact output and put the manifest beside it:

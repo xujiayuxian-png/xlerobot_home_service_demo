@@ -1,22 +1,31 @@
 # Unit calibration
 
-Calibration is local state, not a set of constants to copy from the reference
-robot. The workflow produces immutable versions under
-`.xlerobot/units/<unit>/versions/`, points `active` to one valid version, and
-renders only a checksum-valid active bundle into `runtime/`.
+[Documentation](README.md) · [中文](../zh-CN/calibration.md)
 
-The required sequence is:
+## Prepare and follow the sequence
 
-1. Servo zero, direction, raw range, and joint range.
-2. Base wheel radius and wheel separation.
-3. Head D455 extrinsic from a fixed 4 x 4 AprilTag board.
-4. Right-arm hand-eye transform from a tag attached to the gripper.
-5. Grasp alignment measured on the final mechanical setup.
+Keep any working calibration active while collecting new drafts. A saved sample,
+a solved draft and an active runtime are three different things.
 
-The printable PDF targets and matching SVG sources are in
-[`assets/calibration_boards`](../../assets/calibration_boards/). Print the PDF
-at 100%, mount it on a rigid flat surface, and measure the printed tag edge
-before collection.
+| Step | Prepare / measure | Complete when |
+| --- | --- | --- |
+| Servo | Exact bus IDs, joint directions, zero and raw travel | Joint set, ranges and limits pass validation |
+| Head camera | Fixed rigid AprilTag 36h11 board, 4 × 4, IDs 0–15, 40 mm tags | Diverse head poses solve and save a valid draft |
+| Right hand-eye | Rigid 36h11 Tag 23, 60 mm, attached to the gripper and observed by the D455 | Diverse arm poses solve and save a valid draft |
+| Base | Tape-measured straight travel and rotation | Measured wheel radius/separation fit passes |
+| Grasp alignment | Vision and FK observations of the same points, plus separate settled sag measurements | Compensation and sag save as separate fields |
+| Activate / render | All five components for the same unit | `status` shows the intended active version and valid runtime |
+
+The main dependency is `servo → head-camera → right-handeye`. Base measurements
+can be done independently; all four structural components are needed before
+grasp alignment. Stop demo, mapping or collection before each calibration workspace.
+
+Use these printed targets at 100% size:
+[head board PDF](../../assets/calibration_boards/head_4x4_ids_0-15_40mm.pdf) and
+[Tag 23 PDF](../../assets/calibration_boards/handeye_tag23_60mm.pdf).
+The head board has 12 mm gaps; check the actual printed dimensions with a ruler.
+
+## Capture and save drafts
 
 Copy `config/local.example.yaml` to the ignored `config/local.yaml` and set the
 unit ID and stable device paths first. Live acquisition is routed through the
@@ -99,9 +108,11 @@ continue if they are missing or invalid. It never reads component drafts
 directly. Rollback is explicit:
 
 ```bash
-./tools/calibrate rollback --version <version>
+./tools/calibrate rollback --version VERSION_ID
 ./tools/calibrate render
 ```
+
+Replace `VERSION_ID` with the actual saved version you want to restore.
 
 For a robot that already has a working calibration, `import-runtime` can
 preserve its complete existing runtime in an immutable version. The input
@@ -125,3 +136,39 @@ Run the two solver fixtures without hardware:
 
 Passing replay proves the solver and file contract, not the calibration of your
 robot. Do not commit `.xlerobot/`; it identifies one physical unit.
+
+## Measure base geometry and grasp alignment
+
+The [base measurement template](../../examples/calibration/base_measurements.yaml)
+contains example numbers, not calibration for your robot. Replace nominal wheel
+dimensions and commanded/actual travel with your own measurements. The base
+page is a form; it does not execute the straight/rotation trials for you.
+
+For [grasp alignment](../../examples/calibration/grasp_alignment_measurements.yaml),
+there is currently no capture page. Prepare a local YAML file with at least
+three samples taken at the final mounting/head pose:
+
+- `vision_xyz_m`: the point measured by vision, in `base_link`, metres.
+- `fk_xyz_m`: the corresponding point expressed through robot FK in the same frame.
+- `settled_z_shortfall_m`: separately measured downward sag, a nonnegative distance.
+- `head_pose_rad` and `workspace_m`: the actual head pose and sampled region.
+
+Do not fold the same sag into both coordinate compensation and the separate
+sag measurement. The solver fits mean `FK − vision` separately from mean sag.
+Use additional points not included in fitting to check the result.
+
+## Read the quality result
+
+Head camera needs at least 12 samples; hand-eye needs at least 20. Repeating
+nearly identical poses is not adequate: the solver also checks pose coverage
+and observability. Change orientation as well as position, keeping tags visible.
+
+Hand-eye limits are translation RMS below 10 mm, p95 below 15 mm and rotation
+RMS below 5°. Maximum error is reported, not used as a standalone rejection gate.
+The exact thresholds live in
+[quality.yaml](../../ros2_ws/src/xlerobot_calibration_tools/config/quality.yaml).
+A low fit residual does not replace an independent physical alignment check.
+
+After activating a new bundle, verify a few held-out targets and a controlled
+grasp before treating it as a replacement for the previously working bundle.
+No physical accuracy claim follows from replay alone.

@@ -1,52 +1,58 @@
 # 两条抓取路线
 
-ACT 是主 Demo 后端，centroid 和 GPD 只是可替换的抓取后端，不是另一套机器人栈。
-三者共用激活的几何／舵机标定、带时间戳的 TF、抓取对齐和本地执行器工作空间；
-传统感知不再额外要求头相机、手眼求解器的导出格式。
-标定采样范围记录精度的测量来源，不是第二套运行工作空间。
-复用本机旧标定不代表重新验证了精度，尤其不承诺接触高度的精度。
+[文档目录](README.md) · [English](../en/grasping.md)
 
-GPD 在 GPU 主机的 Ubuntu／WSL 中运行，与 SAM2 共用 8765 服务。
-源码和构建放在本机状态目录 `.xlerobot/vendor/gpd`；干净安装使用
-`./tools/setup gpu --with-gpd` 构建固定 revision。
+ACT 是主 Demo 路线；centroid/GPD 是可替换后端，不是另一套机器人运行栈。
+三者共用激活标定、任务接口、预抓取规划和本地 controller 路径。
 
-两条路线共用同一套单机标定、物体请求、预抓取规划、本地 controller 路径和抓取
-复核。选择通过 `ExecuteTask.grasp_backend` 显式传递，不在路线间静默 fallback。
+| 后端 | 目标或接触阶段的实现 | GPU 依赖 |
+| --- | --- | --- |
+| `act` | RGB-D 粗目标 → MoveIt 预抓取 → 腕部图像 ACT chunks | LM Studio + 8766 ACT |
+| `centroid` | VLM 框 → SAM 2 → RGB-D 物体/桌面精炼 → 质心顶抓 | LM Studio + 8765 SAM 2 |
+| `gpd` | 同一分割点云 → GPD 候选排序 → 约束顶抓 | LM Studio + 8765 SAM 2/GPD |
 
-## 传统 RGB-D 路线
+## 混合 ACT
 
-8765 服务组合 VLM grounding、SAM 2 提示分割、D455 对齐深度、桌面/物体几何和
-顶抓目标：
+ACT 负责局部接触阶段，不负责导航或整段机械臂接近。
+GPU 接收实测六关节状态和腕部 RGB，返回 100 步 action chunks；
+机器人本地 streaming executor 核对顺序和命令范围后执行。
 
-- `centroid` 是确定性的目标质心/顶抓几何，也是依赖最少的调试基线。
-- `gpd` 使用固定 revision 的 GPD 产生候选，再经过同一套工作空间和顶抓筛选。
+结构和边界见[模型卡](../../assets/models/act-local-grasp.md)。
+权重只用 30 条黄色胶棒示教训练；羽毛球及其他物品是定性泛化展示。
 
-GPU 只返回感知候选，ROS manipulation 端拥有规划与执行。
+## 传统几何
 
-## 混合 ACT 路线
+Centroid/GPD 共用分割结果、标定坐标系和工作空间筛选。
+Manipulation 端用 MoveIt 规划下降、闭爪和抬升；GPU 只返回候选，不控制电机。
 
-`act` 先用标定后的视觉和 MoveIt 到达确定性预抓取，再向 8766 发送实测六关节状态
-和 checkpoint 所需的腕部图像。返回的 100 步 action chunk 仍要经过 Robot 本地
-streaming executor 校验。
+当前只支持参考配置的**顶抓**，不是通用 6-DoF 抓取。
+GPD 失败就报告失败，不静默切换为 centroid。
+在 GPU Ubuntu/WSL 使用 `./tools/setup gpu --with-gpd` 安装，
+固定版本的原生构建位于被忽略的 `.xlerobot/vendor/gpd`。
 
-模型合同、环境 pin 和 checkpoint 摘要见
-`../../assets/models/act-local-grasp.md`。它只用 30 条黄色胶棒示教训练；羽毛球和
-其他物体仅为定性 OOD 展示，不声明成功率或通用能力。权重采用 Apache-2.0，但首次
-Hub 上传仍未完成，在 manifest 写入 immutable revision 前需使用已验证的本地权重。
+## 每轮选一个后端
 
-## 对比运行
+完成 [Demo 前置步骤](demo.md)，先启动一次：
 
 ```bash
-# GPU
+# GPU：先启动 LM Studio
 ./tools/run gpu
 
 # Robot 终端 1
 ./tools/run demo --hardware
-
-# Robot 终端 2；每轮只固定一种 backend
-./tools/run grasp centroid --hardware
-./tools/run grasp gpd --hardware
-./tools/run grasp act --hardware
 ```
 
-对比时固定物体摆放、active calibration、来源位置和照明，分别记录成功/失败与耗时。
+在第二个 Robot 终端，每轮只执行其中一条：
+
+```bash
+./tools/run grasp act --hardware
+./tools/run grasp centroid --hardware
+./tools/run grasp gpd --hardware
+```
+
+这些命令提交的是**完整取物递送任务**，不只是机械臂动作。
+测试黄色胶棒时，先设置 `demo.object_id: 黄色胶棒` 再提交命令行请求。
+网页也可直接填写物品并选择后端；语音使用配置中的默认后端。
+
+对比时固定摆放、active 标定、桌边地点和照明，记录请求/实际后端及最终结果。
+单次抓取完成不等于统计成功率。

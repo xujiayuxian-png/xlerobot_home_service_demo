@@ -1,175 +1,136 @@
-# XLeRobot 家庭服务 Demo
+# XLeRobot Home Service Demo
 
-[English](README.md)
+[English](README.md) · [文档目录](docs/zh-CN/README.md)
 
-这个仓库记录的是一台经过改造的双轮 XLeRobot：听到取物请求后导航到桌边，抓取
-羽毛球，寻找最近的人并完成递送。它不是通用机器人框架，也不是大而全的课程。
+**对 XLeRobot 稍加改装，实现听指令、到桌边抓取物品、再递送给人的 Demo，
+并公开配套代码和工具，方便参考复现。**
 
-**先看完整真机 Demo：**
-[XLeRobot 取物递送视频（Bilibili）](https://www.bilibili.com/video/BV1srNg6XEZj)。
+[完整真机视频](https://www.bilibili.com/video/BV1srNg6XEZj)
+· [ACT 抓取](https://www.bilibili.com/video/BV18RK66JEdP)
+· [网页操作](https://www.bilibili.com/video/BV1GSK66XEqf)
 
-最值得直接参考的是整机标定流程和两条抓取路线：
+重点是当前两轮参考机上的**标定和两条抓取路线**，不是通用框架或教学课程：
 
-```text
-物体请求
-├── 传统路线：VLM/SAM2 + RGB-D 几何 ── centroid 或可选 GPD 目标
-└── 混合 ACT：标定后的 MoveIt 预抓取 ── 腕部图像 ACT 动作块
-                                      │
-                          机器人本地校验与执行
-                                      │
-                              抓取复核与递送
-```
+- **混合 ACT，主 Demo 路线：** RGB-D 目标 → 标定后的 MoveIt 预抓取 →
+  腕部图像 ACT action chunks → 机器人本地执行。
+- **传统几何路线：** VLM + SAM 2 + RGB-D → centroid 或 GPD 顶抓计划 → MoveIt 执行。
+  GPD 在 GPU 主机运行，失败不会静默切换到 centroid。
 
-默认 Demo 是 `act` + `羽毛球`，语音和 Web 控制台默认开启。ACT 模型只用 30 条
-黄色胶棒示教训练，因此羽毛球运行只是定性的分布外泛化展示，不代表通用抓取能力；
-`centroid` 和 `gpd` 用于对比传统路线。
+两条路线共用机器人运行栈、标定和任务流程。默认 `act` + `羽毛球`，语音和网页开启。
+ACT 权重**只使用 30 条黄色胶棒示教训练**；羽毛球抓取属于定性泛化演示，
+不声明成功率或通用抓取能力。
 
-## 1. 唯一支持的参考硬件
+## 1. 对齐参考硬件
 
-- Robot 端：Ubuntu 24.04 x86_64、ROS 2 Jazzy。
-- 双轮差速 XLeRobot 改装：两个 Feetech 轮舵机、双 SO-101 类机械臂、云台头、
-  2D 激光雷达、头部 RealSense D455 和右腕 USB 相机。
-- GPU 端：Ubuntu 24.04 WSL2，已验证 RTX 3080。
-- LM Studio 提供 `qwen/qwen3-vl-4b`；本仓运行传统抓取服务 `8765` 和 ACT
-  服务 `8766`。
+- 机器人：两轮改装 XLeRobot、双 SO-101 风格机械臂、云台头、D455、右腕 USB 相机、
+  LD06 风格雷达、麦克风和扬声器。
+- Robot 主机：Ubuntu 24.04 x86_64 + ROS 2 Jazzy。
+- GPU 主机：NVIDIA Ubuntu/WSL2；参考环境为 Ubuntu 24.04 WSL2 + RTX 3080。
+- VLM：LM Studio 提供 `qwen/qwen3-vl-4b`。
+- 单个右臂 Leader **仅在自行采集数据时需要**。
 
-普通 XLeRobot 的接线、舵机 ID、坐标系和相机支架不一定相同，请先看
-[硬件改造说明](docs/zh-CN/hardware.md)。
+先看 [BOM、接线与安装说明](docs/zh-CN/hardware.md)。本项目的配置不适用于所有原版 XLeRobot。
 
 ## 2. Robot/GPU 双机安装
 
-GPU 和 Robot 两台电脑都克隆同一份源码：
+两台电脑克隆同一仓库，复制并修改本机配置：
 
 ```bash
-git clone --recurse-submodules <repository-url>
+git clone --recurse-submodules REPOSITORY_URL xlerobot_home_service_demo
 cd xlerobot_home_service_demo
 cp config/local.example.yaml config/local.yaml
 cp .env.example .env
 ```
 
-编辑两个本地文件。两台电脑使用同一个 ACT token，`config/local.yaml` 中填写
-Robot 能访问的 GPU 地址。
-
-GPU 端先启动 LM Studio，再安装两个固定版本的 Python 环境：
+设备路径、局域网地址和文件位置填在 `config/local.yaml`；两台 `.env` 使用相同 ACT token。
+前置依赖和填写清单见[安装说明](docs/zh-CN/install.md)。
 
 ```bash
+# GPU 主机
 ./tools/setup gpu
-# 如果要使用可选的 GPD 原生候选生成器，请加 --with-gpd。
-```
+# 如需原生 GPD 后端，改用 ./tools/setup gpu --with-gpd
 
-首个 Hub revision 发布前，须把已验收的本地 checkpoint 连同生成的
-`model-manifest.json` qualification 记录复制到 `models.act_checkpoint` 与
-`models.act_manifest` 配置的路径。immutable Hub revision 发布后，这一步可由
-`tools/act download` 完成。缺少任一可校验来源时 doctor 会有意失败。
-
-Robot 端安装 ROS 依赖、Web 控制台、语音运行时、可选 AGPL 人体检测器和本地
-语音提示：
-
-```bash
+# Robot 主机
 ./tools/setup robot --with-person-detector --with-kws-model --generate-voice-prompts
 ```
 
-默认语音需要显式 `--with-kws-model`。该参数会先提示 KWS 权重/词表的上游条款
-仍不明确，再直接从原提供者下载；本仓既不打包也不镜像这些文件。完整步骤见
-[安装说明](docs/zh-CN/install.md)。
+完整语音和寻人 Demo 需要这些显式附加项：person detector 采用 AGPL-3.0；KWS 模型条款
+尚未明确，由工具直接从提供方下载，不随本仓库分发。详情见安装说明和第三方声明。
 
-## 3. 运行 doctor
+**资产状态：** ACT 权重和数据的首次公开上传尚未完成，下载情况见
+[模型与数据](docs/zh-CN/assets.md)。发布前需要已经验证的本地 checkpoint 及 manifest。
+使用发布权重运行 Demo **不需要先自行数采或训练**。
 
-标定或启动 Demo 前，在两台电脑分别执行只读检查：
+## 3. 检查依赖
 
 ```bash
 ./tools/doctor gpu
 ./tools/doctor robot
 ```
 
-它检查精确环境、模型摘要、服务状态、本地资产和稳定设备名，但不会打开相机或电机
-设备。每个 `ERROR` 都指向失败边界；常见修复见[排障说明](docs/zh-CN/troubleshooting.md)。
+Doctor 只读检查，不打开相机或电机。首次安装时，缺标定、缺地图和服务尚未启动
+表示后续步骤还没完成；按下面的流程补齐，启动 Demo 前再次检查。
 
-## 4. 标定当前机器
+## 4. 标定，然后准备地图与地点
 
-不要照抄另一台机器的数值。公开流程按下面顺序生成不可变 bundle：
+按[标定说明](docs/zh-CN/calibration.md)完成：
 
 ```text
-servo -> head-camera -> right-handeye
-base -------------------------------> grasp-alignment -> activate -> render
+servo → head-camera → right-handeye ─┐
+base（独立实测）────────────────────┴→ grasp-alignment → activate → render
 ```
 
-先执行 `./tools/calibrate status`。真机采集统一使用
-`./tools/calibrate capture <workflow> --hardware`；两组相机 replay 不需要硬件。五个
-组件全部通过后执行：
+随后[建图、保存 table 地点、验证并激活场地](docs/zh-CN/mapping.md)。
+标定和场地准备是两件事：标定完成并不代表机器人已经知道地图和桌子的位置。
+不要复制别人的设备标定或家庭地图。
+
+## 5. 分别运行三个抓取后端
 
 ```bash
-./tools/calibrate activate
-./tools/calibrate render
-./tools/calibrate status
-```
-
-Demo 只读取摘要匹配的 active runtime。标靶、采样、质量门、续采和回滚详见
-[标定说明](docs/zh-CN/calibration.md)。
-
-## 5. 分别运行 centroid、GPD 和 ACT
-
-先在 GPU 启动提议服务，在 Robot 启动一次已标定的运行栈：
-
-```bash
-# GPU 端
+# GPU：先启动 LM Studio，再执行
 ./tools/run gpu
 
-# Robot 端，终端 1
+# Robot 终端 1
 ./tools/run demo --hardware
-```
 
-再从 Robot 的第二个终端为每次请求显式选择一个 backend：
-
-```bash
+# Robot 终端 2：每轮只执行其中一条
+./tools/run grasp act --hardware
 ./tools/run grasp centroid --hardware
 ./tools/run grasp gpd --hardware
-./tools/run grasp act --hardware
 ```
 
-三条命令运行同一取物递送任务，但锁定抓取 backend。GPD 失败会明确报错，不会静默
-变成 centroid；传统路线只承诺当前 top-grasp 范围。详见
-[两条抓取路线](docs/zh-CN/grasping.md)。
+`grasp` 会固定后端并提交**完整取物递送任务**，不是仅移动机械臂的独立抓取命令。
+目标物品读取 `demo.object_id`。见[两条抓取路线](docs/zh-CN/grasping.md)。
 
-## 6. 运行完整语音与 Web Demo
+## 6. 完整语音 + 网页 Demo
 
-`./tools/run demo --hardware` 启动八阶段 Robot 栈，本身不自动提交任务：
+`tools/run demo --hardware` 启动后等待请求，不会自动发起任务。
+打开 `http://<robot-host>:8080`，或说“小乐小乐”后发出取物指令。
+详见[完整 Demo 操作说明](docs/zh-CN/demo.md)。
 
 ```text
-定位 -> 导航/贴桌 -> 目标感知 -> 抓取与验证
--> 寻人 -> 接近 -> 语音反馈 -> 递送
+定位 → 导航/贴桌 → 目标感知 → 抓取与验证
+→ 寻人 → 接近 → 语音反馈 → 递送
 ```
 
-对着麦克风说出请求，或打开 `http://<robot-host>:8080`。两种入口默认使用 `act` 和
-`羽毛球`；Web 也能显式选择 `centroid`、`gpd`。任务记录同时保存请求值和实际
-backend。详见[完整 Demo](docs/zh-CN/demo.md)。
+## 7. 配套工具、排障与资产
 
-## 7. 排障、资产与仓库边界
+想采集自己的示教，请走独立的 [ACT 数采 → 转换 → 训练流程](docs/zh-CN/act-workflow.md)。
+正常操作为 **Start → Home → End → 下一条**。有效数据默认保留；End 后仍可遥操放下物品。
 
-仓库包含 ROS 源码、配置模板、标定求解与回放样例、两套抓取实现、ACT HTTP
-服务，以及五个顶层入口：`setup`、`doctor`、`calibrate`、`act`、`run`。
-不提供仿真或 Mock 框架。
+| 入口 | 用途 |
+| --- | --- |
+| `tools/setup robot\|gpu` | 源码安装 |
+| `tools/doctor robot\|gpu` | 检查本机依赖与服务 |
+| `tools/calibrate` | 标定采集、求解、激活、回放和回滚 |
+| `tools/act` | 数采、转换、训练、检查和下载 |
+| `tools/run` | GPU 服务、建图、指定后端任务和完整 Demo |
 
-Git 中不包含家庭地图、单机标定、录音、模型权重、凭据和历史预录 MP3。模型 ID、
-已知摘要和可用状态记录在[资产清单](assets/models/manifest.yaml)中。ACT 模型确定为
-Apache-2.0，30 条示教数据确定为 CC BY 4.0；两者的 Hub repo ID 已固定，但首次上传
-仍待完成。
+[常见问题](docs/zh-CN/troubleshooting.md) · [模型与数据](docs/zh-CN/assets.md)
+· [源码布局](docs/zh-CN/README.md#源码布局)
 
-ACT 数据到模型的流程只使用一个入口：
+本机配置、地图、标定、示教、权重和日志不提交到 Git，运行资产通常放在被忽略的
+`.xlerobot/`。不提供仿真/Mock 框架、交付安装包或 systemd 安装。
 
-```bash
-./tools/act collect --hardware
-./tools/act convert --dry-run
-./tools/act train --dry-run
-./tools/act evaluate --checkpoint PATH --output PATH/model-manifest.json
-```
-
-第五个操作 `tools/act download` 只在公开 manifest 写入首次 immutable Hub
-revision 后才可用。完整说明见 [ACT 数据到模型流程](docs/zh-CN/act-workflow.md)。
-
-两阶段 ACT 行为可直接看
-[ACT 路线视频](https://www.bilibili.com/video/BV18RK66JEdP)。
-
-项目自有代码和文档使用 Apache-2.0。第三方代码、模型和生成资产使用各自条款，
-详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和
-[模型说明](assets/models/external-models.md)。
+项目代码与文档：[Apache-2.0](LICENSE)。ACT 权重：Apache-2.0。30 条示教数据：CC BY 4.0。
+第三方资产保留各自条款，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

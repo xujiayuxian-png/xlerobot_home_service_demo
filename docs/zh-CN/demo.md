@@ -1,35 +1,78 @@
-# 完整取物递送 Demo
+# 完整语音 + 网页 Demo
 
-操作流程和 Web UI 可先看
-[HMI 演示视频](https://www.bilibili.com/video/BV1GSK66XEqf)。
+[文档目录](README.md) · 上一步：[建图](mapping.md) · [English](../en/demo.md)
 
-```text
-语音/Web/CLI 请求 → 定位 → 导航并靠桌
-→ 物体 grounding → 指定抓取路线并复核
-→ 寻找最近人员 → 接近 → 语音反馈 → 递送（随后回到 ready）
-```
+## 首次准备
 
-启动前应保证：稳定设备别名存在；完整标定已 active/render；Nav2 地图和具名位置与
-当前场地一致并包含 `table`；Robot 能访问 LM Studio、8765 和 8766；寻人模式的
-person model 可读；语音开启时本地语音模型与音频设备可用。
+完成[安装](install.md)、取得[模型](assets.md)、激活并 render 当前机器的
+[标定](calibration.md)，再[建图并记录 table 地点](mapping.md)。
+让 `site.map` 和 `site.places` 指向已激活文件。运行 Demo 不需要 Leader。
+完整流程需要寻人模型；语音需要本地语音模型和音频设备。
 
-先运行 `tools/doctor robot` 并解决全部 `ERROR`。
+把物品放在桌面标定抓取区域内，清空通行路线，现场留人。
+默认目标为 `羽毛球`、后端为 ACT；权重只用黄色胶棒训练，
+其他物体效果属于定性展示。
+
+## 每次启动
+
+1. 在 GPU/Windows 启动 LM Studio，加载指定 Qwen 模型，开启 Robot 可以访问的 API。
+2. 在 GPU/WSL 启动推理服务：
 
 ```bash
-# GPU
 ./tools/run gpu
+```
 
-# Robot
+3. 保持该终端运行。在 Robot 主机停止其他建图/数采工作区后执行：
+
+```bash
+./tools/doctor robot
 ./tools/run demo --hardware
 ```
 
-Web 默认地址为 `http://<robot-host>:8080`。默认语音/Web 任务是 ACT 抓取
-`羽毛球`；这是相对于 30 条黄色胶棒训练数据的定性 OOD 展示。也可以在第二个
-Robot 终端固定路线：
+先处理 doctor 的 ERROR。启动会建立机器人运行栈，可能执行启动姿态动作，
+但**不会自动发起取物任务**。
+
+## 发起一次任务
+
+打开 `http://<robot-host>:8080`，端口以 `demo.web_port` 为准。
+
+![Demo 页面：离线界面预览](../images/demo-ui.png)
+
+*仅用于展示布局，未连接机器人、地图或相机；图中“系统阻塞”是离线预览状态，
+不是实机运行时应该保持的状态。*
+
+- **网页：** 输入物品，选择 ACT / 传统·质心顶抓 / 传统·GPD 顶抓，就绪后点击 **开始任务**。
+- **语音：** 说“小乐小乐”，等待进入聆听后发出取物指令。
+  语音使用配置中的默认后端；网页下拉框只影响网页请求。
+- **命令行：** 在第二个 Robot 终端提交指定后端任务：
 
 ```bash
 ./tools/run grasp act --hardware
 ```
 
-更换标定、接线、地图或 controller 配置前，先 Ctrl-C 停止前台 Robot 进程。
-Ctrl-C 停止 `tools/run gpu` 时会同时结束两个推理服务。
+命令行物品来自 `demo.object_id`，更换物品后修改本机配置再提交。
+不要同时从语音、网页和终端重复下发任务。
+
+## 怎么看是否完成
+
+```text
+定位 → 导航/贴桌 → 目标感知 → 抓取与验证
+→ 寻人 → 接近 → 语音反馈 → 递送 → ready
+```
+
+看页面的当前阶段和最终结果，抓起物品还不等于整个任务完成。
+任务记录保留请求后端与实际后端。其他路线见[抓取说明](grasping.md)。
+
+**手动控制**页提供定位、地点导航、底盘摇杆和姿态按钮。
+这些都会产生真实运动，不是自动任务每次都要先执行的额外步骤。
+**锁止底盘**是底盘软件锁止，不是物理急停，也不会代替机械臂停止。
+
+## 结束
+
+有任务时先在页面取消并等待结果，再 Ctrl-C 停止 Robot 终端，
+Ctrl-C 停止 GPU 终端中的两项推理服务。LM Studio 是单独启动的，需要另行停止。
+离开前安放好机械臂并关闭电源；若退出时报告扭矩释放通信失败，
+不要认为电机一定已经释放。
+
+修改接线、地图、标定或 controller 配置前，先停止 Robot 工作区。
+常见问题见[排障](troubleshooting.md)。
