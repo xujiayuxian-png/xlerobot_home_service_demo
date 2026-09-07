@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="564" viewBox="0 0 1200 564" role="img" aria-labelledby="title description">
+  <title id="title">One robot. Two grasp routes.</title>
+  <desc id="description">ACT is the main demo backend: a VLM-guided RGB-D target leads to a MoveIt pregrasp, wrist-image and joint-state ACT chunks, then the robot-local streaming executor. The classical geometry route uses VLM, SAM 2 and RGB-D, selects either a centroid or GPD constrained top-grasp plan, and uses MoveIt to descend, close and lift. GPD runs on the GPU and never silently falls back to centroid. Both routes share calibration, the robot and the fetch-and-deliver task.</desc>
+  <defs>
+    <marker id="teal-arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M1 1 5 4 1 7" fill="none" stroke="#25968b" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="blue-arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M1 1 5 4 1 7" fill="none" stroke="#6484b0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; }
+      .heading { font-size: 31px; font-weight: 700; letter-spacing: -.7px; fill: #1f3545; }
+      .subtitle { font-size: 16px; fill: #627381; }
+      .route { font-size: 23px; font-weight: 700; letter-spacing: -.3px; fill: #1f3545; }
+      .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 1.4px; }
+      .step { font-size: 16px; font-weight: 650; fill: #203847; }
+      .detail { font-size: 12px; fill: #627381; }
+      .number { font-size: 11px; font-weight: 700; letter-spacing: .7px; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="564" rx="22" fill="#faf9f6"/>
+  <text x="42" y="55" class="heading">One robot. Two grasp routes.</text>
+  <text x="43" y="84" class="subtitle">Choose a grasp backend. Keep the rest of the demo.</text>
+
+  <rect x="36" y="112" width="1128" height="174" rx="16" fill="#eff8f5" stroke="#d5e8e2"/>
+  <rect x="36" y="141" width="4" height="114" rx="2" fill="#178779"/>
+  <text x="62" y="149" class="eyebrow" fill="#178779">HYBRID LEARNING</text>
+  <text x="62" y="184" class="route">ACT</text>
+  <rect x="62" y="200" width="131" height="25" rx="12.5" fill="#d6ece4"/>
+  <text x="127.5" y="217" text-anchor="middle" font-size="11" font-weight="700" fill="#256858">MAIN DEMO · DEFAULT</text>
+  <text x="62" y="254" class="detail">Learned local contact phase</text>
+
+  <g>
+    <rect x="278" y="145" width="181" height="108" rx="11" fill="#ffffff" stroke="#dce9e4"/>
+    <text x="294" y="168" class="number" fill="#178779">01 · LOCATE</text>
+    <text x="294" y="197" class="step">RGB-D target</text>
+    <text x="294" y="225" class="detail">VLM-guided coarse pose</text>
+    <path d="M468 199H480" fill="none" stroke="#25968b" stroke-width="1.7" marker-end="url(#teal-arrow)"/>
+
+    <rect x="492" y="145" width="181" height="108" rx="11" fill="#ffffff" stroke="#dce9e4"/>
+    <text x="508" y="168" class="number" fill="#178779">02 · APPROACH</text>
+    <text x="508" y="197" class="step">MoveIt pregrasp</text>
+    <text x="508" y="225" class="detail">Calibrated arm approach</text>
+    <path d="M682 199H694" fill="none" stroke="#25968b" stroke-width="1.7" marker-end="url(#teal-arrow)"/>
+
+    <rect x="706" y="145" width="181" height="108" rx="11" fill="#ffffff" stroke="#dce9e4"/>
+    <text x="722" y="168" class="number" fill="#178779">03 · PREDICT</text>
+    <text x="722" y="197" class="step">ACT chunks</text>
+    <text x="722" y="225" class="detail">Wrist RGB + joint state</text>
+    <path d="M896 199H908" fill="none" stroke="#25968b" stroke-width="1.7" marker-end="url(#teal-arrow)"/>
+
+    <rect x="920" y="145" width="181" height="108" rx="11" fill="#ffffff" stroke="#dce9e4"/>
+    <text x="936" y="168" class="number" fill="#178779">04 · EXECUTE</text>
+    <text x="936" y="197" class="step">Local executor</text>
+    <text x="936" y="225" class="detail">Robot-side streaming</text>
+  </g>
+
+  <rect x="36" y="308" width="1128" height="176" rx="16" fill="#f0f4fa" stroke="#dce4ef"/>
+  <rect x="36" y="337" width="4" height="116" rx="2" fill="#587eb1"/>
+  <text x="62" y="345" class="eyebrow" fill="#587eb1">EXPLICIT GEOMETRY</text>
+  <text x="62" y="380" class="route">Centroid / GPD</text>
+  <text x="62" y="411" class="detail">Alternative grasp backends</text>
+  <text x="62" y="452" class="detail">Reference top grasps only</text>
+
+  <g>
+    <rect x="278" y="332" width="246" height="106" rx="11" fill="#ffffff" stroke="#dce4ef"/>
+    <text x="295" y="355" class="number" fill="#587eb1">01 · SEGMENT</text>
+    <text x="295" y="384" class="step">VLM + SAM 2 + RGB-D</text>
+    <text x="295" y="412" class="detail">Object cloud + table geometry</text>
+    <path d="M535 385H554" fill="none" stroke="#6484b0" stroke-width="1.7" marker-end="url(#blue-arrow)"/>
+
+    <rect x="567" y="332" width="246" height="106" rx="11" fill="#ffffff" stroke="#dce4ef"/>
+    <text x="584" y="355" class="number" fill="#587eb1">02 · PLAN</text>
+    <text x="584" y="384" class="step">Centroid or GPD</text>
+    <text x="584" y="412" class="detail">Constrained top-grasp plan</text>
+    <path d="M824 385H843" fill="none" stroke="#6484b0" stroke-width="1.7" marker-end="url(#blue-arrow)"/>
+
+    <rect x="856" y="332" width="246" height="106" rx="11" fill="#ffffff" stroke="#dce4ef"/>
+    <text x="873" y="355" class="number" fill="#587eb1">03 · EXECUTE</text>
+    <text x="873" y="384" class="step">MoveIt</text>
+    <text x="873" y="412" class="detail">Descend · close · lift</text>
+  </g>
+  <circle cx="283" cy="459" r="3" fill="#6484b0"/>
+  <text x="295" y="463" class="detail">GPD proposals run on the GPU · No silent fallback to centroid</text>
+
+  <rect x="36" y="506" width="1128" height="36" rx="11" fill="#263d4d"/>
+  <text x="600" y="530" text-anchor="middle" font-size="14" font-weight="500" letter-spacing=".2" fill="#f5f8f9">Same calibration · same robot · same fetch-and-deliver task</text>
+</svg>

@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>XLeRobot · URDF studio</title>
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 1600px; height: 900px; overflow: hidden; }
+body { background: #f3f5f2; color: #203d46; font-family: 'DejaVu Sans', Arial, sans-serif; }
+canvas { position: absolute; inset: 0; }
+.copy { position: absolute; top: 110px; left: 90px; width: 580px; }
+.eyebrow { font-size: 16px; letter-spacing: 3px; font-weight: 700; color: #44766f; }
+h1 { font-size: 78px; line-height: 1.09; letter-spacing: -4px; font-weight: 600; margin: 34px 0 28px; }
+.sub { font-size: 23px; line-height: 1.7; color: #627479; }
+.rule { margin: 39px 0 25px; width: 64px; height: 4px; background: #479e8b; border-radius: 2px; }
+.chips { display: flex; gap: 10px; margin-top: 24px; }
+.chip { font-size: 15px; padding: 11px 16px; border: 1px solid #cddbd7; border-radius: 30px; }
+.footer { position: absolute; left: 0; bottom: 0; right: 0; padding: 23px 90px; display: flex; justify-content: space-between; color: #69807f; font-size: 14px; letter-spacing: 1px; background: #f3f5f2; }
+.detail .copy { width: 550px; top: 100px; }
+.detail h1 { font-size: 55px; letter-spacing: -2px; }
+.detail .sub { font-size: 20px; }
+.detail .item { border-top: 1px solid #d4dfdc; padding-top: 19px; margin-top: 24px; font-size: 20px; line-height: 1.55; }
+.detail .item span { color: #69807f; font-size: 16px; }
+</style>
+<script type="importmap">{"imports":{"three":"/vendor/build/three.module.js","three/addons/":"/vendor/examples/jsm/"}}</script>
+</head>
+<body>
+<div class="copy" id="copy">
+  <div class="eyebrow">XLEROBOT / HOME SERVICE</div>
+  <h1>From request<br>to handover.</h1>
+  <div class="sub">One modified robot.<br>Two grasp routes. Code and tools included.</div>
+  <div class="rule"></div>
+  <div class="chips"><div class="chip">Calibration</div><div class="chip">ACT</div><div class="chip">Classical geometry</div></div>
+</div>
+<div class="footer"><span>OPEN SOURCE · CODE + TOOLS + DATA</span><span>URDF VISUALIZATION / STYLIZED MATERIALS</span></div>
+<script type="module">
+import * as THREE from 'three';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+
+const detail = new URLSearchParams(location.search).get('view') === 'detail';
+if (detail) {
+  document.body.className = 'detail';
+  document.getElementById('copy').innerHTML = `<div class="eyebrow">THE SHARED FOUNDATION</div>
+    <h1>Calibrate once.<br>Use both routes.</h1>
+    <div class="sub">The same kinematics, transforms<br>and robot-local execution.</div>
+    <div class="item">Head + wrist frames<br><span>Head-camera and hand-eye calibration</span></div>
+    <div class="item">SO-101-style arms<br><span>One manipulation stack, three backends</span></div>
+    <div class="item">Grasp alignment<br><span>Vision–FK compensation and gravity sag</span></div>`;
+}
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true });
+renderer.setSize(1600, 900);
+renderer.setPixelRatio(1);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+scene.up.set(0, 0, 1);
+const env = new THREE.PMREMGenerator(renderer);
+scene.environment = env.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.65;
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 30);
+camera.up.set(0, 0, 1);
+
+const vec = (s, fallback = '0 0 0') => (s || fallback).trim().split(/\s+/).map(Number);
+function origin(element) {
+  const o = element?.querySelector(':scope > origin');
+  return new THREE.Matrix4().compose(new THREE.Vector3(...vec(o?.getAttribute('xyz'))),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(...vec(o?.getAttribute('rpy')), 'ZYX')),
+    new THREE.Vector3(1, 1, 1));
+}
+
+const xml = new DOMParser().parseFromString(await (await fetch('/robot.urdf')).text(), 'application/xml');
+if (xml.querySelector('parsererror')) throw new Error('Invalid expanded URDF');
+const robot = new THREE.Group();
+scene.add(robot);
+const links = new Map([...xml.querySelectorAll('robot > link')].map(e => [e.getAttribute('name'), new THREE.Group()]));
+const joints = [...xml.querySelectorAll('robot > joint')];
+const pose = {
+  right_arm_shoulder_pan: -0.10278, right_arm_shoulder_lift: -0.53076,
+  right_arm_elbow_flex: -0.56450, right_arm_wrist_flex: 1.20,
+  right_arm_wrist_roll: 0.03068, right_arm_gripper: 0.55,
+  left_arm_shoulder_pan: 0.18, left_arm_shoulder_lift: -0.40,
+  left_arm_elbow_flex: -0.40, left_arm_wrist_flex: 1.10, left_arm_gripper: 0.40,
+  head_pan_joint: -0.08, head_tilt_joint: 0.22,
+};
+const children = new Set();
+for (const j of joints) {
+  const childName = j.querySelector('child').getAttribute('link');
+  const child = links.get(childName);
+  children.add(childName);
+  const matrix = origin(j);
+  const value = pose[j.getAttribute('name')] || 0;
+  if (value) {
+    const limits = j.querySelector('limit');
+    if (limits && (value < Number(limits.getAttribute('lower')) || value > Number(limits.getAttribute('upper')))) {
+      throw new Error(`Display pose outside URDF limits: ${j.getAttribute('name')}`);
+    }
+    matrix.multiply(new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(...vec(j.querySelector('axis')?.getAttribute('xyz'), '1 0 0')).normalize(), value));
+  }
+  child.applyMatrix4(matrix);
+  links.get(j.querySelector('parent').getAttribute('link')).add(child);
+}
+for (const [name, group] of links) if (!children.has(name)) robot.add(group);
+
+const materialCache = new Map();
+function material(name) {
+  if (materialCache.has(name)) return materialCache.get(name);
+  const dark = /motor|black/.test(name);
+  const color = dark ? '#293b42' : name === 'blue' ? '#568d97' : /grey/.test(name) ? '#d7dfdb' : '#c9d4d0';
+  const m = new THREE.MeshStandardMaterial({ color, roughness: dark ? 0.48 : 0.34, metalness: dark ? 0.35 : 0.2 });
+  materialCache.set(name, m);
+  return m;
+}
+const loader = new STLLoader();
+const geometryCache = new Map();
+async function meshGeometry(mesh) {
+  const uri = mesh.getAttribute('filename').replace('package://xlerobot_description/meshes/', '/meshes/');
+  if (!geometryCache.has(uri)) geometryCache.set(uri, loader.loadAsync(uri).then(g => {
+    // Keep CAD hard edges; STL supplies the original face normals.
+    return mergeVertices(g);
+  }));
+  return (await geometryCache.get(uri)).clone();
+}
+let visuals = 0;
+for (const link of xml.querySelectorAll('robot > link')) {
+  for (const visual of link.querySelectorAll(':scope > visual')) {
+    const shape = visual.querySelector('geometry').firstElementChild;
+    let geometry;
+    if (shape.tagName === 'mesh') geometry = await meshGeometry(shape);
+    else if (shape.tagName === 'box') geometry = new THREE.BoxGeometry(...vec(shape.getAttribute('size')));
+    else if (shape.tagName === 'cylinder') {
+      geometry = new THREE.CylinderGeometry(Number(shape.getAttribute('radius')), Number(shape.getAttribute('radius')), Number(shape.getAttribute('length')), 64);
+      geometry.rotateX(Math.PI / 2);
+    } else if (shape.tagName === 'sphere') geometry = new THREE.SphereGeometry(Number(shape.getAttribute('radius')), 32, 24);
+    else throw new Error(`Unsupported geometry: ${shape.tagName}`);
+    if (shape.tagName === 'mesh') geometry.scale(...vec(shape.getAttribute('scale'), '1 1 1'));
+    const mesh = new THREE.Mesh(geometry, material(visual.querySelector('material')?.getAttribute('name') || 'grey'));
+    mesh.applyMatrix4(origin(visual));
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    links.get(link.getAttribute('name')).add(mesh);
+    visuals++;
+  }
+}
+robot.updateMatrixWorld(true);
+const bounds = new THREE.Box3().setFromObject(robot);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.ShadowMaterial({ opacity: 0.13 }));
+floor.position.z = bounds.min.z - 0.004;
+floor.receiveShadow = true;
+scene.add(floor);
+scene.add(new THREE.HemisphereLight(0xeaf5ff, 0x87938b, 1.4));
+const key = new THREE.DirectionalLight(0xfff7eb, 3.1);
+key.position.set(2, -3, 5);
+key.castShadow = true;
+key.shadow.mapSize.set(4096, 4096);
+Object.assign(key.shadow.camera, { left: -1.5, right: 1.5, top: 2, bottom: -1, near: 0.1, far: 12 });
+key.shadow.bias = -0.00015;
+key.shadow.normalBias = 0.002;
+key.shadow.radius = 4;
+scene.add(key);
+const rim = new THREE.DirectionalLight(0xd5f6f4, 2.5);
+rim.position.set(-1.5, 2, 3);
+scene.add(rim);
+
+const center = bounds.getCenter(new THREE.Vector3());
+const target = detail ? new THREE.Vector3(-0.10, 0, 0.92) : center.clone();
+const height = detail ? 0.90 : (bounds.max.z - bounds.min.z) * 1.30;
+const aspect = 1600 / 900;
+camera.left = -height * aspect / 2;
+camera.right = height * aspect / 2;
+camera.top = height / 2;
+camera.bottom = -height / 2;
+camera.position.copy(target).add(new THREE.Vector3(2.7, -3.6, detail ? 1.75 : 1.8));
+camera.lookAt(target);
+// Shift the subject right, leaving deliberate whitespace for the title.
+camera.updateMatrixWorld();
+const cameraRight = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+const offset = cameraRight.multiplyScalar(-height * 0.43);
+camera.position.add(offset);
+camera.lookAt(target.clone().add(offset));
+camera.updateProjectionMatrix();
+renderer.render(scene, camera);
+window.renderInfo = { visuals, meshes: geometryCache.size, bounds: { min: bounds.min.toArray(), max: bounds.max.toArray() }, pose };
+await document.fonts.ready;
+await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+window.renderReady = true;
+</script>
+</body>
+</html>
