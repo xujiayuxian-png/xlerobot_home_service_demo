@@ -8,6 +8,9 @@ datasets:
     license: CC-BY-4.0
     bundled: false
     demonstrations: 30
+    training_frames: 6149
+    fps: 30
+    checksums: xlerobot-glue-stick-grasp-30.sha256.json
     object: yellow_glue_stick
     format: lerobot-v3
     card: glue-stick-grasp-30.md

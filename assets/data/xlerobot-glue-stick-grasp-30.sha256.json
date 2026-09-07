@@ -1,0 +1,15 @@
+{
+  "schema": "xlerobot_dataset_checksums/v1",
+  "repo_id": "xujiayuxian-png/xlerobot-glue-stick-grasp-30",
+  "episodes": 30,
+  "frames": 6149,
+  "files": {
+    "data/chunk-000/file-000.parquet": "db292ca4f52fb3a7262d44da5ecb9dccff935a58837c9b237766c31c17edf981",
+    "meta/episodes/chunk-000/file-000.parquet": "3cee89fb3d4c6f4c2b0c75ba21a625187fa7d355050702eacba65d951c53de70",
+    "meta/info.json": "dab4ca7b235d7fc2cc809249abfe45316b92e9eb543abc703ae580ec54885f99",
+    "meta/stats.json": "2b06f376e7ec14dc34540e12ff36b9a450054378dd4b58071e09941b80239044",
+    "meta/tasks.parquet": "a33c4d388f74e383b6483de48c4c9853b1f578c181cd85e4eb7f16a6804403f8",
+    "videos/observation.images.head/chunk-000/file-000.mp4": "4fc3803813ea6331444fdcfd2253f5c63398279ee99961d1377f2c69fe1d5f75",
+    "videos/observation.images.wrist/chunk-000/file-000.mp4": "fea2104f0c6783a77d8038189bd19c84d05372acb45b8c4a3180e135164c5478"
+  }
+}
