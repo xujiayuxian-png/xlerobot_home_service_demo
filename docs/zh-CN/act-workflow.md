@@ -147,7 +147,7 @@ RGB `3 x 480 x 640`、六维 state/action、chunk 100、model dimension 512、FF
 
 验证过程中不要修改 Demo 正在使用的 checkpoint 配置。
 
-发布模型只用 30 条黄色胶棒示教训练。计划完整公开的数据集为
+发布模型只用 30 条黄色胶棒示教训练。完整公开的数据集为
 `lissajous/xlerobot-glue-stick-grasp-30`，许可 CC BY 4.0。羽毛球效果只作为
 定性的 OOD 证据。
 
@@ -169,5 +169,4 @@ RGB `3 x 480 x 640`、六维 state/action、chunk 100、model dimension 512、FF
 
 `download` 操作按 Apache-2.0 模型 ID
 `lissajous/xlerobot-act-local-grasp-v1`、immutable Hub revision 和全部固定
-摘要下载；私有候选尚未公开时有意不可用。公开并更新清单后再使用入口
-`tools/act download`。
+摘要下载。在 GPU 主机执行 `./tools/act download` 即可取得发布权重，无需 Hub 登录。

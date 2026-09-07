@@ -72,7 +72,8 @@ not a physical grasp benchmark.
 
 Apache-2.0. Model ID:
 `lissajous/xlerobot-act-local-grasp-v1`.
-Uploaded as a private release candidate; public release is pending.
+Publicly available on Hugging Face.
 The source repository's download manifest remains the source of truth for
-availability, revision and exact file hashes. Private upload does not enable
-the public download command.
+revision and exact file hashes. Download through `tools/act download`.
+
+Source and instructions: https://github.com/xujiayuxian-png/xlerobot_home_service_demo

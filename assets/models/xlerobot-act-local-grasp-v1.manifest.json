@@ -2,8 +2,8 @@
   "schema": "xlerobot_model_download/v1",
   "model_id": "xlerobot-act-local-grasp-v1",
   "repo_id": "lissajous/xlerobot-act-local-grasp-v1",
-  "revision": "a83762edf0cef6e2a58a6af94be6f66b08d251bf",
-  "availability": "private-upload",
+  "revision": "12cae2bf7f1429934499ed95db733f907ad75110",
+  "availability": "published",
   "license": "Apache-2.0",
   "files": {
     "config.json": "fbd3987a0c093ce01b36dd3fae38be3e7c6455079f22dd0401d1e8249d71537f",

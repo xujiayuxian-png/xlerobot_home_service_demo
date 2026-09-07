@@ -9,8 +9,8 @@ models:
     required_for: act
     bundled: false
     repo_id: lissajous/xlerobot-act-local-grasp-v1
-    revision: a83762edf0cef6e2a58a6af94be6f66b08d251bf
-    public_download: private-upload  # Not yet publicly downloadable.
+    revision: 12cae2bf7f1429934499ed95db733f907ad75110
+    public_download: published
     license: Apache-2.0
     framework: lerobot-0.5.1
     training_data:

@@ -41,7 +41,7 @@ configuration for every upstream XLeRobot.
 On both computers, clone the same repository and edit the local templates:
 
 ```bash
-git clone --recurse-submodules REPOSITORY_URL xlerobot_home_service_demo
+git clone --recurse-submodules https://github.com/xujiayuxian-png/xlerobot_home_service_demo.git
 cd xlerobot_home_service_demo
 cp config/local.example.yaml config/local.yaml
 cp .env.example .env
@@ -65,11 +65,9 @@ detector is AGPL-3.0; the KWS model terms are unresolved and it is downloaded
 directly from its provider, not bundled here. See the installation guide and
 [third-party notices](THIRD_PARTY_NOTICES.md).
 
-**Model availability:** ACT weights and data are uploaded privately; public
-release is pending. The [asset page](docs/en/assets.md) records availability.
-Before publication, the demo needs the verified local checkpoint and its
-manifest. You do not need to collect data or train a model to use the released
-demo checkpoint.
+**Models are available:** follow [models and data](docs/en/assets.md), then run
+`./tools/act download` on GPU. You do not need to collect data or train a model
+to use the demo checkpoint.
 
 ## 3. Check dependencies
 
@@ -142,6 +140,11 @@ are kept by default, and End lets you continue teleoperating to put the object d
 
 [Troubleshooting](docs/en/troubleshooting.md) · [Models and data](docs/en/assets.md)
 · [Source layout](docs/en/README.md#source-layout)
+
+Verification scope: demo, mapping and collection have been exercised on the
+reference robot using its existing calibration. The new live calibration
+workflow and resulting physical accuracy still await on-robot acceptance;
+solver replays alone do not establish that accuracy.
 
 Local configuration, maps, calibration, recordings, weights and logs are not
 committed. Runtime assets normally live under ignored `.xlerobot/`. There is no

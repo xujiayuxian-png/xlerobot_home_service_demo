@@ -21,13 +21,11 @@ Clone recursively on both machines, copy the two ignored local templates, and
 edit them for your LAN and files:
 
 ```bash
-git clone --recurse-submodules REPOSITORY_URL xlerobot_home_service_demo
+git clone --recurse-submodules https://github.com/xujiayuxian-png/xlerobot_home_service_demo.git
 cd xlerobot_home_service_demo
 cp config/local.example.yaml config/local.yaml
 cp .env.example .env
 ```
-
-Replace `REPOSITORY_URL` with this source repository's clone URL.
 
 Generate a different ACT token for your installation and put the same token in
 the robot and GPU `.env` files. Never expose ports 8765 or 8766 to the public
@@ -54,11 +52,10 @@ Studio `0.4.12+1` separately and load the manifest-recorded Q4_K_M artifact as
 `qwen/qwen3-vl-4b`. The API doctor can check the served name; compare the local
 GGUF revision and hashes with `assets/models/manifest.yaml`. Put the verified ACT checkpoint
 at the repo-relative `models.act_checkpoint` and its qualification record at
-`models.act_manifest`. Before the initial Hub release, these must be copied
-together from the vetted local result; see `act-workflow.md` to produce one.
-After an immutable Hub revision is published, `tools/act download` installs and
-hash-checks both. Inspect `../../assets/models/manifest.yaml` first; no weight
-is committed to Git.
+`models.act_manifest`. Run `./tools/act download` to install and hash-check the
+public checkpoint and manifest at these paths. For your own model, see
+[training and evaluation](act-workflow.md). Exact published assets are in
+[the model inventory](../../assets/models/manifest.yaml); weights are not committed to Git.
 
 ## Robot computer
 

@@ -8,8 +8,8 @@ ACT 权重与源码分开分发。推理不需要下载 30 条训练数据。
 
 | 资产 | 来源或取得方式 |
 | --- | --- |
-| ACT 权重 | `lissajous/xlerobot-act-local-grasp-v1`；已私有上传，待公开 |
-| 30 条黄色胶棒示教 | `lissajous/xlerobot-glue-stick-grasp-30`；已私有上传，待公开，推理不需要 |
+| ACT 权重 | `lissajous/xlerobot-act-local-grasp-v1`；已公开 |
+| 30 条黄色胶棒示教 | `lissajous/xlerobot-glue-stick-grasp-30`；已公开，推理不需要 |
 | SAM 2 | `tools/setup gpu` 下载并校验 |
 | Qwen VLM | 在 LM Studio 加载指定模型，见[安装说明](install.md) |
 | Whisper | `tools/setup robot` 下载并校验 |
@@ -20,11 +20,11 @@ ACT 权重与源码分开分发。推理不需要下载 30 条训练数据。
 精确版本和 SHA-256 记录见[模型清单](../../assets/models/manifest.yaml)、
 [ACT 下载 manifest](../../assets/models/xlerobot-act-local-grasp-v1.manifest.json)、
 [语音 manifest](../../assets/models/voice-runtime.manifest.json)、
-[数据清单](../../assets/data/manifest.yaml)。私有上传不代表公开下载已经可用。
+[数据清单](../../assets/data/manifest.yaml)。两个项目资产仓库均已公开，下载无需 Hub 登录。
 [数据 SHA256 清单](../../assets/data/xlerobot-glue-stick-grasp-30.sha256.json)
 记录了实际转换训练文件的身份。
 
-ACT 公开发布、清单更新为可下载后，在 GPU 主机执行：
+在 GPU 主机完成 setup 后执行：
 
 ```bash
 ./tools/act download
@@ -35,12 +35,22 @@ ACT 公开发布、清单更新为可下载后，在 GPU 主机执行：
 `models.act_manifest` 路径，并检查摘要。Doctor 仍可能提示尚未运行的 LM Studio
 或推理服务，接着按 [Demo 启动说明](demo.md)操作。
 
-发布前使用已验证的本地 checkpoint 与 manifest，或[自行训练并检查](act-workflow.md)。
+需要替换模型时，[自行训练并检查](act-workflow.md)。
 不要把短步数软件验收模型当成展示权重。
 
 ## 训练数据
 
-计划发布的是原始 30 条黄色胶棒示教，不是后续工具验收时采集的数据。
+GPU setup 完成后，下载固定公开版本的已转换数据：
+
+```bash
+.xlerobot/venvs/act/bin/hf download lissajous/xlerobot-glue-stick-grasp-30 --repo-type dataset --revision 31e398471db6815d7ea900c0954f4e541d343f6e --local-dir .xlerobot/datasets/xlerobot-glue-stick-grasp-30
+```
+
+仓库附带 `checksums.json`，记录数据、元信息和视频文件摘要。
+也可以直接查看 Hub 上的[数据卡](https://huggingface.co/datasets/lissajous/xlerobot-glue-stick-grasp-30)
+和[模型卡](https://huggingface.co/lissajous/xlerobot-act-local-grasp-v1)。
+
+发布的是原始 30 条黄色胶棒示教，不是后续工具验收时采集的数据。
 见[数据卡](../../assets/data/glue-stick-grasp-30.md)。发布的 LeRobot 数据集是训练输入，
 不等于自动拥有 `raw/` 和 `reviews/` 的原始数采工作区。
 

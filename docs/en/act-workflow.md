@@ -163,7 +163,7 @@ run (not a usable grasping model):
 Keep the demo checkpoint configuration unchanged during this check.
 
 The released model was trained on exactly 30 yellow-glue-stick demonstrations.
-The planned complete dataset is
+The complete public dataset is
 `lissajous/xlerobot-glue-stick-grasp-30` under CC BY 4.0. Shuttlecock
 behavior is qualitative OOD evidence only.
 
@@ -187,6 +187,5 @@ schema, and verifies every listed hash before serving.
 
 The `download` operation uses the Apache-2.0 model ID
 `lissajous/xlerobot-act-local-grasp-v1`, an immutable Hub revision, and
-all fixed manifest hashes. It remains deliberately unavailable while the Hub
-release candidate is private. After public release and a manifest update,
-run the documented entry point `tools/act download`.
+all fixed manifest hashes. Run `./tools/act download` on GPU to install the
+published checkpoint; no Hub login is needed.

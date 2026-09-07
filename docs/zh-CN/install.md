@@ -19,13 +19,11 @@ GPU 环境是 WSL2 Ubuntu 24.04 + RTX 3080。其他系统、ROS 版本和 GPU �
 两台电脑均执行：
 
 ```bash
-git clone --recurse-submodules REPOSITORY_URL xlerobot_home_service_demo
+git clone --recurse-submodules https://github.com/xujiayuxian-png/xlerobot_home_service_demo.git
 cd xlerobot_home_service_demo
 cp config/local.example.yaml config/local.yaml
 cp .env.example .env
 ```
-
-把 `REPOSITORY_URL` 替换为本源码仓库的克隆地址。
 
 编辑本地文件。两端使用相同、重新生成的 `XLEROBOT_ACT_TOKEN`，不要把 8765/8766
 暴露到公网。
@@ -49,11 +47,10 @@ cp .env.example .env
 setup 会显式下载并校验固定 revision 的 SAM 2。另行启动 LM Studio `0.4.12+1`，
 按 manifest 中的 revision/hash 加载 Q4_K_M 工件，并以 `qwen/qwen3-vl-4b`
 对外服务。doctor 可核对 API 名称，本地 GGUF 身份仍需在 LM Studio 内对照清单。
-先阅读 `../../assets/models/manifest.yaml`，把已验证 ACT checkpoint 的
-repo-relative 路径填到 `models.act_checkpoint`，并把对应 qualification 记录放到
-`models.act_manifest`。首次 Hub 发布前，两者
-必须从已验收的本地训练结果一起复制（生成方法见 `act-workflow.md`）；写入 immutable
-Hub revision 后，`tools/act download` 才能下载并逐文件校验两者。
+运行 `./tools/act download`，会把公开 checkpoint 和 manifest 下载到
+`models.act_checkpoint`、`models.act_manifest` 指定位置并逐文件校验。
+精确版本见[模型清单](../../assets/models/manifest.yaml)；自行训练的模型按
+[ACT 流程](act-workflow.md)生成对应检查记录。
 
 ## Robot 端
 

@@ -3,8 +3,8 @@ schema: xlerobot_data_assets/v1
 datasets:
   xlerobot_glue_stick_grasp_30:
     repo_id: lissajous/xlerobot-glue-stick-grasp-30
-    revision: d393230f3638ab3d6a86fee586c7725105933660
-    public_download: private-upload  # Not yet publicly downloadable.
+    revision: 31e398471db6815d7ea900c0954f4e541d343f6e
+    public_download: published
     license: CC-BY-4.0
     bundled: false
     demonstrations: 30

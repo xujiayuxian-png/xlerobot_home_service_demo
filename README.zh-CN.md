@@ -36,7 +36,7 @@ ACT 权重**只使用 30 条黄色胶棒示教训练**；羽毛球抓取属于�
 两台电脑克隆同一仓库，复制并修改本机配置：
 
 ```bash
-git clone --recurse-submodules REPOSITORY_URL xlerobot_home_service_demo
+git clone --recurse-submodules https://github.com/xujiayuxian-png/xlerobot_home_service_demo.git
 cd xlerobot_home_service_demo
 cp config/local.example.yaml config/local.yaml
 cp .env.example .env
@@ -57,9 +57,8 @@ cp .env.example .env
 完整语音和寻人 Demo 需要这些显式附加项：person detector 采用 AGPL-3.0；KWS 模型条款
 尚未明确，由工具直接从提供方下载，不随本仓库分发。详情见安装说明和第三方声明。
 
-**资产状态：** ACT 权重和数据已私有上传，尚未公开，下载情况见
-[模型与数据](docs/zh-CN/assets.md)。发布前需要已经验证的本地 checkpoint 及 manifest。
-使用发布权重运行 Demo **不需要先自行数采或训练**。
+**模型已公开：** 按[模型与数据](docs/zh-CN/assets.md)说明，在 GPU 主机运行
+`./tools/act download`。使用发布权重运行 Demo **不需要先自行数采或训练**。
 
 ## 3. 检查依赖
 
@@ -128,6 +127,9 @@ base（独立实测）───────────────────�
 
 [常见问题](docs/zh-CN/troubleshooting.md) · [模型与数据](docs/zh-CN/assets.md)
 · [源码布局](docs/zh-CN/README.md#源码布局)
+
+验证范围：Demo、建图和数采已在参考真机上使用既有标定完成流程验证。
+新标定工具的现场流程及实际标定精度仍待真机验收；求解回放不代表实机精度验证。
 
 本机配置、地图、标定、示教、权重和日志不提交到 Git，运行资产通常放在被忽略的
 `.xlerobot/`。不提供仿真/Mock 框架、交付安装包或 systemd 安装。

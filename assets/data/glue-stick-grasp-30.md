@@ -60,6 +60,8 @@ License text: https://creativecommons.org/licenses/by/4.0/legalcode
 ## Availability
 
 Dataset ID: `lissajous/xlerobot-glue-stick-grasp-30`.
-Uploaded as a private release candidate; public release is pending.
+Publicly available on Hugging Face.
 The source repository's data manifest records its immutable revision and
 availability. Large data and videos are not committed to the source Git repository.
+
+Source and instructions: https://github.com/xujiayuxian-png/xlerobot_home_service_demo
