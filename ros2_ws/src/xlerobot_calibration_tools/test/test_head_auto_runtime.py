@@ -26,7 +26,7 @@ from xlerobot_calibration_tools.head_auto_node import HeadCalibrationNode
 from xlerobot_calibration_tools.sample_set import TransformSampleSet
 from xlerobot_calibration_tools.solver import HEAD_MODEL
 from xlerobot_interfaces.action import CalibrationJob, MoveCalibrationPose
-from xlerobot_interfaces.msg import CalibrationTargetObservation, CapabilityError, HeadCalibrationStatus
+from xlerobot_interfaces.msg import CalibrationTargetObservation, CapabilityError, HeadCalibrationStatus, HandeyeCalibrationStatus
 from xlerobot_interfaces.srv import CaptureCalibrationSample
 
 
@@ -52,8 +52,10 @@ def completed(future, timeout=10.0):
 class FakeCalibrationIO(Node):
     """No driver imports: record move requests and persist public fixture rows."""
 
-    def __init__(self, sample_path, *, hold_pose=None):
+    def __init__(self, sample_path, *, hold_pose=None, workflow='head_camera', perturb=0):
         super().__init__('head_calibration_test_io')
+        self.workflow = workflow
+        self.handeye = workflow == 'right_handeye'
         self.sample_path = sample_path
         self.hold_pose = hold_pose
         self.hold_entered = threading.Event()
@@ -71,6 +73,17 @@ class FakeCalibrationIO(Node):
         self.samples = TransformSampleSet(
             UNIT, HEAD_MODEL, 'base_link', 'head_tilt_link',
             'head_camera_link', 'calibration_target')
+        if self.handeye:
+            from .test_handeye_auto import synthetic_rows
+            from xlerobot_calibration_tools.handeye_auto import FRAMES
+            from xlerobot_calibration_tools.solver import ARM_MODEL
+            self.rows = []
+            for i, (a, b) in enumerate(synthetic_rows()):
+                if i >= 20:
+                    b[0, 3] += perturb
+                self.rows.append({'moving_in_base': a, 'target_in_camera': b,
+                                  'quality': {'tag_count': 1, 'reprojection_rmse_px': .2}})
+            self.samples = TransformSampleSet(UNIT, ARM_MODEL, *FRAMES.values())
         group = ReentrantCallbackGroup()
         self.move_server = ActionServer(
             self, MoveCalibrationPose, '/calibration/move_pose',
@@ -83,17 +96,18 @@ class FakeCalibrationIO(Node):
             CalibrationTargetObservation, '/calibration/target_observation', qos_profile_sensor_data)
         self.create_timer(0.04, self.publish_observation, callback_group=group)
         self.create_subscription(
-            HeadCalibrationStatus, '/calibration/head_status', self.statuses.append,
+            HandeyeCalibrationStatus if self.handeye else HeadCalibrationStatus,
+            '/calibration/handeye_status' if self.handeye else '/calibration/head_status', self.statuses.append,
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                        reliability=ReliabilityPolicy.RELIABLE), callback_group=group)
         self.client = ActionClient(
-            self, CalibrationJob, '/calibration/head_auto', callback_group=group)
+            self, CalibrationJob, '/calibration/handeye_auto' if self.handeye else '/calibration/head_auto', callback_group=group)
 
     def publish_observation(self):
         self.observation_publisher.publish(CalibrationTargetObservation(
             header=Header(
                 stamp=self.get_clock().now().to_msg(), frame_id='head_camera_link'),
-            accepted=True, tag_count=16, reprojection_rmse_px=0.2,
+            accepted=True, tag_count=1 if self.handeye else 16, reprojection_rmse_px=0.2,
             detail='software-only fixture observation'))
 
     def move(self, handle):
@@ -104,7 +118,7 @@ class FakeCalibrationIO(Node):
         self.max_motion_active = max(self.max_motion_active, self.motion_active)
         result = MoveCalibrationPose.Result(pose_name=f'fixture-{index}', pose_count=12)
         try:
-            if handle.request.workflow_id != 'head_camera' or handle.request.dry_run:
+            if handle.request.workflow_id != self.workflow or handle.request.dry_run:
                 raise AssertionError('unexpected fake motion request')
             if index == self.hold_pose:
                 self.hold_entered.set()
@@ -130,6 +144,8 @@ class FakeCalibrationIO(Node):
                 raise AssertionError('capture raced movement or used the wrong pose')
             if index in self.captures:
                 raise AssertionError('completed pose was captured twice')
+            if self.handeye and index >= 20 and not self.sample_path.with_name('fit.yaml').exists():
+                raise AssertionError('validation captured before freezing the fit')
             row = self.rows[index]
             self.samples.append_and_write_atomic(
                 self.sample_path, np.asarray(row['moving_in_base']),
@@ -156,12 +172,12 @@ class Runtime:
     def start(self, *, dry_run=False):
         assert self.io.client.wait_for_server(timeout_sec=5.0)
         self.latest_goal = completed(self.io.client.send_goal_async(CalibrationJob.Goal(
-            unit_id=UNIT, workflow_id='head_camera', automatic=True, dry_run=dry_run)))
+            unit_id=UNIT, workflow_id=self.node.workflow, automatic=True, dry_run=dry_run)))
         return self.latest_goal
 
 
 @contextmanager
-def runtime(tmp_path, monkeypatch, *, enabled=True, hold_pose=None):
+def runtime(tmp_path, monkeypatch, *, enabled=True, hold_pose=None, workflow='head_camera', perturb=0):
     assert not rclpy.ok(), 'this integration test requires its own ROS context'
     monkeypatch.setenv('ROS_DOMAIN_ID', '76')
     monkeypatch.setenv('ROS_AUTOMATIC_DISCOVERY_RANGE', 'LOCALHOST')
@@ -170,6 +186,10 @@ def runtime(tmp_path, monkeypatch, *, enabled=True, hold_pose=None):
     components = unit_root / 'draft/components'
     components.mkdir(parents=True)
     (components / 'servo.yaml').write_bytes((REPO / 'examples/calibration/servo.yaml').read_bytes())
+    if workflow == 'right_handeye':
+        from xlerobot_calibration_tools.workflow import solve_transform_samples
+        head = solve_transform_samples(REPO / 'examples/calibration/head-camera/samples.yaml', 'head_camera')
+        (components / 'head_camera.yaml').write_text(yaml.safe_dump(head))
     previous = unit_root / 'versions/existing-test-version'
     previous.mkdir(parents=True)
     (previous / 'manifest.yaml').write_text('test-only previously active bundle\n')
@@ -181,6 +201,8 @@ def runtime(tmp_path, monkeypatch, *, enabled=True, hold_pose=None):
     pose_document['poses'] = pose_document['poses'][:12]
     pose_file = tmp_path / 'head-test-poses.yaml'
     pose_file.write_text(yaml.safe_dump(pose_document))
+    if workflow == 'right_handeye':
+        pose_file = PACKAGE / 'config/right_handeye_poses.yaml'
     params = {
         'execution_enabled': str(enabled).lower(), 'unit_id': UNIT,
         'state_root': str(state_root), 'artifact_root': str(unit_root / 'capture'),
@@ -193,8 +215,8 @@ def runtime(tmp_path, monkeypatch, *, enabled=True, hold_pose=None):
     executor = MultiThreadedExecutor(num_threads=8)
     node = io = worker = running = None
     try:
-        node = HeadCalibrationNode()
-        io = FakeCalibrationIO(node.session.sample_path, hold_pose=hold_pose)
+        node = HeadCalibrationNode(workflow)
+        io = FakeCalibrationIO(node.session.sample_path, hold_pose=hold_pose, workflow=workflow, perturb=perturb)
         executor.add_node(node)
         executor.add_node(io)
         worker = threading.Thread(target=executor.spin, daemon=True)
@@ -312,3 +334,43 @@ def test_disabled_or_dry_run_goal_never_sends_motion(tmp_path, monkeypatch, enab
         assert running.io.captures == []
         assert not running.node.session.sample_path.exists()
         assert not (running.unit_root / 'draft/components/head_camera.yaml').exists()
+
+
+@pytest.mark.parametrize('perturb', [0, .03])
+def test_handeye_real_ros_freezes_fit_before_holdout_and_gates_draft(tmp_path, monkeypatch, perturb):
+    with runtime(tmp_path, monkeypatch, workflow='right_handeye', perturb=perturb) as running:
+        assert running.start().accepted
+        wrapped = completed(running.latest_goal.get_result_async(), 70)
+        assert running.io.moves == list(range(26))
+        assert running.io.captures == list(range(26))
+        assert not running.io.io_errors
+        assert running.io.max_motion_active == 1
+        draft = running.unit_root / 'draft/components/right_handeye.yaml'
+        report = yaml.safe_load(running.node.session.report_path.read_text())
+        assert report['refitted'] is False
+        assert report['quality_passed'] == (perturb == 0)
+        assert draft.exists() == (perturb == 0)
+        assert wrapped.status == (GoalStatus.STATUS_SUCCEEDED if perturb == 0 else GoalStatus.STATUS_ABORTED)
+        assert len(yaml.safe_load(running.node.session.training_path.read_text())['samples']) == 20
+        assert len(yaml.safe_load(running.node.session.heldout_path.read_text())['samples']) == 6
+        assert (running.unit_root / 'active').readlink() == Path('versions/existing-test-version')
+        assert (running.unit_root / 'runtime/geometry.yaml').read_text() == 'test-only previously rendered geometry\n'
+
+
+def test_handeye_cancel_during_validation_resumes_without_refitting(tmp_path, monkeypatch):
+    with runtime(tmp_path, monkeypatch, workflow='right_handeye', hold_pose=22) as running:
+        goal = running.start()
+        assert goal.accepted
+        wait_for(running.io.hold_entered.is_set, 60, 'third held-out pose')
+        frozen = running.node.session.fit_path.read_bytes()
+        assert completed(goal.cancel_goal_async()).goals_canceling
+        assert completed(goal.get_result_async()).status == GoalStatus.STATUS_CANCELED
+        assert running.node.session.document['phase'] == 'PAUSED'
+        assert running.io.captures == list(range(22))
+        running.io.hold_pose = None
+        assert running.start().accepted
+        wrapped = completed(running.latest_goal.get_result_async(), 30)
+        assert wrapped.status == GoalStatus.STATUS_SUCCEEDED, wrapped.result.error.message
+        assert running.node.session.fit_path.read_bytes() == frozen
+        assert running.io.captures == list(range(26))
+        assert running.io.moves == [*range(23), *range(22, 26)]

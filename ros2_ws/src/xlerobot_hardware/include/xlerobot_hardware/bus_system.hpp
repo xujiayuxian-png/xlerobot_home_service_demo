@@ -80,6 +80,7 @@ private:
   double torque_command_{0.0};
   bool read_only_{false};
   bool head_only_control_{false};
+  bool arm_only_control_{false};
   bool wheel_feedback_available_{false};
   std::string port_;
   int baudrate_{1000000};

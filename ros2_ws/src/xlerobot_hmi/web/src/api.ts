@@ -25,7 +25,7 @@ export interface HeadCalibrationState {
   request_inflight: boolean
   unit_id: string
   running: boolean
-  phase: 'IDLE' | 'MOVING' | 'WAITING' | 'CAPTURING' | 'SOLVING' | 'PAUSED' | 'COMPLETED' | 'ERROR'
+  phase: 'IDLE' | 'MOVING' | 'WAITING' | 'CAPTURING' | 'SOLVING' | 'VALIDATING' | 'PAUSED' | 'COMPLETED' | 'ERROR'
   message: string
   pose_index: number
   pose_count: number
@@ -34,6 +34,9 @@ export interface HeadCalibrationState {
   pose_states: Array<'pending' | 'moving' | 'waiting' | 'captured' | 'skipped'>
   pose_pan: number[]
   pose_tilt: number[]
+  pose_roles?: Array<'fit' | 'validation'>
+  pose_messages?: string[]
+  report_uri?: string
   result_uri: string
   quality_passed: boolean
   metrics: Record<string, number | null>
@@ -204,6 +207,14 @@ export const api = {
     request<CalibrationCoverage>('/api/v1/calibrations/samples'),
   headCalibrationStatus: () =>
     request<HeadCalibrationState>('/api/v1/calibrations/head/status'),
+  handeyeCalibrationStatus: () =>
+    request<HeadCalibrationState>('/api/v1/calibrations/handeye/status'),
+  startHandeyeCalibration: (unitId: string) =>
+    request<{ accepted: boolean, message: string }>('/api/v1/calibrations/handeye/start', {
+      method: 'POST', body: JSON.stringify({ unit_id: unitId, hardware_confirmed: true }),
+    }),
+  pauseHandeyeCalibration: () =>
+    request<{ message: string }>('/api/v1/calibrations/handeye/pause', { method: 'POST', body: '{}' }),
   startHeadCalibration: (unitId: string) =>
     request<{ accepted: boolean, message: string }>('/api/v1/calibrations/head/start', {
       method: 'POST', body: JSON.stringify({ unit_id: unitId, hardware_confirmed: true }),

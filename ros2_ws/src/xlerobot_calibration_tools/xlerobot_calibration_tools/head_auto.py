@@ -44,6 +44,11 @@ def load_poses(path):
 class HeadSession:
     """A saved sweep never resumes motion implicitly, and never erases samples."""
 
+    workflow = 'head_camera'
+    model = HEAD_MODEL
+    frames = FRAMES
+    schema = 'xlerobot_head_capture_progress/v1'
+
     def __init__(self, directory, unit, poses, pose_hash, *, servo_hash=''):
         self.directory = Path(directory)
         self.path = self.directory / 'progress.yaml'
@@ -52,7 +57,7 @@ class HeadSession:
         self.poses = poses
         self.pose_hash = pose_hash
         self.document = {
-            'schema': 'xlerobot_head_capture_progress/v1', 'unit_id': unit,
+            'schema': self.schema, 'unit_id': unit,
             'pose_sha256': pose_hash, 'servo_sha256': servo_hash,
             'phase': 'IDLE', 'message': 'ready to start',
             'pose_index': -1, 'pose_states': ['pending'] * len(poses),
@@ -63,15 +68,15 @@ class HeadSession:
         if self.path.exists():
             restored = yaml.safe_load(self.path.read_text(encoding='utf-8'))
             if not isinstance(restored, dict) or set(restored) != set(self.document):
-                raise ValueError('invalid head calibration progress schema')
+                raise ValueError('invalid visual calibration progress schema')
             if restored['schema'] != self.document['schema'] or restored['unit_id'] != unit \
                     or restored['pose_sha256'] != pose_hash or restored['servo_sha256'] != servo_hash:
-                raise ValueError('head progress belongs to a different unit, pose set or servo calibration')
+                raise ValueError('visual progress belongs to a different unit, pose set or predecessor servo calibration')
             states = restored['pose_states']
             if not isinstance(states, list) or len(states) != len(poses) \
                     or any(state not in {'pending', 'moving', 'waiting', 'captured', 'skipped'}
                            for state in states):
-                raise ValueError('invalid saved head pose states')
+                raise ValueError('invalid saved visual pose states')
             self.document = restored
             self.reconcile()
             if restored['phase'] not in {'COMPLETED', 'ERROR', 'IDLE'}:
@@ -83,8 +88,8 @@ class HeadSession:
         if not self.sample_path.exists():
             return None
         return TransformSampleSet.read(
-            self.sample_path, expected_model=HEAD_MODEL,
-            expected_calibration_id=self.unit, expected_frames=FRAMES,
+            self.sample_path, expected_model=self.model,
+            expected_calibration_id=self.unit, expected_frames=self.frames,
         ).to_dict()
 
     def _sync_samples(self):
@@ -115,7 +120,7 @@ class HeadSession:
                 self._sync_samples()
                 self.save()
                 return
-        raise ValueError('head samples changed outside this sweep; preserve files and start a fresh capture')
+        raise ValueError('visual samples changed outside this sweep; preserve files and start a fresh capture')
 
     def save(self):
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -143,9 +148,9 @@ class HeadSession:
         self.save()
 
     def prepare_capture(self, index):
-        job = f'{self.unit}:head_camera:{self.pose_hash[:12]}:pose:{index}'
+        job = f'{self.unit}:{self.workflow}:{self.pose_hash[:12]}:pose:{index}'
         self.document['pending_capture'] = {'pose_index': index, 'job_id': job}
-        self.phase('CAPTURING', 'saving synchronized target and head pose', index)
+        self.phase('CAPTURING', 'saving synchronized target and moving-link pose', index)
         return job
 
     def captured(self, index):

@@ -28,7 +28,8 @@ def generate_test_description():
         parameters=[{'execution_enabled': True, 'head_pose_file': str(
             Path(__file__).resolve().parents[2] / 'xlerobot_calibration_tools'
             / 'config/head_camera_poses.yaml'
-        )}],
+        ), 'handeye_pose_file': str(Path(__file__).resolve().parents[2]
+                                  / 'xlerobot_calibration_tools/config/right_handeye_poses.yaml')}],
         output='screen',
     )
     return LaunchDescription([server, launch_testing.actions.ReadyToTest()])
@@ -41,6 +42,8 @@ class FakeCalibrationController(RclpyNode):
         self.terminal = threading.Event()
         self.delay_next_goal = False
         self.delayed_execution = False
+        self.immediate = False
+        self.requests = []
         self.server = ActionServer(
             self,
             FollowJointTrajectory,
@@ -50,6 +53,11 @@ class FakeCalibrationController(RclpyNode):
             cancel_callback=lambda _goal: CancelResponse.ACCEPT,
             callback_group=ReentrantCallbackGroup(),
         )
+        self.arm_server = ActionServer(
+            self, FollowJointTrajectory, '/right_arm_controller/follow_joint_trajectory',
+            execute_callback=self.execute, goal_callback=self.goal,
+            cancel_callback=lambda _goal: CancelResponse.ACCEPT,
+            callback_group=ReentrantCallbackGroup())
 
     def goal(self, _request):
         if self.delay_next_goal:
@@ -59,8 +67,9 @@ class FakeCalibrationController(RclpyNode):
         return GoalResponse.ACCEPT
 
     def execute(self, goal_handle):
+        self.requests.append(goal_handle.request.trajectory)
         self.started.set()
-        if self.delayed_execution:
+        if self.delayed_execution or self.immediate:
             self.delayed_execution = False
             time.sleep(0.2)
             result = FollowJointTrajectory.Result()
@@ -103,6 +112,8 @@ class CalibrationPoseRuntimeTest(unittest.TestCase):
         rclpy.shutdown()
 
     def test_parent_cancel_waits_for_controller_terminal_result(self):
+        self.fake.started.clear()
+        self.fake.terminal.clear()
         goal = MoveCalibrationPose.Goal()
         goal.workflow_id = MoveCalibrationPose.Goal.HEAD_CAMERA
         goal.pose_index = 0
@@ -118,6 +129,27 @@ class CalibrationPoseRuntimeTest(unittest.TestCase):
         self.assertTrue(self.fake.terminal.is_set())
         self.assertEqual(wrapped.status, GoalStatus.STATUS_CANCELED)
         self.assertEqual(wrapped.result.error.code, CapabilityError.CANCELED)
+
+    def test_handeye_motion_uses_yaml_and_only_fixed_head_then_right_arm(self):
+        import yaml
+        document = yaml.safe_load((Path(__file__).resolve().parents[2]
+                                  / 'xlerobot_calibration_tools/config/right_handeye_poses.yaml').read_text())
+        self.fake.immediate = True
+        self.fake.requests.clear()
+        try:
+            handle = self._wait(self.client.send_goal_async(MoveCalibrationPose.Goal(
+                workflow_id='right_handeye', pose_index=25, dry_run=False)), 3)
+            self.assertTrue(handle.accepted)
+            result = self._wait(handle.get_result_async(), 5)
+            self.assertEqual(result.status, GoalStatus.STATUS_SUCCEEDED)
+            self.assertEqual(len(self.fake.requests), 2)
+            head, arm = self.fake.requests
+            self.assertEqual(head.joint_names, ['head_pan_joint', 'head_tilt_joint'])
+            self.assertEqual(list(head.points[0].positions), document['head_pose'])
+            self.assertEqual(arm.joint_names, document['joint_order'])
+            self.assertEqual(list(arm.points[0].positions), document['poses'][25])
+        finally:
+            self.fake.immediate = False
 
     def test_z_unknown_controller_goal_response_latches_motion_owner(self):
         self.fake.started.clear()

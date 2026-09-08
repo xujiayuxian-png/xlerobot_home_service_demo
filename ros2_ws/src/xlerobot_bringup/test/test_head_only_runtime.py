@@ -112,3 +112,30 @@ def test_default_full_runtime_still_loads_verified_controller_set(monkeypatch):
     assert [owner.attrib['name'] for owner in ET.fromstring(xml).findall('ros2_control')] == [
         'right_bus_system', 'left_bus_system',
     ]
+
+
+def test_handeye_owns_exact_arm_and_head_without_wheels_or_left_arm(monkeypatch):
+    module = load_launch()
+    nodes, events = record_actions(module, monkeypatch)
+    launch_context = context(right_handeye_control='true')
+    module._runtime_nodes(launch_context)
+    assert sorted(node.executable for node in nodes) == [
+        'position_ready_spawner', 'robot_state_publisher', 'ros2_control_node', 'spawner']
+    spawner = next(node for node in nodes if node.executable == 'position_ready_spawner')
+    assert spawner.arguments == ['head_controller', 'right_arm_controller', 'right_gripper_controller',
+                                 '-c', '/controller_manager']
+    manager = next(node for node in nodes if node.executable == 'ros2_control_node')
+    xml = manager.parameters[0]['robot_description'].evaluate(launch_context)
+    owners = ET.fromstring(xml).findall('ros2_control')
+    assert [[int(j.find('param[@name="servo_id"]').text) for j in owner.findall('joint')]
+            for owner in owners] == [[1, 2, 3, 4, 5, 6], [7, 8]]
+    assert owners[0].find('hardware/param[@name="arm_only_control"]').text == 'true'
+    assert owners[1].find('hardware/param[@name="head_only_control"]').text == 'true'
+    assert events[0].on_exit(SimpleNamespace(returncode=1), launch_context) == []
+
+
+def test_handeye_rejects_startup_motion_and_conflicting_modes():
+    with pytest.raises(RuntimeError, match='startup motions must be false'):
+        load_launch()._runtime_nodes(context(right_handeye_control='true', startup_ready='true'))
+    with pytest.raises(RuntimeError, match='only one'):
+        load_launch()._runtime_nodes(context(right_handeye_control='true', head_only_control='true'))

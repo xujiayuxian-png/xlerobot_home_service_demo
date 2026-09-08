@@ -131,3 +131,51 @@ describe('head camera automatic calibration', () => {
     expect(api.startHeadCalibration).not.toHaveBeenCalled()
   })
 })
+
+describe('hand-eye automatic calibration', () => {
+  beforeEach(() => {
+    state = { ...state, pose_count: 26, target_sample_count: 26,
+      pose_states: Array(26).fill('pending'), pose_pan: [], pose_tilt: [],
+      pose_roles: [...Array(20).fill('fit'), ...Array(6).fill('validation')],
+      target: { accepted: true, fresh: true, age_s: .1, tag_count: 1, reprojection_rmse_px: .2 } }
+    vi.spyOn(api, 'handeyeCalibrationStatus').mockImplementation(async () => structuredClone(state))
+    vi.spyOn(api, 'startHandeyeCalibration').mockResolvedValue({ accepted: true, message: '已启动' })
+    vi.spyOn(api, 'pauseHandeyeCalibration').mockResolvedValue({ message: '已请求暂停' })
+  })
+
+  it('uses the same UI with Tag 23, split poses and explicit hand-eye start', async () => {
+    render(<HeadCalibrationWorkspace {...props} handeye />)
+    await flush()
+    expect(screen.getAllByText('拟合')).toHaveLength(20)
+    expect(screen.getAllByText('独立验证')).toHaveLength(6)
+    expect(screen.getByText('Tag 23 识别通过')).toBeTruthy()
+    expect(api.headCalibrationStatus).not.toHaveBeenCalled()
+    expect(api.startHandeyeCalibration).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(button('开始自动标定'))
+    await flush()
+    expect(api.startHandeyeCalibration).toHaveBeenCalledExactlyOnceWith('robot-1')
+    expect(api.startHeadCalibration).not.toHaveBeenCalled()
+    fireEvent.click(button('暂停并保留样本'))
+    await flush()
+    expect(api.pauseHandeyeCalibration).toHaveBeenCalledOnce()
+  })
+
+  it('shows a failed held-out result separately from a good fit, without activation', async () => {
+    const activate = vi.spyOn(api, 'activateCalibration')
+    state = { ...state, phase: 'ERROR', sample_count: 26,
+      metrics: { 'fit.translation_rmse_mm': .5, 'validation.translation_rmse_mm': 30,
+        'heldout_poses.21.translation_mm': 31, 'heldout_poses.21.rotation_deg': 2 },
+      report_uri: 'file:///unit/capture/validation.yaml', quality_passed: false }
+    render(<HeadCalibrationWorkspace {...props} handeye />)
+    await flush()
+    expect(screen.getByText('拟合残差 · 20 姿态')).toBeTruthy()
+    expect(screen.getByText('独立验证 · 6 姿态（不重新拟合）')).toBeTruthy()
+    expect(screen.getByText('30.000')).toBeTruthy()
+    expect(screen.getByRole('table', { name: '独立验证逐姿态误差' })).toBeTruthy()
+    expect(screen.getByText('31.00')).toBeTruthy()
+    expect(screen.getByText('file:///unit/capture/validation.yaml')).toBeTruthy()
+    expect(screen.queryByText('质量检查通过，结果已保存')).toBeNull()
+    expect(activate).not.toHaveBeenCalled()
+  })
+})

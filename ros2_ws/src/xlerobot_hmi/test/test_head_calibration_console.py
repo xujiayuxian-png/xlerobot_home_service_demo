@@ -17,7 +17,8 @@ from xlerobot_interfaces.msg import CalibrationTargetObservation, HeadCalibratio
 
 
 class Request:
-    def __init__(self, **payload):
+    def __init__(self, path='/api/v1/calibrations/head/status', **payload):
+        self.path = path
         self.payload = payload
 
     async def json(self):
@@ -241,3 +242,25 @@ def test_typed_state_snapshot_freshness_and_finite_json(monkeypatch):
     assert stale_target['state_fresh'] and not stale_target['target']['accepted']
     clock[0] = 104
     assert not OperatorConsoleNode.head_calibration_snapshot(node)['state_fresh']
+
+
+def test_handeye_route_selects_handeye_action_and_blocks_head_route_and_manual_capture():
+    app, values, state, goals, _, result = console()
+    values['calibration_workflow'] = 'right_handeye'
+    state['pose_count'] = 26
+
+    async def run():
+        with pytest.raises(web.HTTPNotFound):
+            await app.head_calibration_status(Request())
+        request = Request(path='/api/v1/calibrations/handeye/start',
+                          unit_id='robot-1', hardware_confirmed=True)
+        assert (await app.start_head_calibration(request)).status == 202
+        assert goals[0].workflow_id == 'right_handeye'
+        with pytest.raises(web.HTTPConflict):
+            await app.move_calibration_pose(Request(pose_index=20))
+        with pytest.raises(web.HTTPConflict):
+            await app.capture_calibration_sample(Request(unit_id='robot-1'))
+        result.set_result(object())
+        assert not app._head_auto_inflight
+
+    asyncio.run(run())

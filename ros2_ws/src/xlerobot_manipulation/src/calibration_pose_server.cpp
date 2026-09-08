@@ -58,28 +58,41 @@ std::vector<std::vector<double>> load_head_poses(const std::string & path)
   return poses;
 }
 
-const std::vector<std::vector<double>> kArmPoses = {
-  {-0.8805, 1.2303, 1.0155, 0.4510, 1.5064},
-  {-0.4433, 1.3806, 1.1551, 0.4525, 1.5064},
-  {0.1212, 1.3867, 1.1827, 0.4525, 1.5064},
-  {0.1089, 0.7563, 0.4464, 0.4403, 1.5018},
-  {-0.4387, 0.7532, 0.4510, 0.4495, 1.5048},
-  {-0.9112, 0.9403, 0.8590, 0.4495, 1.5064},
-  {-0.5921, -0.0660, 0.5522, -0.4771, 1.5064},
-  {-0.2132, -0.0644, 0.5614, -0.4648, 1.5064},
-  {-0.0890, -0.4909, 0.1043, -0.4633, 1.5064},
-  {-0.0874, -0.4909, 0.1104, -0.7762, 1.5048},
-  {0.3528, -0.5553, 0.1074, -0.7747, 1.5048},
-  {-0.1856, -0.0399, 0.1120, -0.7747, 1.5048},
-  {-0.3858, 0.9933, 0.7309, 0.4456, 1.5041},
-  {-0.1672, 1.0684, 0.8007, 0.4464, 1.5041},
-  {0.1150, 1.0715, 0.8145, 0.4464, 1.5041},
-  {-0.4011, 0.8483, 0.6527, 0.4449, 1.5041},
-  {-0.2416, 0.3451, 0.4993, -0.0184, 1.5041},
-  {-0.0522, 0.3459, 0.5039, -0.0123, 1.5041},
-  {0.0100, 0.1327, 0.2753, -0.0115, 1.5041},
-  {-0.1649, 0.7547, 0.4487, 0.4449, 1.5033},
-};
+std::vector<std::vector<double>> load_handeye_poses(const std::string & path)
+{
+  if (path.empty()) {return {};}
+  const auto document = YAML::LoadFile(path);
+  const std::vector<std::string> joints{
+    "right_arm_shoulder_pan", "right_arm_shoulder_lift", "right_arm_elbow_flex",
+    "right_arm_wrist_flex", "right_arm_wrist_roll"};
+  if (document["schema"].as<std::string>() != "xlerobot_calibration_pose_set/v1" ||
+    document["workflow"].as<std::string>() != "right_handeye" ||
+    document["units"].as<std::string>() != "rad" ||
+    document["fit_count"].as<int>() != 20 ||
+    document["joint_order"].as<std::vector<std::string>>() != joints ||
+    document["head_pose"].as<std::vector<double>>() != std::vector<double>{0.0, 0.796136} ||
+    !document["poses"].IsSequence() || document["poses"].size() != 26)
+  {
+    throw std::runtime_error("invalid right-handeye calibration pose configuration");
+  }
+  const std::vector<std::pair<double, double>> bounds{
+    {-0.92, 0.36}, {-0.56, 1.39}, {0.10, 1.19}, {-0.78, 0.46}, {1.50, 1.51}};
+  std::vector<std::vector<double>> poses;
+  std::set<std::vector<double>> unique;
+  for (const auto & item : document["poses"]) {
+    const auto row = item.as<std::vector<double>>();
+    if (row.size() != 5 || !unique.insert(row).second) {
+      throw std::runtime_error("hand-eye requires distinct five-joint poses");
+    }
+    for (size_t i = 0; i < row.size(); ++i) {
+      if (!std::isfinite(row[i]) || row[i] < bounds[i].first || row[i] > bounds[i].second) {
+        throw std::runtime_error("hand-eye pose outside reference capture envelope");
+      }
+    }
+    poses.push_back(row);
+  }
+  return poses;
+}
 
 class CalibrationPoseServer : public rclcpp::Node
 {
@@ -90,8 +103,12 @@ public:
     execution_enabled_ = declare_parameter<bool>("execution_enabled", false);
     allowed_workflow_ = declare_parameter<std::string>("workflow_id", "");
     head_poses_ = load_head_poses(declare_parameter<std::string>("head_pose_file", ""));
+    arm_poses_ = load_handeye_poses(declare_parameter<std::string>("handeye_pose_file", ""));
     if (allowed_workflow_ == Move::Goal::HEAD_CAMERA && head_poses_.empty()) {
       throw std::runtime_error("head_pose_file is required for head-camera motion");
+    }
+    if (allowed_workflow_ == Move::Goal::RIGHT_HANDEYE && arm_poses_.empty()) {
+      throw std::runtime_error("handeye_pose_file is required for right-handeye motion");
     }
     head_client_ = rclcpp_action::create_client<Follow>(
       this, "/head_controller/follow_joint_trajectory");
@@ -112,7 +129,7 @@ private:
       return head_poses_.size();
     }
     if (workflow == Move::Goal::RIGHT_HANDEYE) {
-      return kArmPoses.size();
+      return arm_poses_.size();
     }
     return 0;
   }
@@ -291,7 +308,7 @@ private:
     }
     std::string error;
     bool controller_terminal = true;
-    feedback(handle, 0.1F, "moving to a verified calibration pose");
+    feedback(handle, 0.1F, "moving to a configured reference calibration pose");
     if (request->workflow_id == Move::Goal::RIGHT_HANDEYE && !follow(
         handle, head_client_, {"head_pan_joint", "head_tilt_joint"},
         {0.0, 0.796136}, 2.5, error, controller_terminal))
@@ -310,7 +327,7 @@ private:
       handle, arm_client_,
       {"right_arm_shoulder_pan", "right_arm_shoulder_lift", "right_arm_elbow_flex",
         "right_arm_wrist_flex", "right_arm_wrist_roll"},
-      kArmPoses[request->pose_index], 3.0, error, controller_terminal);
+      arm_poses_[request->pose_index], 3.0, error, controller_terminal);
     if (!reached) {
       if (!controller_terminal) {
         motion_unconfirmed_.store(true);
@@ -349,6 +366,7 @@ private:
   bool execution_enabled_{false};
   std::string allowed_workflow_;
   std::vector<std::vector<double>> head_poses_;
+  std::vector<std::vector<double>> arm_poses_;
   std::atomic_bool busy_{false};
   std::atomic_bool motion_unconfirmed_{false};
   rclcpp_action::Client<Follow>::SharedPtr head_client_;

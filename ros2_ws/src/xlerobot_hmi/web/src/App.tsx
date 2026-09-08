@@ -443,8 +443,6 @@ function CalibrationWorkspace({ unitId, workflow, captureOnly, onError }: {
   const [straightActual, setStraightActual] = useState('1.0,1.0')
   const [rotationCommanded, setRotationCommanded] = useState('6.283185,6.283185')
   const [rotationActual, setRotationActual] = useState('6.283185,6.283185')
-  const [sampleCount, setSampleCount] = useState(0)
-  const [poseIndex, setPoseIndex] = useState(0)
   const [coverage, setCoverage] = useState<CalibrationCoverage | null>(null)
   const workflows: Record<string, string> = {
     servo: '舵机标定', base_geometry: '底盘几何',
@@ -483,34 +481,6 @@ function CalibrationWorkspace({ unitId, workflow, captureOnly, onError }: {
       setResult(`${value.quality_passed ? '质量通过' : '质量未通过'} · ${JSON.stringify(value.metrics)}`)
     } catch (reason) { onError(String(reason)) }
   }
-  const captureSample = async () => {
-    try {
-      const value = await api.captureCalibrationSample(unitId)
-      setSampleCount(value.sample_count)
-      setResult(`${value.message} · 当前 ${value.sample_count} 个样本`)
-      if (workflow === 'right_handeye') {
-        const current = await api.calibrationSampleCoverage()
-        setCoverage(current)
-        setSampleCount(current.sample_count)
-      }
-    } catch (reason) {
-      if (workflow === 'right_handeye') setCoverage(null)
-      onError(String(reason))
-    }
-  }
-  const solveSamples = async () => {
-    try {
-      const value = await api.solveCalibrationSamples(unitId)
-      setSampleCount(value.sample_count)
-      setResult(`${value.quality_passed ? '质量通过' : '质量未通过'} · ${JSON.stringify(value.metrics)}`)
-    } catch (reason) { onError(String(reason)) }
-  }
-  const movePose = async () => {
-    try {
-      const value = await api.moveCalibrationPose(poseIndex)
-      setResult(`${value.message} · ${value.pose_name}`)
-    } catch (reason) { onError(String(reason)) }
-  }
   const visual = workflow === 'right_handeye'
   useEffect(() => {
     if (!visual) {
@@ -518,22 +488,25 @@ function CalibrationWorkspace({ unitId, workflow, captureOnly, onError }: {
       return
     }
     let active = true
-    api.calibrationSampleCoverage().then(value => {
-      if (!active) return
-      setCoverage(workflow === 'right_handeye' ? value : null)
-      setSampleCount(value.sample_count)
-    }).catch(reason => {
-      if (active) {
-        setCoverage(null)
-        onError(String(reason))
+    let timer: ReturnType<typeof setTimeout>
+    const poll = async () => {
+      try {
+        const value = await api.calibrationSampleCoverage()
+        if (active) setCoverage(value)
+      } catch {
+        if (active) setCoverage(null)
       }
-    })
-    return () => { active = false }
-  }, [workflow, visual, onError])
+      if (active) timer = setTimeout(poll, 2000)
+    }
+    void poll()
+    return () => { active = false; clearTimeout(timer) }
+  }, [workflow, visual])
   if (workflow === 'servo') return <ServoCalibrationWorkspace
     unitId={unitId} captureOnly={captureOnly} onError={onError} />
-  if (workflow === 'head_camera') return <HeadCalibrationWorkspace
-    unitId={unitId} onError={onError} />
+  if (workflow === 'head_camera' || workflow === 'right_handeye') return <>
+    <HeadCalibrationWorkspace unitId={unitId} handeye={workflow === 'right_handeye'} onError={onError} />
+    {visual && coverage && <HandeyeCoveragePanel coverage={coverage} />}
+  </>
   return <section className="engineering-card calibration-card">
     <p className="section-label">UNIT CALIBRATION · {unitId}</p>
     <h2>{workflows[workflow] || '标定工具'}</h2>
@@ -553,30 +526,6 @@ function CalibrationWorkspace({ unitId, workflow, captureOnly, onError }: {
       <button className="primary" onClick={saveBaseGeometry}>{captureOnly
         ? '保存底盘测量结果' : '计算、验收并保存 draft'}</button>
       <p className="hint">至少两次直行和两次旋转；运动试验由当前独立 profile 执行，填写现场实测值后拟合。</p>
-    </> : visual ? <>
-      <div className="camera-previews">
-        <figure><img src="/api/v1/cameras/head/stream" alt="D455 标定预览" />
-          <figcaption>确保整板/Tag 清晰可见后再采样</figcaption></figure>
-      </div>
-      {workflow === 'right_handeye' && coverage &&
-        <HandeyeCoveragePanel coverage={coverage} />}
-      <p className="saved">已采样 {sampleCount} / 20</p>
-      <div className="field-row">
-        <label>标定姿态
-          <select value={poseIndex} onChange={event => setPoseIndex(Number(event.target.value))}>
-            {Array.from(
-              { length: 20 }, (_, index) =>
-                <option key={index} value={index}>第 {index + 1} 个姿态</option>,
-            )}
-          </select>
-        </label>
-        <button onClick={movePose}>移动到所选姿态</button>
-      </div>
-      <div className="button-row">
-        <button className="primary" onClick={captureSample}>采集当前静止姿态</button>
-        {!captureOnly && <button onClick={solveSamples}>求解并写入 draft</button>}
-      </div>
-      <p className="hint">“移动到所选姿态”每次只执行一个已验证的头部或右臂姿态，属于真机运动；画面稳定且标定目标完整可见后再点击采样。启动页面不会自动移动。</p>
     </> : !captureOnly ? <>
       <label>本地结果 URI<input value={sourceUri}
         onChange={event => setSourceUri(event.target.value)}

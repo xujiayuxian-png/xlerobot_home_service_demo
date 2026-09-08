@@ -22,7 +22,8 @@ def generate_test_description():
         parameters=[{'execution_enabled': False, 'head_pose_file': str(
             Path(__file__).resolve().parents[2] / 'xlerobot_calibration_tools'
             / 'config/head_camera_poses.yaml'
-        )}],
+        ), 'handeye_pose_file': str(Path(__file__).resolve().parents[2]
+                                  / 'xlerobot_calibration_tools/config/right_handeye_poses.yaml')}],
         output='screen',
     )
     return LaunchDescription([server, launch_testing.actions.ReadyToTest()])
@@ -52,6 +53,9 @@ class CalibrationPoseSafetyTest(unittest.TestCase):
         self.assertEqual(dry.status, GoalStatus.STATUS_SUCCEEDED)
         self.assertEqual(dry.result.error.code, CapabilityError.NONE)
         self.assertEqual(dry.result.pose_count, 25)
+        heldout = self._execute('right_handeye', 25, dry_run=True)
+        self.assertEqual(heldout.result.pose_count, 26)
+        self.assertEqual(heldout.status, GoalStatus.STATUS_SUCCEEDED)
 
         live = self._execute('right_handeye', 19, dry_run=False)
         self.assertEqual(live.status, GoalStatus.STATUS_ABORTED)
@@ -61,7 +65,7 @@ class CalibrationPoseSafetyTest(unittest.TestCase):
     def test_unknown_workflow_and_out_of_range_pose_are_rejected(self):
         self.assertFalse(self._send('arbitrary', 0, dry_run=True).accepted)
         self.assertFalse(self._send('head_camera', 25, dry_run=True).accepted)
-        self.assertFalse(self._send('right_handeye', 20, dry_run=True).accepted)
+        self.assertFalse(self._send('right_handeye', 26, dry_run=True).accepted)
 
     def _send(self, workflow, pose_index, *, dry_run):
         goal = MoveCalibrationPose.Goal()

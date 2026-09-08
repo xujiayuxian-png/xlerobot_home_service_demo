@@ -36,13 +36,13 @@
 # 网页预览标定板，再一键采集、求解并保存 head_camera 草稿。
 
 ./tools/calibrate capture right-handeye --hardware
-# 按预设姿态采集 Tag 23，退出后执行终端打印的后续命令。
+# 自动采集 Tag 23：拟合、冻结参数、独立验证后保存草稿。
 ```
 
 每次只启动一个采集工作流，并打印本机 HMI 地址和准确的后续命令。
 舵机页启动仅连接串口，不使能扭矩或发送运动指令。头相机工作区只连接头部所在总线、
-使能头部两个舵机的保持扭矩；不操作双臂、夹爪或轮子。手眼工作区启动完整运行栈的
-保持扭矩，但不自动回 ready。点击姿态或开始自动采集后才运动。释放舵机扭矩前必须托住机械臂。原始
+使能头部两个舵机的保持扭矩；不操作双臂、夹爪或轮子。手眼工作区只启用右臂、夹爪和头部
+的保持扭矩，不访问轮子和左臂，不自动回 ready。点击预览或开始自动采集后才运动。释放舵机扭矩前必须托住机械臂。原始
 采集都留在 `.xlerobot/units/<unit>/capture/`，不会进入 Git。
 
 舵机未完成会话会自动恢复，重启后暂停等待你继续；网页刷新不会重置采样。
@@ -98,6 +98,45 @@
 自动求解与命令行复用同一个严格求解器。质量未过会显示原因并保留原始样本，不生成“通过”的草稿，
 也不降低阈值。首次装配机器仍需后续手眼、底盘和抓取对齐，才能激活完整 bundle。
 
+### 右臂手眼网页：自动采集 + 独立验证
+
+先完成舵机和头部相机草稿，然后启动：
+
+```bash
+./tools/calibrate capture right-handeye --hardware
+```
+
+将 36h11 **Tag 23** 固定在右夹爪的固定侧，黑色外边框边长实测为 **60 mm**。
+板不能弯曲或松动；无需测量 Tag 相对夹爪的安装偏移，求解器会同时估计它。
+桌上的 4×4 板不是这一步的标靶。底盘固定，右臂活动范围清空，并在现场看护。
+
+1. 页面显示 D455 检测框、Tag 23 识别状态和采集进度。确认本次运动后，
+   可先到第 1 个采集位检查可见性；这个按钮会移动右臂和头部。
+2. 点击“开始自动标定”，依次采集 20 个拟合姿态，每个姿态到位、等待稳定观测后保存同步 TF。
+3. 20 个拟合样本通过覆盖度和残差检查后，保存并冻结 `fit.yaml`，之后才进入 6 个独立验证姿态。
+   验证样本不参与拟合，不会用同一组样本自证精度。新增验证姿态目前仍待真机验收。
+4. 页面分别显示拟合和验证指标，以及逐验证姿态的平移/旋转误差。
+   两组都要求平移 RMS `<10 mm`、p95 `<15 mm`、旋转 RMS `<5°`；最大误差只报告。
+   验证失败保留报告、不覆盖草稿；全部通过才保存 `right_handeye` 草稿，不自动激活。
+
+手眼模式仍使用同一个 ros2_control 驱动，但只声明右总线 IDs 1–6 和左总线头部 IDs 7/8，
+不访问轮子或左臂。启动时保持测得的姿态，不自动回 ready。全程固定头部 pan=0、tilt=0.796136 rad，
+不开合夹爪。刷新网页只观察已有流程，不重新启动；暂停取消当前轨迹并保留样本。
+进程重启用 `--resume`，需要重新摆放或更改前序标定时用 `--fresh` 归档后重测。
+
+本机证据保存在 `.xlerobot/units/<unit>/capture/calibration_work/right_handeye/`：
+
+| 文件 | 内容 |
+| --- | --- |
+| `samples.yaml` / `progress.yaml` | 带姿态 ID 的完整原始采样及可恢复进度 |
+| `training.yaml` / `fit.yaml` | 仅 20 个拟合样本及冻结参数 |
+| `heldout.yaml` / `validation.yaml` | 6 个留出样本、逐姿态误差、阈值与来源哈希 |
+
+不要将 `samples.yaml` 全量重新拟合后称为“独立验证”。Tag 会随夹爪运动：验证比较
+`base_from_camera × camera_from_tag` 与 `base_from_jaw × jaw_from_tag`，不是检查 Tag 在底盘系中静止。
+这只能说明独立姿态的视觉/FK 一致性，不能代替后续桌面多点的夹爪尖端实测。
+抓取对齐需另做物理测量；单靠这些残差不能把视觉偏差与重力下垂唯一拆开。
+
 ### 其他分项与草稿导入
 
 底盘几何采用卷尺实测。可以填写 `examples/calibration/base_measurements.yaml`，也可以
@@ -113,7 +152,7 @@
 # 或导入底盘采集页面打印的结果：
 ./tools/calibrate base --input .xlerobot/units/demo-01/capture/calibration_work/base_geometry/result.yaml
 ./tools/calibrate head-camera --samples .xlerobot/units/demo-01/capture/calibration_work/head_camera/samples.yaml
-./tools/calibrate right-handeye --samples .xlerobot/units/demo-01/capture/calibration_work/right_handeye/samples.yaml
+# 手眼自动流程已保存草稿及独立验证报告，无需再导入或全量重拟合。
 ./tools/calibrate grasp-alignment --measurements /path/to/alignment.yaml
 ./tools/calibrate status
 ```

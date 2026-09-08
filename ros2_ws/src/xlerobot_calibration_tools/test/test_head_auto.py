@@ -119,12 +119,19 @@ def test_completed_session_restores_quality_and_rejects_new_start(tmp_path):
 def fake_node(tmp_path, monkeypatch):
     monkeypatch.setattr('xlerobot_calibration_tools.head_auto_node.rclpy.ok', lambda: True)
     node = object.__new__(HeadCalibrationNode)
+    node.workflow = 'head_camera'
+    node.handeye = False
+    node.required = 12
+    node.predecessors = []
+    node.predecessor_bytes = []
     node.session = session(tmp_path / 'capture')
     node.store = UnitCalibrationStore(tmp_path / 'state', REPO)
     node.lock = threading.RLock()
     node.enabled = True
     node.busy = True
     node.motion_unconfirmed = False
+    node.capture_unconfirmed = False
+    node.capture_future = None
     node.publish_status = lambda: None
     node.moves = []
     node.move = lambda handle, index: node.moves.append(index)
@@ -140,7 +147,9 @@ def fake_node(tmp_path, monkeypatch):
                                         row.target_in_camera, float(index),
                                         dict(fixture.qualities[index], capture_job_id=request.job_id))
         response = SimpleNamespace(error=SimpleNamespace(code=CapabilityError.NONE, message='captured'))
-        return SimpleNamespace(done=lambda: True, result=lambda: response)
+        future = SimpleNamespace(done=lambda: True, result=lambda: response)
+        future.add_done_callback = lambda callback: callback(future)
+        return future
 
     node.capture_client = SimpleNamespace(wait_for_service=lambda **_: True, call_async=capture)
     handle = SimpleNamespace(is_cancel_requested=False, terminal='', publish_feedback=lambda _: None)
@@ -229,6 +238,26 @@ def test_duplicate_goal_is_rejected(tmp_path, monkeypatch):
     goal = CalibrationJob.Goal(unit_id='test-unit', workflow_id='head_camera', automatic=True, dry_run=False)
     assert node.goal(goal) == GoalResponse.ACCEPT
     assert node.goal(goal) == GoalResponse.REJECT
+
+
+def test_unanswered_capture_keeps_ownership_until_late_response(tmp_path, monkeypatch):
+    from concurrent.futures import Future
+    node, _ = fake_node(tmp_path, monkeypatch)
+    node.busy = False
+    node.capture_unconfirmed = True
+    goal = CalibrationJob.Goal(unit_id='test-unit', workflow_id='head_camera', automatic=True)
+    assert node.goal(goal) == GoalResponse.REJECT
+    future = Future()
+    node.capture_future = future
+    future.add_done_callback(node.capture_finished)
+    future.set_result(SimpleNamespace())
+    assert not node.capture_unconfirmed
+    assert node.goal(goal) == GoalResponse.ACCEPT
+    # An older callback scheduled late must not release a newer capture.
+    node.capture_future = Future()
+    node.capture_unconfirmed = True
+    node.capture_finished(future)
+    assert node.capture_unconfirmed
 
 
 @pytest.mark.parametrize('stamps,now,settled,expected', [

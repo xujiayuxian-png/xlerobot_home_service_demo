@@ -57,10 +57,12 @@ def test_shared_composition_passes_fixed_workflow_to_backend_and_console():
 def test_head_camera_reuses_head_only_runtime_and_public_auto_pipeline():
     source = (ROOT / 'xlerobot_bringup/calibration_launch.py').read_text()
     assert "'head_only_control': 'true' if workflow_id == 'head_camera' else 'false'" in source
-    assert "executable='auto_head_calibration'" in source
+    assert "executable = 'auto_head_calibration' if workflow_id == 'head_camera' else 'auto_handeye_calibration'" in source
+    assert "'right_handeye_control': 'true' if workflow_id == 'right_handeye' else 'false'" in source
     assert "'head_pose_file': PathJoinSubstitution([" in source
     assert "'pose_file': PathJoinSubstitution([" in source
-    assert source.count("'head_camera_poses.yaml'") == 2
+    assert "f'{workflow_id}_poses.yaml'" in source
+    assert "'right_handeye_poses.yaml'" in source
     assert "'state_root': LaunchConfiguration('state_root')" in source
     assert "'repo_root': LaunchConfiguration('repo_root')" in source
 

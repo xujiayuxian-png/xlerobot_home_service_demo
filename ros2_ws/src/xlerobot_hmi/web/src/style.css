@@ -386,6 +386,10 @@ button.danger { border-color: #88474f; color: #ff9da7; background: rgba(96, 31, 
 .servo-existing-zero button { margin-top: 12px; }
 .servo-zero-reference { margin: 0 0 12px; }.servo-zero-reference summary { cursor: pointer; color: #a2c9b8; font-size: .72rem; }.servo-zero-reference img { width: 100%; margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; }.servo-zero-reference p { font-size: .65rem; margin: 5px 0 0; }
 .servo-readings { min-width: 0; padding: 18px; background: #081920; border: 1px solid var(--line-soft); border-radius: 14px; }
+.handeye-errors { width: 100%; max-width: 680px; border-collapse: collapse; margin: 18px 0; font-size: .75rem; font-variant-numeric: tabular-nums; }
+.handeye-errors th, .handeye-errors td { padding: 10px 12px; text-align: right; border-bottom: 1px solid var(--line-soft); }
+.handeye-errors th { color: var(--text-dim); font-weight: 500; }
+.handeye-errors th:first-child, .handeye-errors td:first-child { text-align: left; }
 .servo-readings-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
 .servo-readings-heading h3 { margin-bottom: 5px; font-size: .92rem; }
 .servo-readings-heading p { color: var(--text-dim); font-size: .61rem; letter-spacing: .04em; margin: 0; }

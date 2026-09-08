@@ -201,6 +201,18 @@ private:
   std::shared_ptr<BusTrace> trace_;
 };
 
+class ArmBusUnderTest final : public BusSystemBase
+{
+public:
+  explicit ArmBusUnderTest(std::shared_ptr<BusTrace> trace)
+  : BusSystemBase("right", {}), trace_(std::move(trace)) {}
+protected:
+  std::unique_ptr<xlerobot_feetech::FeetechBus> make_bus() override
+  {return std::make_unique<RecordingBus>(trace_);}
+private:
+  std::shared_ptr<BusTrace> trace_;
+};
+
 hardware_interface::CallbackReturn initialize(
   BusSystemBase & system, const hardware_interface::HardwareInfo & hardware_info)
 {
@@ -420,6 +432,47 @@ TEST(RightBusSystemTest, ReactivationNeverTurnsWheelOdometryIntoVelocity)
     }
     EXPECT_DOUBLE_EQ(*states[0].get_optional<double>(), left_position);
     EXPECT_DOUBLE_EQ(*states[2].get_optional<double>(), right_position);
+  }
+}
+
+TEST(ArmOnlyBusTest, LifecycleNeverAddressesWheelsAndHoldsBeforeTorque)
+{
+  const auto trace = std::make_shared<BusTrace>();
+  {
+    ArmBusUnderTest system(trace);
+    auto config = info(false, true);
+    config.joints.erase(config.joints.begin(), config.joints.begin() + 2);
+    config.hardware_parameters["arm_only_control"] = "true";
+    config.hardware_parameters["torque_enabled"] = "true";
+    ASSERT_EQ(initialize(system, config), hardware_interface::CallbackReturn::SUCCESS);
+    ASSERT_EQ(system.on_configure(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
+    ASSERT_EQ(system.on_activate(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
+    ASSERT_EQ(system.export_command_interfaces().size(), 6u);
+    EXPECT_LT(std::find(trace->events.begin(), trace->events.end(), "position_write"),
+      std::find(trace->events.begin(), trace->events.end(), "torque_on"));
+    EXPECT_EQ(system.read(rclcpp::Time(0), rclcpp::Duration::from_seconds(.02)), hardware_interface::return_type::OK);
+    EXPECT_EQ(system.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(.02)), hardware_interface::return_type::OK);
+    EXPECT_EQ(system.on_deactivate(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
+    EXPECT_EQ(system.on_cleanup(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
+  }
+  EXPECT_EQ(trace->velocity_calls, 0);
+  ASSERT_FALSE(trace->addressed_ids.empty());
+  for (const auto id : trace->addressed_ids) {EXPECT_TRUE(id >= 1 && id <= 6);}
+}
+
+TEST(ArmOnlyBusTest, RejectsWheelIdsAndWrongBus)
+{
+  auto config = info(true, false);
+  config.joints.erase(config.joints.begin(), config.joints.begin() + 2);
+  config.hardware_parameters["arm_only_control"] = "true";
+  {
+    LeftBusSystem system;
+    EXPECT_EQ(initialize(system, config), hardware_interface::CallbackReturn::ERROR);
+  }
+  for (const auto id : {7, 8, 9, 10}) {
+    RightBusSystem system;
+    config.joints[0].parameters["servo_id"] = std::to_string(id);
+    EXPECT_EQ(initialize(system, config), hardware_interface::CallbackReturn::ERROR);
   }
 }
 

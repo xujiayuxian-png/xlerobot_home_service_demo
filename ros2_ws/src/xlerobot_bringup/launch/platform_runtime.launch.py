@@ -16,7 +16,11 @@ def _runtime_nodes(context):
         )
     head_only_control = LaunchConfiguration(
         'head_only_control', default='false').perform(context) == 'true'
-    if head_only_control and any(
+    right_handeye_control = LaunchConfiguration(
+        'right_handeye_control', default='false').perform(context) == 'true'
+    if head_only_control and right_handeye_control:
+        raise RuntimeError('choose only one isolated calibration control mode')
+    if (head_only_control or right_handeye_control) and any(
         LaunchConfiguration(name, default='false').perform(context) == 'true'
         for name in ('startup_ready', 'startup_head_only')
     ):
@@ -40,6 +44,7 @@ def _runtime_nodes(context):
                     ' include_right_bus_control:=', 'false' if head_only_control else 'true',
                     ' include_left_bus_control:=true',
                     ' head_only_control:=', 'true' if head_only_control else 'false',
+                    ' right_handeye_control:=', 'true' if right_handeye_control else 'false',
                     ' right_bus_port:=', LaunchConfiguration('right_bus'),
                     ' left_bus_port:=', LaunchConfiguration('left_bus'),
                 ]
@@ -53,14 +58,15 @@ def _runtime_nodes(context):
         package='controller_manager', executable='spawner', output='screen',
         arguments=['joint_state_broadcaster', '-c', '/controller_manager'],
     )
-    if head_only_control:
+    if head_only_control or right_handeye_control:
         # Same bus owner, codecs and measured-pose admission as the full runtime.
-        # Only IDs 7/8 exist in this ros2_control description.  The arms and
-        # wheels are absent, not merely left without an active controller.
+        # Head IDs 7/8, plus right-arm IDs 1–6 for hand-eye. Other actuators
+        # are absent, not merely left without an active controller.
         head_spawner = Node(
             package='xlerobot_bringup', executable='position_ready_spawner', output='screen',
             parameters=[description],
-            arguments=['head_controller', '-c', '/controller_manager'],
+            arguments=(['head_controller', 'right_arm_controller', 'right_gripper_controller']
+                       if right_handeye_control else ['head_controller']) + ['-c', '/controller_manager'],
         )
         return [
             Node(
@@ -159,6 +165,10 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument(
                 'head_only_control', default_value='false', choices=['true', 'false'],
                 description='Own only left-bus head servos 7/8; do not open the right bus.',
+            ),
+            DeclareLaunchArgument(
+                'right_handeye_control', default_value='false', choices=['true', 'false'],
+                description='Own only right arm/gripper IDs 1–6 and left-bus head IDs 7/8.',
             ),
             DeclareLaunchArgument(
                 'startup_ready', default_value='false', choices=['true', 'false'],

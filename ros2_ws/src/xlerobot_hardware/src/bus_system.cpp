@@ -146,6 +146,7 @@ hardware_interface::CallbackReturn BusSystemBase::on_init(
   applied_torque_enabled_ = false;
   read_only_ = parse_bool(info, "read_only", false, parameters_valid);
   head_only_control_ = parse_bool(info, "head_only_control", false, parameters_valid);
+  arm_only_control_ = parse_bool(info, "arm_only_control", false, parameters_valid);
   const auto port = info.hardware_parameters.find("port");
   if (port != info.hardware_parameters.end() && !port->second.empty()) {
     port_ = port->second;
@@ -170,6 +171,7 @@ hardware_interface::CallbackReturn BusSystemBase::on_init(
 
   if (!parameters_valid || baudrate_ <= 0 || (read_only_ && torque_enabled_) ||
     (head_only_control_ && bus_name_ != "left") ||
+    (arm_only_control_ && bus_name_ != "right") ||
     !parse_and_validate_joints())
   {
     RCLCPP_ERROR(
@@ -471,10 +473,14 @@ hardware_interface::return_type BusSystemBase::write(
 
 bool BusSystemBase::parse_and_validate_joints()
 {
-  // A narrow selection of the same left-bus owner, not a second hardware path.
-  // No arbitrary subsets or remapped IDs may turn head-only into arm/wheel access.
+  // Narrow selections of the same bus owners, not a second hardware path.
+  // Exact joints and IDs prevent either selection from addressing other motors.
   const std::vector<std::string> head_joints{"head_pan_joint", "head_tilt_joint"};
-  const auto & expected = head_only_control_ ? head_joints : expected_joints_;
+  const std::vector<std::string> arm_joints{
+    "right_arm_shoulder_pan", "right_arm_shoulder_lift", "right_arm_elbow_flex",
+    "right_arm_wrist_flex", "right_arm_wrist_roll", "right_arm_gripper"};
+  const auto & expected = head_only_control_ ? head_joints :
+    (arm_only_control_ ? arm_joints : expected_joints_);
   if (info_.joints.size() != expected.size()) {
     RCLCPP_ERROR(rclcpp::get_logger("xlerobot_hardware"), "%s bus expected %zu joints, got %zu",
       bus_name_.c_str(), expected.size(), info_.joints.size());
@@ -498,6 +504,7 @@ bool BusSystemBase::parse_and_validate_joints()
     const auto id_value = joint_int(joint, "servo_id", 0);
     if (joint.command_interfaces[0].name != expected_interface || id_value < 1 || id_value > 253 ||
       (head_only_control_ && id_value != static_cast<int>(7 + i)) ||
+      (arm_only_control_ && id_value != static_cast<int>(1 + i)) ||
       !ids.insert(static_cast<uint8_t>(id_value)).second)
     {
       RCLCPP_ERROR(rclcpp::get_logger("xlerobot_hardware"), "Invalid interface or servo id for %s",

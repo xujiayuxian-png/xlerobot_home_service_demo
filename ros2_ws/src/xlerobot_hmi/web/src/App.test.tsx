@@ -251,8 +251,9 @@ describe('operator console API', () => {
     globalThis.EventSource = SilentEventSource as unknown as typeof EventSource
 
     render(<App />)
-    expect(await screen.findByText(/只采集原始标定结果/)).toBeTruthy()
-    expect(screen.getByRole('button', { name: '采集当前静止姿态' })).toBeTruthy()
+    expect(await screen.findByText('右臂手眼自动标定与验证')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '开始自动标定' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '采集当前静止姿态' })).toBeNull()
     expect(screen.queryByRole('button', { name: '检查当前工作流' })).toBeNull()
     expect(screen.queryByRole('button', { name: '求解并写入 draft' })).toBeNull()
     expect(screen.queryByRole('button', { name: '激活完整 calibration bundle' })).toBeNull()

@@ -5,6 +5,7 @@ const phases: Record<string, string> = {
   IDLE: '准备就绪', MOVING: '头部移动中', WAITING: '等待清晰、稳定的标定板',
   CAPTURING: '保存样本', SOLVING: '正在求解', PAUSED: '已暂停',
   COMPLETED: '标定完成', ERROR: '需要处理后继续',
+  VALIDATING: '独立留出验证中',
 }
 const poseLabels: Record<string, string> = {
   pending: '待采集', moving: '移动中', waiting: '等待识别', captured: '已采集', skipped: '待补采',
@@ -15,8 +16,8 @@ const metricLabels: Record<string, string> = {
   reprojection_rmse_px: '重投影 RMS · px', sample_count: '有效样本数',
 }
 
-export function HeadCalibrationWorkspace({ unitId, onError }: {
-  unitId: string, onError: (message: string) => void,
+export function HeadCalibrationWorkspace({ unitId, onError, handeye = false }: {
+  unitId: string, onError: (message: string) => void, handeye?: boolean,
 }) {
   const [state, setState] = useState<HeadCalibrationState | null>(null)
   const [confirmed, setConfirmed] = useState(false)
@@ -39,7 +40,7 @@ export function HeadCalibrationWorkspace({ unitId, onError }: {
     const clock = setInterval(() => setNow(Date.now()), 1000)
     const poll = async () => {
       try {
-        const value = await api.headCalibrationStatus()
+        const value = await (handeye ? api.handeyeCalibrationStatus() : api.headCalibrationStatus())
         if (!disposed) {
           setState(value)
           setReadError('')
@@ -53,7 +54,7 @@ export function HeadCalibrationWorkspace({ unitId, onError }: {
     }
     void poll()
     return () => { disposed = true; mounted.current = false; clearTimeout(timer); clearInterval(clock) }
-  }, [unitId])
+  }, [unitId, handeye])
 
   const live = Boolean(state?.available && state.state_fresh && !readError
     && receivedAt > 0 && now - receivedAt < 4000)
@@ -62,7 +63,7 @@ export function HeadCalibrationWorkspace({ unitId, onError }: {
   const complete = state?.phase === 'COMPLETED' && state.quality_passed
   const targetVisible = Boolean(live && state?.target.fresh && state.target.accepted)
   const count = state?.sample_count ?? 0
-  const required = state?.target_sample_count || 12
+  const required = state?.target_sample_count || (handeye ? 26 : 12)
   const resume = Boolean(state && (count > 0 || state.phase === 'PAUSED' || state.phase === 'ERROR'))
   const startLabel = complete ? '本次标定已完成' : resume ? '继续自动采集 / 补采' : '开始自动标定'
 
@@ -73,8 +74,8 @@ export function HeadCalibrationWorkspace({ unitId, onError }: {
     setActionError('')
     setNotice('')
     try {
-      const result = operation === 'start' ? await api.startHeadCalibration(unitId)
-        : operation === 'pause' ? await api.pauseHeadCalibration()
+      const result = operation === 'start' ? await (handeye ? api.startHandeyeCalibration(unitId) : api.startHeadCalibration(unitId))
+        : operation === 'pause' ? await (handeye ? api.pauseHandeyeCalibration() : api.pauseHeadCalibration())
           : await api.moveCalibrationPose(0)
       if (!mounted.current) return
       setNotice(result.message)
@@ -93,23 +94,25 @@ export function HeadCalibrationWorkspace({ unitId, onError }: {
 
   return <section className="engineering-card head-calibration">
     <div className="head-calibration-heading">
-      <div><p className="section-label">HEAD CAMERA · {unitId}</p>
-        <h2>头部相机自动标定</h2>
-        <p>放好整板，剩下的交给机器人：转头 → 等待稳定 → 采样 → 求解。</p></div>
+      <div><p className="section-label">{handeye ? 'RIGHT HAND–EYE' : 'HEAD CAMERA'} · {unitId}</p>
+        <h2>{handeye ? '右臂手眼自动标定与验证' : '头部相机自动标定'}</h2>
+        <p>{handeye ? '固定夹爪 Tag 23：20 姿态拟合 → 冻结参数 → 6 个独立姿态验证。' : '放好整板，剩下的交给机器人：转头 → 等待稳定 → 采样 → 求解。'}</p></div>
       <span className={`head-phase ${complete ? 'complete' : ''}`} role="status">
-        {!live ? '等待实时状态' : phases[state?.phase || ''] || state?.phase}
+        {!live ? '等待实时状态' : handeye && state?.phase === 'MOVING' ? '右臂 / 头部移动中'
+          : handeye && state?.phase === 'WAITING' ? '等待稳定的 Tag 23' : phases[state?.phase || ''] || state?.phase}
       </span>
     </div>
     <div className="head-calibration-layout">
       <div className="head-calibration-view">
         <figure className="head-camera-preview">
           <img src="/api/v1/cameras/detection/stream" alt="D455 标定板实时画面与 AprilTag 检测框" />
-          <figcaption>AprilTag 36h11 · 4 × 4 · ID 0–15 · 单 Tag 40 mm</figcaption>
+          <figcaption>{handeye ? 'AprilTag 36h11 · Tag 23 · 黑色外边框边长 60 mm · 固定在右夹爪固定侧' : 'AprilTag 36h11 · 4 × 4 · ID 0–15 · 单 Tag 40 mm'}</figcaption>
         </figure>
         <div className="head-visual-metrics" aria-label="标定板识别状态">
           <div className={targetVisible ? 'good' : 'waiting'}>
-            <small>标定板</small><strong>{targetVisible ? '整板识别通过' : '等待整板清晰可见'}</strong></div>
-          <div><small>识别 Tag</small><strong>{live && state?.target.fresh ? state.target.tag_count ?? 0 : '—'} / 16</strong></div>
+            <small>标定板</small><strong>{targetVisible ? handeye ? 'Tag 23 识别通过' : '整板识别通过'
+              : handeye ? '等待 Tag 23 清晰可见' : '等待整板清晰可见'}</strong></div>
+          <div><small>识别 Tag</small><strong>{live && state?.target.fresh ? state.target.tag_count ?? 0 : '—'} / {handeye ? 1 : 16}</strong></div>
           <div><small>重投影误差 · px</small><strong>{live && state?.target.fresh
             && state.target.reprojection_rmse_px != null
             ? state.target.reprojection_rmse_px.toFixed(2) : '—'}</strong></div>
@@ -124,14 +127,15 @@ export function HeadCalibrationWorkspace({ unitId, onError }: {
         <progress max={Math.max(required, count)} value={count} aria-label="有效样本进度" />
         <p className="head-run-message" aria-live="polite">{complete
           ? `已保存 ${count} 个有效样本，求解与质量检查通过；结果仅写入草稿。`
-          : state?.message || '连接标定服务后，可先调整头部到看桌面的预览位置。'}</p>
+          : state?.message || (handeye ? '启动前确认 Tag 安装牢固、右臂活动范围空旷。' : '连接标定服务后，可先调整头部到看桌面的预览位置。')}</p>
         <label className="head-motion-confirm">
           <input type="checkbox" checked={confirmed} disabled={running || Boolean(busy)}
             onChange={event => setConfirmed(event.target.checked)} />
-          <span>标定板与底盘已固定，头部周围无遮挡；允许本次头部动作。</span>
+          <span>{handeye ? 'Tag 23 与底盘已固定，右臂周围无遮挡且有人看护；允许本次右臂与头部动作。'
+            : '标定板与底盘已固定，头部周围无遮挡；允许本次头部动作。'}</span>
         </label>
         <button disabled={!ready || !confirmed || running || Boolean(busy)}
-          onClick={() => void command('preview')}>头部低头到预览位（0 / 0.8 rad）</button>
+          onClick={() => void command('preview')}>{handeye ? '右臂与头部到第 1 个采集位（会运动）' : '头部低头到预览位（0 / 0.8 rad）'}</button>
         <div className="button-row head-run-buttons">
           <button className="primary" disabled={!ready || !confirmed || running || Boolean(busy) || complete}
             onClick={() => void command('start')}>{busy === 'start' ? '正在启动…'
@@ -144,36 +148,54 @@ export function HeadCalibrationWorkspace({ unitId, onError }: {
           ? `状态连接中断，暂不能启动。${readError}` : '自动标定服务未就绪或状态已过期，请等待实时状态恢复。'}</p>}
         {actionError && <p className="head-warning" role="alert">{actionError}</p>}
         {notice && <p className="hint" aria-live="polite">{notice}</p>}
-        <p className="hint">启动网页、刷新或重连都不会自动运动。暂停后头部保持当前位置，继续时只补未完成的姿态。</p>
+        <p className="hint">打开网页、刷新或重连不会发起运动。暂停后保持当前位置，继续时只补未完成的姿态。</p>
+        {handeye && <p className="hint">全程头部固定在 0 / 0.796 rad，不开合夹爪，不移动底盘。新增验证姿态尚待现场验收。</p>}
       </div>
     </div>
     <div className="head-pose-section">
       <div className="head-pose-heading"><h3>采集姿态</h3>
-        <p>{state?.pose_count ?? 0} 个预设姿态 · 水平 ±0.30 rad · 低头 0.60–1.00 rad</p></div>
+        <p>{state?.pose_count ?? 0} 个预设姿态 · {handeye ? '前 20 个拟合，后 6 个只验证' : '水平 ±0.30 rad · 低头 0.60–1.00 rad'}</p></div>
       <ol className="head-pose-grid" aria-label="预设姿态采集进度">
         {(state?.pose_states || []).map((pose, index) => <li key={index}
           className={`head-pose ${pose}`} aria-current={state?.pose_index === index ? 'step' : undefined}>
           <span className="head-pose-number">{String(index + 1).padStart(2, '0')}</span>
           <strong>{complete && pose === 'skipped' ? '已跳过' : poseLabels[pose] || pose}</strong>
-          <small>{state?.pose_pan[index]?.toFixed(2)} / {state?.pose_tilt[index]?.toFixed(2)} rad</small>
+          <small>{handeye ? state?.pose_roles?.[index] === 'validation' ? '独立验证' : '拟合'
+            : `${state?.pose_pan[index]?.toFixed(2)} / ${state?.pose_tilt[index]?.toFixed(2)} rad`}</small>
+          {handeye && state?.pose_messages?.[index] && <small title={state.pose_messages[index]}>{pose === 'skipped' ? state.pose_messages[index] : ''}</small>}
         </li>)}
       </ol>
       <p className="hint">{complete
-        ? '本次样本数量、姿态覆盖和残差均已通过，无需补齐全部预设姿态。拟合残差不等同于独立实测精度。'
-        : '短暂漏检会等待后重试；待补采姿态可在暂停或失败后继续。全程不要移动标定板或底盘。'}</p>
+        ? handeye ? '拟合和独立验证均通过；这是视觉/FK 一致性验证，不等同于夹爪尖端绝对精度。'
+          : '本次样本数量、姿态覆盖和残差均已通过，无需补齐全部预设姿态。拟合残差不等同于独立实测精度。'
+        : handeye ? 'Tag 随夹爪移动，安装不能松动。拟合未通过不会进入验证；验证数据不会用于重新拟合。'
+          : '短暂漏检会等待后重试；待补采姿态可在暂停或失败后继续。全程不要移动标定板或底盘。'}</p>
     </div>
-    {(state?.result_uri || state?.phase === 'COMPLETED' || state?.phase === 'ERROR') &&
+    {state && (state.result_uri || Object.keys(state.metrics || {}).length > 0 || state.phase === 'COMPLETED' || state.phase === 'ERROR') &&
       <section className="head-calibration-result" aria-label="标定结果">
         <h3>{state.quality_passed ? '质量检查通过，结果已保存' : '采集 / 质量检查尚未通过'}</h3>
-        <dl className="head-result-metrics">{Object.entries(state.metrics || {}).map(([name, value]) =>
-          <div key={name}><dt>{metricLabels[name] || name}</dt><dd>{value == null ? '—' : value.toFixed(3)}</dd></div>)}</dl>
+        {(handeye ? ['fit', 'validation'] : ['']).map(group => <div key={group}>
+          {group && <h4>{group === 'fit' ? '拟合残差 · 20 姿态' : '独立验证 · 6 姿态（不重新拟合）'}</h4>}
+          <dl className="head-result-metrics">{Object.entries(state.metrics || {})
+            .filter(([name]) => !group || name.startsWith(`${group}.`)).map(([name, value]) =>
+              <div key={name}><dt>{metricLabels[group ? name.slice(group.length + 1) : name] || name}</dt><dd>{value == null ? '—' : value.toFixed(3)}</dd></div>)}</dl>
+        </div>)}
+        {handeye && <p>两组分别检查：平移 RMS &lt; 10 mm、p95 &lt; 15 mm，旋转 RMS &lt; 5°。最大误差只报告。</p>}
+        {handeye && Object.keys(state.metrics || {}).some(name => name.startsWith('heldout_poses.')) &&
+          <table className="handeye-errors" aria-label="独立验证逐姿态误差"><thead><tr><th>验证姿态</th><th>平移 · mm</th><th>旋转 · °</th></tr></thead>
+            <tbody>{(state.pose_roles || []).map((role, index) => role === 'validation' &&
+              <tr key={index}><td>{index + 1}</td>
+                <td>{state.metrics[`heldout_poses.${index + 1}.translation_mm`]?.toFixed(2) ?? '—'}</td>
+                <td>{state.metrics[`heldout_poses.${index + 1}.rotation_deg`]?.toFixed(2) ?? '—'}</td></tr>)}</tbody></table>}
         {state.result_uri && <p className="head-result-path">结果：<code>{state.result_uri}</code></p>}
+        {state.report_uri && <p className="head-result-path">逐姿态验证报告：<code>{state.report_uri}</code></p>}
         <p>不会自动替换当前生效标定，也不会自动运行 Demo。</p>
       </section>}
     <details className="head-restart-help"><summary>板挪过位置了 / 需要从头重来？</summary>
-      <p>一组样本必须使用同一个固定标定板位置。只要移动过标定板或底盘，就不要继续原会话。</p>
+      <p>{handeye ? 'Tag 必须保持同一安装位置；重新安装 Tag、移动底盘、修改头部或舵机标定后，请新建会话。'
+        : '一组样本必须使用同一个固定标定板位置。只要移动过标定板或底盘，就不要继续原会话。'}</p>
       <p>先暂停并停止当前标定工具，再启动以下命令。旧采样会归档保留，不会删除。</p>
-      <code>./tools/calibrate capture head-camera --hardware --fresh</code>
+      <code>./tools/calibrate capture {handeye ? 'right-handeye' : 'head-camera'} --hardware --fresh</code>
     </details>
   </section>
 }

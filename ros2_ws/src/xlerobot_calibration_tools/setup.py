@@ -38,6 +38,7 @@ setup(
             'collect_transform_samples = xlerobot_calibration_tools.collector_node:main',
             'detect_calibration_target = xlerobot_calibration_tools.target_node:main',
             'auto_head_calibration = xlerobot_calibration_tools.head_auto_node:main',
+            'auto_handeye_calibration = xlerobot_calibration_tools.head_auto_node:main_handeye',
             'xlerobot-calibrate = xlerobot_calibration_tools.public_cli:main',
         ],
     },

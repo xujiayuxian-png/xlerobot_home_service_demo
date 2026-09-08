@@ -13,8 +13,9 @@ Usage:
   tools/calibrate capture right-handeye --hardware [--fresh|--resume] [--config PATH] [--web-port PORT]
 
 Starts one live calibration capture workspace at http://127.0.0.1:8080.
-The head-camera page automatically captures, strictly solves and saves its
-draft. Other workflows print a tools/calibrate command to validate the capture.
+The head-camera and hand-eye pages automatically capture and save passing
+drafts; hand-eye includes independent held-out validation. Servo/base workflows
+print a tools/calibrate command to validate the capture.
 No capture workspace activates calibration or replaces the Demo runtime.
 EOF
 }
@@ -185,11 +186,17 @@ esac
 
 if [[ $workflow == head-camera ]]; then
   note 'starting head-camera workspace; only the head holds torque; click Start in the web page for automatic motion'
+elif [[ $workflow == right-handeye ]]; then
+  note 'starting hand-eye workspace; only right arm/gripper and head hold torque; wheels and left arm are excluded'
+  note 'click Start in the web page: 20 fitting poses, frozen fit, then 6 held-out validation poses'
 else
   note "starting LIVE $workflow calibration capture; motors may be powered or move"
 fi
 note "capture UI: http://127.0.0.1:$web_port"
-if [[ $workflow == head-camera ]]; then
+if [[ $workflow == right-handeye ]]; then
+  note 'automatic capture saves a draft only after independent validation passes; active calibration is unchanged'
+  note 'fit.yaml, training.yaml, heldout.yaml and validation.yaml remain in the capture directory; do not refit all samples together'
+elif [[ $workflow == head-camera ]]; then
   note 'automatic capture saves a passing head-camera draft; it never activates it'
   note "optional offline re-solve after stopping capture: $follow_up"
 else

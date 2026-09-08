@@ -1,6 +1,11 @@
 schema: xlerobot_calibration_pose_set/v1
 workflow: right_handeye
 units: rad
+# Head and Tag mounting must remain fixed throughout fitting and validation.
+head_pose: [0.0, 0.796136]
+fit_count: 20
+# The last six poses are software-checked candidates, not yet hardware accepted.
+validation_status: pending_hardware_acceptance
 joint_order:
   - right_arm_shoulder_pan
   - right_arm_shoulder_lift
@@ -28,3 +33,9 @@ poses:
   - [-0.0522,  0.3459, 0.5039, -0.0123, 1.5041]
   - [ 0.0100,  0.1327, 0.2753, -0.0115, 1.5041]
   - [-0.1649,  0.7547, 0.4487,  0.4449, 1.5033]
+  - [-0.6600,  1.3050, 1.0850,  0.4517, 1.5064]
+  - [-0.1600,  1.3830, 1.1680,  0.4525, 1.5064]
+  - [-0.6500,  0.8400, 0.6200,  0.4490, 1.5050]
+  - [-0.4030, -0.0650, 0.5570, -0.4710, 1.5064]
+  - [ 0.1330, -0.5230, 0.1090, -0.7750, 1.5048]
+  - [-0.2790,  1.0310, 0.7660,  0.4460, 1.5041]

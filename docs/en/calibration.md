@@ -39,15 +39,15 @@ same public command and always requires explicit hardware consent:
 # Preview the board, then automatically capture, solve and save a head_camera draft.
 
 ./tools/calibrate capture right-handeye --hardware
-# Capture Tag 23 at the prescribed poses, stop, then run the printed command.
+# Automatically fit Tag 23 observations, freeze parameters, then validate held-out poses.
 ```
 
 Each capture starts only one workflow and prints its local HMI URL plus the
 exact follow-up command. Servo startup only connects the serial buses: it does
 not enable torque or command motion. Head-camera calibration opens only the head
 bus and holds only its two servos; neither arm, gripper nor wheel is commanded.
-Hand-eye calibration starts the full holding-torque runtime, without returning
-to ready. Motion begins only after selecting a pose or starting automatic capture.
+Hand-eye calibration holds only the right arm/gripper and head, without returning
+to ready or accessing wheels/left arm. Motion begins only after explicit preview or automatic start.
 Support the arm before releasing servo torque.
 All raw captures stay below
 `.xlerobot/units/<unit>/capture/` and remain outside Git.
@@ -128,6 +128,56 @@ shows its reason and preserves samples, without saving a passing draft or
 relaxing thresholds. Hand-eye, base and grasp alignment remain necessary before
 a new build can activate its complete bundle.
 
+### Right hand-eye page: automatic capture and held-out validation
+
+Finish the servo and head-camera drafts first, then run:
+
+```bash
+./tools/calibrate capture right-handeye --hardware
+```
+
+Rigidly mount 36h11 **Tag 23** on the right gripper's **fixed side**, with a measured
+black outer-border size of **60 mm**. Do not bend or loosen the board. Its mounting
+offset is solved jointly; manual measurement is not required. The table's 4×4
+board is not used here. Keep the base stationary, clear the arm sweep and supervise locally.
+
+1. Check the D455 overlay and Tag 23 status. After confirming motion, optionally
+   preview the first capture pose. This button moves both the right arm and head.
+2. Start automatic calibration: 20 fitting poses, each captured only after arrival
+   and fresh stable detections, with TF resolved at the image timestamp.
+3. After coverage and fit-quality checks pass, freeze `fit.yaml` **before** moving
+   through six different held-out poses. Validation never refits parameters.
+   These additional validation poses are currently pending hardware acceptance.
+4. Inspect fitting and held-out metrics separately, including per-pose errors.
+   Both populations require translation RMS `<10 mm`, p95 `<15 mm`, and rotation
+   RMS `<5°`; maximum errors are reported, not gated. Failed validation preserves
+   its report and leaves the draft unchanged. Only a complete passing run saves
+   the `right_handeye` draft; activation remains explicit.
+
+The same ros2_control driver owns only right-bus IDs 1–6 and left-bus head IDs 7/8.
+Wheels and the left arm are absent from this control description. Startup holds
+measured positions, without a ready-pose motion. Keep the head at pan=0,
+tilt=0.796136 rad and the gripper opening unchanged throughout capture.
+Browser refresh observes the current run without restarting it. Pause cancels
+the current trajectory and preserves samples; use `--resume` after a process
+restart. Changed mounting, base placement or predecessor calibration requires
+`--fresh`, which archives the old session without deleting it.
+
+Local evidence lives under `.xlerobot/units/<unit>/capture/calibration_work/right_handeye/`:
+
+| Files | Contents |
+| --- | --- |
+| `samples.yaml` / `progress.yaml` | All raw samples with pose IDs and resumable progress |
+| `training.yaml` / `fit.yaml` | Only the 20 fitting samples and frozen transforms |
+| `heldout.yaml` / `validation.yaml` | Six held-out samples, per-pose errors, thresholds and source hashes |
+
+Do not refit all of `samples.yaml` and call its residuals independent validation.
+The tag moves with the gripper: compare `base_from_camera × camera_from_tag`
+against `base_from_jaw × jaw_from_tag`, not a stationary tag in the base frame.
+This validates visual/FK closure on unseen poses, **not absolute fingertip or
+grasp accuracy**. Later grasp alignment needs physical measurements at table
+points; these residuals alone cannot uniquely separate vision bias and gravity sag.
+
 ### Other components and draft import
 
 Base geometry is a tape-measure workflow. Either fill in
@@ -146,7 +196,7 @@ the example unit ID `demo-01`; replace it if you changed `robot.unit_id`:
 # Or import the result printed by the base capture page:
 ./tools/calibrate base --input .xlerobot/units/demo-01/capture/calibration_work/base_geometry/result.yaml
 ./tools/calibrate head-camera --samples .xlerobot/units/demo-01/capture/calibration_work/head_camera/samples.yaml
-./tools/calibrate right-handeye --samples .xlerobot/units/demo-01/capture/calibration_work/right_handeye/samples.yaml
+# Automatic hand-eye capture already saves its draft and held-out report; do not refit all samples.
 ./tools/calibrate grasp-alignment --measurements /path/to/alignment.yaml
 ./tools/calibrate status
 ```

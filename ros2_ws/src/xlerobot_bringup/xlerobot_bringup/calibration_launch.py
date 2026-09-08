@@ -122,6 +122,7 @@ def calibration_launch(workflow_id: str) -> LaunchDescription:
                     'startup_ready': 'false',
                     'startup_head_only': 'false',
                     'head_only_control': 'true' if workflow_id == 'head_camera' else 'false',
+                    'right_handeye_control': 'true' if workflow_id == 'right_handeye' else 'false',
                     'geometry_file': LaunchConfiguration('geometry_file'),
                     'servo_calibration_file': LaunchConfiguration(
                         'servo_calibration_file'
@@ -188,13 +189,18 @@ def calibration_launch(workflow_id: str) -> LaunchDescription:
                         FindPackageShare('xlerobot_calibration_tools'), 'config',
                         'head_camera_poses.yaml',
                     ]),
+                    'handeye_pose_file': PathJoinSubstitution([
+                        FindPackageShare('xlerobot_calibration_tools'), 'config',
+                        'right_handeye_poses.yaml',
+                    ]),
                 }],
             ),
         ])
-    if workflow_id == 'head_camera':
+    if workflow_id in {'head_camera', 'right_handeye'}:
+        executable = 'auto_head_calibration' if workflow_id == 'head_camera' else 'auto_handeye_calibration'
         actions.append(Node(
-            package='xlerobot_calibration_tools', executable='auto_head_calibration',
-            name='auto_head_calibration', output='screen', parameters=[{
+            package='xlerobot_calibration_tools', executable=executable,
+            name=executable, output='screen', parameters=[{
                 'execution_enabled': True,
                 'unit_id': LaunchConfiguration('unit_id'),
                 'artifact_root': LaunchConfiguration('artifact_root'),
@@ -202,7 +208,7 @@ def calibration_launch(workflow_id: str) -> LaunchDescription:
                 'repo_root': LaunchConfiguration('repo_root'),
                 'pose_file': PathJoinSubstitution([
                     FindPackageShare('xlerobot_calibration_tools'), 'config',
-                    'head_camera_poses.yaml',
+                    f'{workflow_id}_poses.yaml',
                 ]),
             }],
         ))
