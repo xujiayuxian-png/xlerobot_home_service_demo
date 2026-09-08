@@ -196,7 +196,7 @@ Demo、建图和数采已在参考真机上使用既有标定完成流程验证�
 
 <p align="center">
   <strong>徐头头 · 小红书</strong><br/>
-  <a href="docs/images/xiaohongshu.jpg"><img src="docs/images/xiaohongshu.jpg" width="360" alt="徐头头的小红书主页二维码名片，小红书号 LISSAGOGOGO"/></a><br/>
+  <a href="docs/images/xiaohongshu.png"><img src="docs/images/xiaohongshu.png" width="360" alt="徐头头的小红书主页二维码名片，小红书号 LISSAGOGOGO"/></a><br/>
   <sub>打开小红书扫码，或搜索 <strong>LISSAGOGOGO</strong>；点击名片可查看原图。</sub>
 </p>
 

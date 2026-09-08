@@ -205,7 +205,7 @@ The 30-demo dataset: [CC BY 4.0](https://huggingface.co/datasets/lissajous/xlero
 
 <p align="center">
   <strong>徐头头 · Xiaohongshu</strong><br/>
-  <a href="docs/images/xiaohongshu.jpg"><img src="docs/images/xiaohongshu.jpg" width="360" alt="Xiaohongshu profile QR card for 徐头头, account LISSAGOGOGO"/></a><br/>
+  <a href="docs/images/xiaohongshu.png"><img src="docs/images/xiaohongshu.png" width="360" alt="Xiaohongshu profile QR card for 徐头头, account LISSAGOGOGO"/></a><br/>
   <sub>Scan in Xiaohongshu, or search <strong>LISSAGOGOGO</strong>. Click the card for full resolution.</sub>
 </p>
 
