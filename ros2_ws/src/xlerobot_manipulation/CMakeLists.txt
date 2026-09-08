@@ -97,6 +97,7 @@ ament_target_dependencies(maintenance_preset_server
 )
 add_executable(calibration_pose_server src/calibration_pose_server.cpp)
 target_compile_features(calibration_pose_server PUBLIC cxx_std_17)
+target_link_libraries(calibration_pose_server yaml-cpp)
 ament_target_dependencies(calibration_pose_server
   control_msgs
   rclcpp

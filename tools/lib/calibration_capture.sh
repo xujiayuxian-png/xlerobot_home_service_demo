@@ -13,8 +13,9 @@ Usage:
   tools/calibrate capture right-handeye --hardware [--fresh|--resume] [--config PATH] [--web-port PORT]
 
 Starts one live calibration capture workspace at http://127.0.0.1:8080.
-The command only collects raw measurements; the normal tools/calibrate
-subcommands perform the strict public validation and save the public draft.
+The head-camera page automatically captures, strictly solves and saves its
+draft. Other workflows print a tools/calibrate command to validate the capture.
+No capture workspace activates calibration or replaces the Demo runtime.
 EOF
 }
 
@@ -119,6 +120,8 @@ follow_up=''
 launch_args=(
   "hardware_enabled:=true"
   "artifact_root:=$capture_root"
+  "state_root:=$state_root"
+  "repo_root:=$repo_root"
   "task_history_root:=$history_root"
   "unit_id:=$unit"
   "right_bus:=$(config_get robot.devices.right_arm /dev/right_arm)"
@@ -180,7 +183,16 @@ PY
     ;;
 esac
 
-note "starting LIVE $workflow calibration capture; motors may be powered or move"
+if [[ $workflow == head-camera ]]; then
+  note 'starting head-camera workspace; only the head holds torque; click Start in the web page for automatic motion'
+else
+  note "starting LIVE $workflow calibration capture; motors may be powered or move"
+fi
 note "capture UI: http://127.0.0.1:$web_port"
-note "after capture exits, validate into the public draft with: $follow_up"
+if [[ $workflow == head-camera ]]; then
+  note 'automatic capture saves a passing head-camera draft; it never activates it'
+  note "optional offline re-solve after stopping capture: $follow_up"
+else
+  note "after capture exits, validate into the public draft with: $follow_up"
+fi
 exec ros2 launch xlerobot_bringup "$launch_file" "${launch_args[@]}"

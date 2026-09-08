@@ -1,4 +1,4 @@
-"""Start the one canonical ros2_control runtime for the complete robot."""
+"""Start the canonical runtime, optionally owning only the two head servos."""
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, RegisterEventHandler
@@ -8,10 +8,20 @@ from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
+
 def _runtime_nodes(context):
     if LaunchConfiguration('hardware_enabled').perform(context) != 'true':
         raise RuntimeError(
             'platform runtime requires hardware_enabled:=true; no device was opened'
+        )
+    head_only_control = LaunchConfiguration(
+        'head_only_control', default='false').perform(context) == 'true'
+    if head_only_control and any(
+        LaunchConfiguration(name, default='false').perform(context) == 'true'
+        for name in ('startup_ready', 'startup_head_only')
+    ):
+        raise RuntimeError(
+            'head_only_control holds the measured head pose; startup motions must be false'
         )
     model = PathJoinSubstitution(
         [FindPackageShare('xlerobot_description'), 'urdf', 'two_wheel_reference.urdf.xacro']
@@ -27,8 +37,9 @@ def _runtime_nodes(context):
                     ' read_only:=false',
                     ' geometry_file:=', LaunchConfiguration('geometry_file'),
                     ' servo_calibration_file:=', LaunchConfiguration('servo_calibration_file'),
-                    ' include_right_bus_control:=true',
+                    ' include_right_bus_control:=', 'false' if head_only_control else 'true',
                     ' include_left_bus_control:=true',
+                    ' head_only_control:=', 'true' if head_only_control else 'false',
                     ' right_bus_port:=', LaunchConfiguration('right_bus'),
                     ' left_bus_port:=', LaunchConfiguration('left_bus'),
                 ]
@@ -42,6 +53,31 @@ def _runtime_nodes(context):
         package='controller_manager', executable='spawner', output='screen',
         arguments=['joint_state_broadcaster', '-c', '/controller_manager'],
     )
+    if head_only_control:
+        # Same bus owner, codecs and measured-pose admission as the full runtime.
+        # Only IDs 7/8 exist in this ros2_control description.  The arms and
+        # wheels are absent, not merely left without an active controller.
+        head_spawner = Node(
+            package='xlerobot_bringup', executable='position_ready_spawner', output='screen',
+            parameters=[description],
+            arguments=['head_controller', '-c', '/controller_manager'],
+        )
+        return [
+            Node(
+                package='robot_state_publisher', executable='robot_state_publisher',
+                parameters=[description], output='screen',
+            ),
+            Node(
+                package='controller_manager', executable='ros2_control_node',
+                parameters=[description, controllers],
+                output='screen',
+            ),
+            joint_state_spawner,
+            RegisterEventHandler(OnProcessExit(
+                target_action=joint_state_spawner,
+                on_exit=lambda event, context: [head_spawner] if event.returncode == 0 else [],
+            )),
+        ]
     base_spawner = Node(
         package='controller_manager', executable='spawner', output='screen',
         arguments=[
@@ -119,6 +155,10 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument(
                 'hardware_enabled', default_value='false', choices=['true', 'false'],
                 description='Explicit consent to open motor buses.',
+            ),
+            DeclareLaunchArgument(
+                'head_only_control', default_value='false', choices=['true', 'false'],
+                description='Own only left-bus head servos 7/8; do not open the right bus.',
             ),
             DeclareLaunchArgument(
                 'startup_ready', default_value='false', choices=['true', 'false'],

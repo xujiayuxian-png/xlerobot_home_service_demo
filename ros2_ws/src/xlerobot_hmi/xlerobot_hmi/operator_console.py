@@ -60,7 +60,9 @@ from xlerobot_interfaces.action import (
     SetMaintenancePreset,
 )
 from xlerobot_interfaces.msg import (
+    CalibrationTargetObservation,
     CapabilityError,
+    HeadCalibrationStatus,
     PerceptionObservation,
     TaskEvent,
 )
@@ -421,6 +423,9 @@ class OperatorConsoleNode(Node):
         self._observation_lock = threading.Lock()
         self._observation_frames: dict[str, bytes] = {}
         self._perception_state: dict[str, Any] | None = None
+        self._head_calibration_lock = threading.Lock()
+        self._head_calibration_state = None
+        self._head_calibration_target = None
         try:
             self.named_places = load_named_places(str(self.parameter('places_file')))
         except (OSError, ValueError, TypeError) as error:
@@ -566,6 +571,26 @@ class OperatorConsoleNode(Node):
                 )
                 self.calibration_pose_client = ActionClient(
                     self, MoveCalibrationPose, '/calibration/move_pose'
+                )
+            if str(self.parameter('calibration_workflow')) == 'head_camera':
+                self.head_calibration_client = ActionClient(
+                    self, CalibrationJob, '/calibration/head_auto'
+                )
+                self.head_calibration_cancel_client = self.create_client(
+                    CancelGoal, '/calibration/head_auto/_action/cancel_goal'
+                )
+                self.create_subscription(
+                    HeadCalibrationStatus, '/calibration/head_status',
+                    self._on_head_calibration_status, transient_state_qos_profile(),
+                )
+                self.create_subscription(
+                    CalibrationTargetObservation, '/calibration/target_observation',
+                    self._on_calibration_target, qos_profile_sensor_data,
+                )
+                self.create_subscription(
+                    Image, '/calibration/target_debug',
+                    lambda message: self._on_image('detection', message),
+                    qos_profile_sensor_data,
                 )
         if str(self.parameter('workspace')) == 'collection':
             self.collection_client = ActionClient(
@@ -845,6 +870,70 @@ class OperatorConsoleNode(Node):
     def _publish_health(self) -> None:
         """Re-evaluate freshness gates even when an upstream stream stops."""
         self.events.publish('health', self.health())
+
+    def _on_head_calibration_status(self, message) -> None:
+        state = {
+            'unit_id': message.unit_id, 'running': bool(message.running),
+            'phase': message.phase, 'message': message.message,
+            'pose_index': int(message.pose_index), 'pose_count': int(message.pose_count),
+            'sample_count': int(message.sample_count),
+            'target_sample_count': int(message.target_sample_count),
+            'pose_states': list(message.pose_states),
+            'pose_pan': list(message.pose_pan), 'pose_tilt': list(message.pose_tilt),
+            'result_uri': message.result_uri,
+            'quality_passed': bool(message.quality_passed),
+            'metrics': {
+                name: float(value) if math.isfinite(value) else None
+                for name, value in zip(message.metric_names, message.metric_values)
+            },
+            'received_monotonic': time.monotonic(),
+        }
+        with self._head_calibration_lock:
+            self._head_calibration_state = state
+
+    def _on_calibration_target(self, message) -> None:
+        source_age = (self.get_clock().now() - Time.from_msg(
+            message.header.stamp
+        )).nanoseconds / 1.0e9
+        target = {
+            'accepted': bool(message.accepted), 'tag_count': int(message.tag_count),
+            'reprojection_rmse_px': (
+                float(message.reprojection_rmse_px)
+                if math.isfinite(message.reprojection_rmse_px) else None
+            ),
+            'detail': message.detail, 'received_monotonic': time.monotonic(),
+            'source_age_s': source_age if source_age >= 0 else float('inf'),
+        }
+        with self._head_calibration_lock:
+            self._head_calibration_target = target
+
+    def head_calibration_snapshot(self) -> dict[str, Any]:
+        """Read-only status; the ROS calibration node owns all sequencing."""
+        now = time.monotonic()
+        with self._head_calibration_lock:
+            state = dict(self._head_calibration_state or {})
+            target = dict(self._head_calibration_target or {})
+        available = bool(state)
+        received = state.pop('received_monotonic', None)
+        age = now - received if received is not None else None
+        target_received = target.pop('received_monotonic', None)
+        target_age = (
+            now - target_received + target.pop('source_age_s', 0.0)
+            if target_received is not None else None
+        )
+        fresh = target_age is not None and 0 <= target_age <= 0.5
+        target.update({
+            'fresh': fresh,
+            'age_s': target_age if target_age is not None and math.isfinite(target_age) else None,
+            'accepted': fresh and target.get('accepted', False),
+        })
+        state.update({
+            'available': available, 'state_age_s': age,
+            'state_fresh': age is not None and age <= 3.0,
+            'action_ready': self.head_calibration_client.server_is_ready(),
+            'target': target,
+        })
+        return state
 
     def _on_image(self, camera_id: str, message: Image) -> None:
         now = time.monotonic()
@@ -1901,6 +1990,7 @@ class ConsoleApplication:
 
     def __init__(self, node: OperatorConsoleNode):
         self.node = node
+        self._head_auto_inflight = False
         self._teleop_socket: web.WebSocketResponse | None = None
         self._teleop_token = None
         self._manual_reservation_lock = asyncio.Lock()
@@ -1940,6 +2030,9 @@ class ConsoleApplication:
             ),
             web.post('/api/v1/sites/{site_id}/activate', self.activate_site),
             web.get('/api/v1/teleop/base', self.base_teleop),
+            web.get('/api/v1/calibrations/head/status', self.head_calibration_status),
+            web.post('/api/v1/calibrations/head/start', self.start_head_calibration),
+            web.post('/api/v1/calibrations/head/pause', self.pause_head_calibration),
             web.post('/api/v1/calibrations/jobs', self.calibration_job),
             web.post('/api/v1/calibrations/imports', self.import_calibration),
             web.post(
@@ -2905,6 +2998,89 @@ class ConsoleApplication:
         )
         return web.json_response(evidence)
 
+    def _require_head_calibration(self, request):
+        self._require_engineering_workspace(request)
+        self._require_workspace('calibration')
+        if str(self.node.parameter('calibration_workflow')) != 'head_camera':
+            raise web.HTTPNotFound(text='head camera calibration is not active')
+
+    async def head_calibration_status(self, request):
+        self._require_head_calibration(request)
+        state = self.node.head_calibration_snapshot()
+        state['request_inflight'] = self._head_auto_inflight
+        return web.json_response(state)
+
+    def _track_head_calibration_goal(self, future):
+        # Track through acceptance and completion even if the browser disappears
+        # or the HTTP acceptance wait times out. Never start a second sequence.
+        try:
+            handle = future.result()
+            if handle is None or not handle.accepted:
+                self._head_auto_inflight = False
+                return
+            handle.get_result_async().add_done_callback(
+                lambda _result: setattr(self, '_head_auto_inflight', False)
+            )
+        except Exception:
+            # A transport failure after acceptance is not proof of no motion.
+            # Keep the guard; the pause endpoint can still cancel the ROS action.
+            pass
+
+    def _head_manual_available(self):
+        if str(self.node.parameter('calibration_workflow')) != 'head_camera':
+            return
+        state = self.node.head_calibration_snapshot()
+        if not state.get('state_fresh'):
+            raise web.HTTPServiceUnavailable(text='head calibration status is not fresh')
+        if self._head_auto_inflight or state.get('running'):
+            raise web.HTTPConflict(text='pause automatic head calibration before manual operation')
+
+    async def start_head_calibration(self, request):
+        self._require_head_calibration(request)
+        payload = await request.json()
+        if payload.get('hardware_confirmed') is not True:
+            raise web.HTTPBadRequest(text='explicit head movement confirmation is required')
+        unit_id = str(payload.get('unit_id', '')).strip()
+        if unit_id != str(self.node.parameter('unit_id')):
+            raise web.HTTPBadRequest(text='unit_id does not match this calibration session')
+        state = self.node.head_calibration_snapshot()
+        if not state.get('state_fresh') or not state.get('action_ready'):
+            raise web.HTTPServiceUnavailable(text='head calibration service is not ready; wait for live status')
+        if state.get('unit_id') != unit_id:
+            raise web.HTTPConflict(text='head calibration status belongs to another unit')
+        if self._head_auto_inflight or state.get('running') or self.node.manual_control.action_active():
+            raise web.HTTPConflict(text='another calibration operation is active')
+        goal = CalibrationJob.Goal(
+            unit_id=unit_id, workflow_id='head_camera', automatic=True, dry_run=False,
+        )
+        self._head_auto_inflight = True
+        try:
+            future = self.node.head_calibration_client.send_goal_async(goal)
+        except Exception:
+            self._head_auto_inflight = False
+            raise
+        future.add_done_callback(self._track_head_calibration_goal)
+        await _await_rclpy_future(future, 5.0)
+        handle = future.result()
+        if handle is None or not handle.accepted:
+            raise web.HTTPConflict(text='automatic head calibration was rejected')
+        self.node.history.audit('operator', 'calibration.head.start', 'accepted', {
+            'unit_id': unit_id, 'hardware_confirmed': True,
+        })
+        return web.json_response({'accepted': True, 'message': '自动流程已启动，进度由机器人保存。'}, status=202)
+
+    async def pause_head_calibration(self, request):
+        self._require_head_calibration(request)
+        response = await self._call_service(
+            self.node.head_calibration_cancel_client, CancelGoal.Request(), 5.0,
+        )
+        if response.return_code not in (CancelGoal.Response.ERROR_NONE, CancelGoal.Response.ERROR_UNKNOWN_GOAL_ID):
+            raise web.HTTPConflict(text='head calibration pause was rejected')
+        # Cancellation acknowledgement is not a terminal motion result. The
+        # action status remains authoritative until PAUSED is observed.
+        self.node.history.audit('operator', 'calibration.head.pause', 'requested', {})
+        return web.json_response({'message': '已请求暂停；等待头部停止，已采样数据会保留。'}, status=202)
+
     async def calibration_job(self, request):
         self._require_engineering_workspace(request)
         self._require_workspace('calibration')
@@ -3041,6 +3217,8 @@ class ConsoleApplication:
         workflow = str(self.node.parameter('calibration_workflow'))
         if workflow not in {'head_camera', 'right_handeye'}:
             raise web.HTTPNotFound(text='visual calibration tool is not active')
+        if workflow == 'head_camera':
+            raise web.HTTPConflict(text='head samples are managed by automatic calibration; use start or resume')
         payload = await request.json()
         unit_id = str(payload.get('unit_id', '')).strip()
         if not unit_id:
@@ -3233,18 +3411,23 @@ class ConsoleApplication:
         workflow = str(self.node.parameter('calibration_workflow'))
         if workflow not in {'head_camera', 'right_handeye'}:
             raise web.HTTPNotFound(text='visual calibration tool is not active')
+        self._head_manual_available()
         payload = await request.json()
         try:
             pose_index = int(payload.get('pose_index'))
         except (TypeError, ValueError) as error:
             raise web.HTTPBadRequest(text='pose_index must be an integer') from error
-        pose_count = 13 if workflow == 'head_camera' else 20
+        pose_count = (
+            int(self.node.head_calibration_snapshot().get('pose_count', 0))
+            if workflow == 'head_camera' else 20
+        )
         if pose_index < 0 or pose_index >= pose_count:
             raise web.HTTPBadRequest(text='pose_index is outside the verified set')
         goal = MoveCalibrationPose.Goal()
         goal.workflow_id = workflow
         goal.pose_index = pose_index
         goal.dry_run = False
+        self._head_manual_available()
         result = await self._run_calibration_action(
             self.node.calibration_pose_client,
             goal,

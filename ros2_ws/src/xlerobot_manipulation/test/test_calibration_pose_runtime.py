@@ -2,6 +2,7 @@ import os
 import threading
 import time
 import unittest
+from pathlib import Path
 
 from action_msgs.msg import GoalStatus
 from control_msgs.action import FollowJointTrajectory
@@ -24,7 +25,10 @@ def generate_test_description():
     server = Node(
         package='xlerobot_manipulation',
         executable='calibration_pose_server',
-        parameters=[{'execution_enabled': True}],
+        parameters=[{'execution_enabled': True, 'head_pose_file': str(
+            Path(__file__).resolve().parents[2] / 'xlerobot_calibration_tools'
+            / 'config/head_camera_poses.yaml'
+        )}],
         output='screen',
     )
     return LaunchDescription([server, launch_testing.actions.ReadyToTest()])

@@ -135,6 +135,7 @@ class TransformSampleCollector(Node):
                     transform_to_matrix(visual.transform),
                     visual_stamp.nanoseconds / 1.0e9,
                     {
+                        'capture_job_id': request.job_id,
                         'tag_count': int(observation.tag_count),
                         'reprojection_rmse_px': float(
                             observation.reprojection_rmse_px

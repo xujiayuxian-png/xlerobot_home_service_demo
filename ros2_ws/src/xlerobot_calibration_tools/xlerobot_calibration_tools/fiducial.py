@@ -69,6 +69,8 @@ class FixedTargetDetector:
         self.parameters.cornerRefinementWinSize = 5
         self.parameters.cornerRefinementMaxIterations = 30
         self._board = self._head_board_points(self.target) if workflow == HEAD_WORKFLOW else {}
+        self.diagnostic = {'tag_count': 0, 'reprojection_rmse_px': 0.0,
+                           'detail': 'waiting for an image'}
 
     @staticmethod
     def _head_board_points(profile: dict | None = None) -> dict[int, np.ndarray]:
@@ -108,13 +110,36 @@ class FixedTargetDetector:
         )
         return self.estimate(corners, ids, camera_matrix, distortion)
 
+    def detect_with_debug(self, image_bgr, camera_matrix, distortion):
+        """Detect once and annotate the same image, including rejected targets."""
+        gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+        corners, ids, _ = aruco.detectMarkers(gray, self.dictionary, parameters=self.parameters)
+        estimate = self.estimate(corners, ids, camera_matrix, distortion)
+        debug = image_bgr.copy()
+        if ids is not None and len(ids):
+            aruco.drawDetectedMarkers(debug, corners, ids)
+        color = (80, 210, 80) if estimate is not None else (40, 170, 255)
+        cv2.rectangle(debug, (0, 0), (debug.shape[1], 42), (25, 25, 25), -1)
+        cv2.putText(debug, self.diagnostic['detail'], (12, 28),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, color, 2, cv2.LINE_AA)
+        return estimate, debug
+
     def estimate(self, corners, ids, camera_matrix, distortion):
         """Estimate from already detected corners; separated for replay tests."""
+        required = set(self._board) if self.workflow == HEAD_WORKFLOW else {int(self.target['marker_id'])}
+        seen = set(int(value) for value in ids.flatten()) if ids is not None else set()
+        count = len(seen & required)
+        self.diagnostic = {'tag_count': count, 'reprojection_rmse_px': 0.0,
+                           'detail': f'tags {count}/{len(required)}: keep the full target visible'}
         if ids is None or not len(ids):
             return None
         if self.workflow == HEAD_WORKFLOW:
-            return self._estimate_head(corners, ids, camera_matrix, distortion)
-        return self._estimate_arm(corners, ids, camera_matrix, distortion)
+            result = self._estimate_head(corners, ids, camera_matrix, distortion)
+        else:
+            result = self._estimate_arm(corners, ids, camera_matrix, distortion)
+        if result is not None:
+            self.diagnostic['detail'] = f'tags {count}/{len(required)} accepted | reprojection {result.reprojection_rmse_px:.2f} px'
+        return result
 
     def _estimate_head(self, corners, ids, camera_matrix, distortion):
         detected = {int(value): index for index, value in enumerate(ids.flatten())}
@@ -131,6 +156,7 @@ class FixedTargetDetector:
             flags=cv2.SOLVEPNP_ITERATIVE,
         )
         if not ok:
+            self.diagnostic['detail'] = 'full board detected, but pose estimation failed'
             return None
         if hasattr(cv2, 'solvePnPRefineLM'):
             rvec, tvec = cv2.solvePnPRefineLM(
@@ -140,7 +166,8 @@ class FixedTargetDetector:
         error = _rmse(
             object_points, image_points, rvec, tvec, camera_matrix, distortion
         )
-        if error >= self.maximum_reprojection_rmse_px:
+        self._record_reprojection(error)
+        if not np.isfinite(error) or error >= self.maximum_reprojection_rmse_px:
             return None
         return TargetEstimate(
             _matrix(rvec, tvec), len(marker_ids), error, tuple(marker_ids)
@@ -168,8 +195,19 @@ class FixedTargetDetector:
         error = _rmse(
             object_points, marker[0], rvec, tvec, camera_matrix, distortion
         )
-        if error >= self.maximum_reprojection_rmse_px:
+        self._record_reprojection(error)
+        if not np.isfinite(error) or error >= self.maximum_reprojection_rmse_px:
             return None
         return TargetEstimate(
             _matrix(rvec, tvec), 1, error, (int(self.target['marker_id']),)
         )
+
+    def _record_reprojection(self, error):
+        if not np.isfinite(error):
+            self.diagnostic['detail'] = 'target pose has a non-finite reprojection error'
+            return
+        self.diagnostic['reprojection_rmse_px'] = float(error)
+        if error >= self.maximum_reprojection_rmse_px:
+            self.diagnostic['detail'] = (
+                f'tags {self.diagnostic["tag_count"]}: reprojection {error:.2f} px '
+                f'>= {self.maximum_reprojection_rmse_px:g}; check print size, blur and board flatness')

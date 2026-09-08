@@ -44,6 +44,7 @@ public:
 protected:
   BusSystemBase(std::string bus_name, std::vector<std::string> expected_joints);
   ~BusSystemBase() override;
+  virtual std::unique_ptr<xlerobot_feetech::FeetechBus> make_bus();
 
 private:
   struct JointConfig
@@ -78,6 +79,7 @@ private:
   bool runtime_torque_control_{false};
   double torque_command_{0.0};
   bool read_only_{false};
+  bool head_only_control_{false};
   bool wheel_feedback_available_{false};
   std::string port_;
   int baudrate_{1000000};

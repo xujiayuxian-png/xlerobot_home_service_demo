@@ -1,5 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <memory>
+
 #include <hardware_interface/hardware_info.hpp>
 #include <hardware_interface/types/hardware_component_interface_params.hpp>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
@@ -122,6 +125,82 @@ hardware_interface::HardwareInfo leader_info()
   return result;
 }
 
+hardware_interface::HardwareInfo head_info()
+{
+  auto result = left_info();
+  result.hardware_parameters["head_only_control"] = "true";
+  result.joints.resize(2);
+  return result;
+}
+
+struct BusTrace
+{
+  std::vector<uint8_t> addressed_ids;
+  std::vector<std::string> events;
+  std::vector<std::vector<xlerobot_feetech::PositionCommand>> position_writes;
+  std::string port;
+  int velocity_calls = 0;
+};
+
+// Exercises the real hardware branch without opening any serial device.
+class RecordingBus final : public xlerobot_feetech::FeetechBus
+{
+public:
+  explicit RecordingBus(std::shared_ptr<BusTrace> trace) : trace_(std::move(trace)) {}
+  bool connect(const std::string & port, int) override
+  {trace_->port = port; connected_ = true; return true;}
+  void disconnect() override {connected_ = false;}
+  bool isConnected() const override {return connected_;}
+  bool ping(uint8_t id) override {return record(id, "ping");}
+  bool initVelocityMotor(uint8_t id, bool) override
+  {++trace_->velocity_calls; return record(id, "wheel_init");}
+  bool initPositionMotor(uint8_t id, bool enabled) override
+  {EXPECT_FALSE(enabled); return record(id, "position_init");}
+  bool enableTorque(uint8_t id, bool enabled) override
+  {return record(id, enabled ? "torque_on" : "torque_off");}
+  bool syncWriteVelocity(uint8_t left, int16_t, uint8_t right, int16_t, uint8_t) override
+  {++trace_->velocity_calls; record(left, "wheel_write"); return record(right, "wheel_write");}
+  std::optional<xlerobot_feetech::WheelVelocitySteps> syncReadVelocity(
+    uint8_t left, uint8_t right) override
+  {
+    ++trace_->velocity_calls;
+    record(left, "wheel_read"); record(right, "wheel_read");
+    return xlerobot_feetech::WheelVelocitySteps{};
+  }
+  bool syncWritePosition(const std::vector<xlerobot_feetech::PositionCommand> & commands) override
+  {
+    trace_->position_writes.push_back(commands);
+    for (const auto & command : commands) {record(command.id, "position_write");}
+    return true;
+  }
+  bool syncReadPositions(const std::vector<uint8_t> & ids, std::vector<int> & positions) override
+  {
+    positions.clear();
+    for (const auto id : ids) {positions.push_back(*readPosition(id));}
+    return true;
+  }
+  std::optional<int> readPosition(uint8_t id) override
+  {record(id, "position_read"); return id == 7 ? 2250 : 2500;}
+
+private:
+  bool record(uint8_t id, const std::string & event)
+  {trace_->addressed_ids.push_back(id); trace_->events.push_back(event); return true;}
+  std::shared_ptr<BusTrace> trace_;
+  bool connected_ = false;
+};
+
+class HeadBusUnderTest final : public BusSystemBase
+{
+public:
+  explicit HeadBusUnderTest(std::shared_ptr<BusTrace> trace)
+  : BusSystemBase("left", {}), trace_(std::move(trace)) {}
+protected:
+  std::unique_ptr<xlerobot_feetech::FeetechBus> make_bus() override
+  {return std::make_unique<RecordingBus>(trace_);}
+private:
+  std::shared_ptr<BusTrace> trace_;
+};
+
 hardware_interface::CallbackReturn initialize(
   BusSystemBase & system, const hardware_interface::HardwareInfo & hardware_info)
 {
@@ -195,6 +274,114 @@ TEST(LeftBusSystemTest, MockOwnsHeadAndLeftArmTogether)
         hardware_interface::CallbackReturn::SUCCESS);
   EXPECT_EQ(system.export_command_interfaces().size(), 8u);
   EXPECT_EQ(system.export_state_interfaces().size(), 16u);
+}
+
+TEST(HeadOnlyBusTest, IsOptInAndRejectsEveryOtherBusOrJointLayout)
+{
+  {
+    LeftBusSystem system;
+    auto config = head_info();
+    config.hardware_parameters.erase("head_only_control");
+    EXPECT_EQ(initialize(system, config), hardware_interface::CallbackReturn::ERROR);
+  }
+  {
+    LeftBusSystem system;
+    auto config = left_info();
+    config.hardware_parameters["head_only_control"] = "true";
+    EXPECT_EQ(initialize(system, config), hardware_interface::CallbackReturn::ERROR);
+  }
+  for (const int id : {1, 6, 8, 9, 10, 253}) {
+    LeftBusSystem system;
+    auto config = head_info();
+    config.joints[0].parameters["servo_id"] = std::to_string(id);
+    EXPECT_EQ(initialize(system, config), hardware_interface::CallbackReturn::ERROR);
+  }
+  {
+    LeftBusSystem system;
+    auto config = head_info();
+    config.joints[1].name = "left_arm_gripper";
+    EXPECT_EQ(initialize(system, config), hardware_interface::CallbackReturn::ERROR);
+  }
+  {
+    LeftBusSystem system;
+    auto config = head_info();
+    config.joints[1].parameters["servo_id"] = "1";
+    EXPECT_EQ(initialize(system, config), hardware_interface::CallbackReturn::ERROR);
+  }
+  {
+    LeftBusSystem system;
+    auto config = head_info();
+    config.joints.pop_back();
+    EXPECT_EQ(initialize(system, config), hardware_interface::CallbackReturn::ERROR);
+  }
+  {
+    RightBusSystem system;
+    auto config = info(true, false);
+    config.hardware_parameters["head_only_control"] = "true";
+    EXPECT_EQ(initialize(system, config), hardware_interface::CallbackReturn::ERROR);
+  }
+  {
+    LeaderBusSystem system;
+    auto config = leader_info();
+    config.hardware_parameters["head_only_control"] = "true";
+    EXPECT_EQ(initialize(system, config), hardware_interface::CallbackReturn::ERROR);
+  }
+}
+
+TEST(HeadOnlyBusTest, ExistingLeftBusPluginAcceptsTheExactHeadSelection)
+{
+  LeftBusSystem system;
+  ASSERT_EQ(initialize(system, head_info()), hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(system.on_configure(rclcpp_lifecycle::State()),
+    hardware_interface::CallbackReturn::SUCCESS);
+  ASSERT_EQ(system.on_activate(rclcpp_lifecycle::State()),
+    hardware_interface::CallbackReturn::SUCCESS);
+  EXPECT_EQ(system.export_command_interfaces().size(), 2u);
+  EXPECT_EQ(system.export_state_interfaces().size(), 4u);
+}
+
+TEST(HeadOnlyBusTest, CompleteHardwareLifecycleOnlyAddressesIdsSevenAndEight)
+{
+  const auto trace = std::make_shared<BusTrace>();
+  {
+    HeadBusUnderTest system(trace);
+    auto config = head_info();
+    config.hardware_parameters["mock_hardware"] = "false";
+    config.hardware_parameters["hardware_enabled"] = "true";
+    config.hardware_parameters["torque_enabled"] = "true";
+    config.hardware_parameters["port"] = "/dev/test-left-only";
+    ASSERT_EQ(initialize(system, config), hardware_interface::CallbackReturn::SUCCESS);
+    ASSERT_EQ(system.on_configure(rclcpp_lifecycle::State()),
+      hardware_interface::CallbackReturn::SUCCESS);
+    ASSERT_TRUE(trace->position_writes.empty());
+    ASSERT_EQ(system.on_activate(rclcpp_lifecycle::State()),
+      hardware_interface::CallbackReturn::SUCCESS);
+    const auto commands = system.export_command_interfaces();
+    ASSERT_EQ(commands.size(), 2u);
+    EXPECT_EQ(commands[0].get_name(), "head_pan_joint/position");
+    EXPECT_EQ(commands[1].get_name(), "head_tilt_joint/position");
+    ASSERT_FALSE(trace->position_writes.empty());
+    const auto & initial_hold = trace->position_writes.front();
+    ASSERT_EQ(initial_hold.size(), 2u);
+    EXPECT_EQ(initial_hold[0].position, 2250);
+    EXPECT_EQ(initial_hold[1].position, 2500);
+    const auto first_hold = std::find(trace->events.begin(), trace->events.end(), "position_write");
+    const auto first_enable = std::find(trace->events.begin(), trace->events.end(), "torque_on");
+    ASSERT_NE(first_enable, trace->events.end());
+    EXPECT_LT(first_hold, first_enable);
+    EXPECT_EQ(system.read(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.02)),
+      hardware_interface::return_type::OK);
+    EXPECT_EQ(system.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.02)),
+      hardware_interface::return_type::OK);
+    EXPECT_EQ(system.on_deactivate(rclcpp_lifecycle::State()),
+      hardware_interface::CallbackReturn::SUCCESS);
+    EXPECT_EQ(system.on_cleanup(rclcpp_lifecycle::State()),
+      hardware_interface::CallbackReturn::SUCCESS);
+  }
+  EXPECT_EQ(trace->port, "/dev/test-left-only");
+  EXPECT_EQ(trace->velocity_calls, 0);
+  ASSERT_FALSE(trace->addressed_ids.empty());
+  for (const auto id : trace->addressed_ids) {EXPECT_TRUE(id == 7 || id == 8);}
 }
 
 TEST(RightBusSystemTest, ReactivationNeverTurnsWheelOdometryIntoVelocity)

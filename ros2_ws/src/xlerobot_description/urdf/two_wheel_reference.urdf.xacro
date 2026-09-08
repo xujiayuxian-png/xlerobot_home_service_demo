@@ -6,6 +6,7 @@
   <xacro:arg name="read_only" default="false"/>
   <xacro:arg name="include_right_bus_control" default="true"/>
   <xacro:arg name="include_left_bus_control" default="true"/>
+  <xacro:arg name="head_only_control" default="false"/>
   <xacro:arg name="right_bus_port" default="/dev/right_arm"/>
   <xacro:arg name="left_bus_port" default="/dev/left_arm"/>
   <xacro:arg name="bus_baudrate" default="1000000"/>
@@ -126,6 +127,7 @@
     read_only="$(arg read_only)"
     include_right_bus="$(arg include_right_bus_control)"
     include_left_bus="$(arg include_left_bus_control)"
+    head_only_control="$(arg head_only_control)"
     right_port="$(arg right_bus_port)"
     left_port="$(arg left_bus_port)"
     baudrate="$(arg bus_baudrate)"

@@ -1,6 +1,7 @@
 import os
 import time
 import unittest
+from pathlib import Path
 
 from action_msgs.msg import GoalStatus
 from launch import LaunchDescription
@@ -18,7 +19,10 @@ def generate_test_description():
     server = Node(
         package='xlerobot_manipulation',
         executable='calibration_pose_server',
-        parameters=[{'execution_enabled': False}],
+        parameters=[{'execution_enabled': False, 'head_pose_file': str(
+            Path(__file__).resolve().parents[2] / 'xlerobot_calibration_tools'
+            / 'config/head_camera_poses.yaml'
+        )}],
         output='screen',
     )
     return LaunchDescription([server, launch_testing.actions.ReadyToTest()])
@@ -44,10 +48,10 @@ class CalibrationPoseSafetyTest(unittest.TestCase):
         rclpy.shutdown()
 
     def test_dry_run_succeeds_and_live_motion_is_gated(self):
-        dry = self._execute('head_camera', 12, dry_run=True)
+        dry = self._execute('head_camera', 24, dry_run=True)
         self.assertEqual(dry.status, GoalStatus.STATUS_SUCCEEDED)
         self.assertEqual(dry.result.error.code, CapabilityError.NONE)
-        self.assertEqual(dry.result.pose_count, 13)
+        self.assertEqual(dry.result.pose_count, 25)
 
         live = self._execute('right_handeye', 19, dry_run=False)
         self.assertEqual(live.status, GoalStatus.STATUS_ABORTED)
@@ -56,7 +60,7 @@ class CalibrationPoseSafetyTest(unittest.TestCase):
 
     def test_unknown_workflow_and_out_of_range_pose_are_rejected(self):
         self.assertFalse(self._send('arbitrary', 0, dry_run=True).accepted)
-        self.assertFalse(self._send('head_camera', 13, dry_run=True).accepted)
+        self.assertFalse(self._send('head_camera', 25, dry_run=True).accepted)
         self.assertFalse(self._send('right_handeye', 20, dry_run=True).accepted)
 
     def _send(self, workflow, pose_index, *, dry_run):

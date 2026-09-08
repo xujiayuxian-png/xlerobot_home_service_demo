@@ -107,6 +107,31 @@ def test_observation_profile_can_exclude_the_unneeded_left_bus_owner():
     ] == ["right_bus_system"]
 
 
+def test_head_only_control_has_only_head_ids_on_the_existing_left_owner():
+    # Defaults still include the right bus: head-only itself must remove it.
+    root = ET.fromstring(render(head_only_control="true"))
+    systems = root.findall("ros2_control")
+    assert [system.attrib['name'] for system in systems] == ['left_bus_system']
+    owner = systems[0]
+    assert owner.find('hardware/plugin').text == 'xlerobot_hardware/LeftBusSystem'
+    assert owner.find('hardware/param[@name="head_only_control"]').text == 'true'
+    assert [(joint.attrib['name'], int(joint.find('param[@name="servo_id"]').text))
+            for joint in owner.findall('joint')] == [
+        ('head_pan_joint', 7), ('head_tilt_joint', 8),
+    ]
+    # Non-controlled geometry stays intact for FK; it is not a motor owner.
+    assert root.find('joint[@name="right_arm_shoulder_pan"]') is not None
+    assert root.find('joint[@name="left_wheel_joint"]') is not None
+
+
+def test_explicit_full_runtime_still_matches_the_default_model():
+    implicit = ET.fromstring(render())
+    explicit = ET.fromstring(render(head_only_control='false'))
+    assert [ET.tostring(item) for item in implicit.findall('ros2_control')] == [
+        ET.tostring(item) for item in explicit.findall('ros2_control')
+    ]
+
+
 def test_bus_owners_match_verified_wiring():
     root = ET.fromstring(render())
     control_systems = root.findall("ros2_control")

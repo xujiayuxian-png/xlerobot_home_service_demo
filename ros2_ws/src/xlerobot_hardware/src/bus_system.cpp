@@ -145,6 +145,7 @@ hardware_interface::CallbackReturn BusSystemBase::on_init(
   torque_command_ = torque_enabled_ ? 1.0 : 0.0;
   applied_torque_enabled_ = false;
   read_only_ = parse_bool(info, "read_only", false, parameters_valid);
+  head_only_control_ = parse_bool(info, "head_only_control", false, parameters_valid);
   const auto port = info.hardware_parameters.find("port");
   if (port != info.hardware_parameters.end() && !port->second.empty()) {
     port_ = port->second;
@@ -168,6 +169,7 @@ hardware_interface::CallbackReturn BusSystemBase::on_init(
     parse_int(info, "max_raw_velocity", 3000, parameters_valid));
 
   if (!parameters_valid || baudrate_ <= 0 || (read_only_ && torque_enabled_) ||
+    (head_only_control_ && bus_name_ != "left") ||
     !parse_and_validate_joints())
   {
     RCLCPP_ERROR(
@@ -469,16 +471,20 @@ hardware_interface::return_type BusSystemBase::write(
 
 bool BusSystemBase::parse_and_validate_joints()
 {
-  if (info_.joints.size() != expected_joints_.size()) {
+  // A narrow selection of the same left-bus owner, not a second hardware path.
+  // No arbitrary subsets or remapped IDs may turn head-only into arm/wheel access.
+  const std::vector<std::string> head_joints{"head_pan_joint", "head_tilt_joint"};
+  const auto & expected = head_only_control_ ? head_joints : expected_joints_;
+  if (info_.joints.size() != expected.size()) {
     RCLCPP_ERROR(rclcpp::get_logger("xlerobot_hardware"), "%s bus expected %zu joints, got %zu",
-      bus_name_.c_str(), expected_joints_.size(), info_.joints.size());
+      bus_name_.c_str(), expected.size(), info_.joints.size());
     return false;
   }
   std::set<uint8_t> ids;
   joints_.clear();
   for (std::size_t i = 0; i < info_.joints.size(); ++i) {
     const auto & joint = info_.joints[i];
-    if (joint.name != expected_joints_[i] || joint.command_interfaces.size() != 1 ||
+    if (joint.name != expected[i] || joint.command_interfaces.size() != 1 ||
       !has_joint_state(joint, hardware_interface::HW_IF_POSITION) ||
       !has_joint_state(joint, hardware_interface::HW_IF_VELOCITY))
     {
@@ -491,6 +497,7 @@ bool BusSystemBase::parse_and_validate_joints()
       hardware_interface::HW_IF_POSITION;
     const auto id_value = joint_int(joint, "servo_id", 0);
     if (joint.command_interfaces[0].name != expected_interface || id_value < 1 || id_value > 253 ||
+      (head_only_control_ && id_value != static_cast<int>(7 + i)) ||
       !ids.insert(static_cast<uint8_t>(id_value)).second)
     {
       RCLCPP_ERROR(rclcpp::get_logger("xlerobot_hardware"), "Invalid interface or servo id for %s",
@@ -530,9 +537,14 @@ bool BusSystemBase::parse_and_validate_joints()
   return true;
 }
 
+std::unique_ptr<xlerobot_feetech::FeetechBus> BusSystemBase::make_bus()
+{
+  return std::make_unique<xlerobot_feetech::ScServoFeetechBus>();
+}
+
 bool BusSystemBase::connect_and_probe()
 {
-  bus_ = std::make_unique<xlerobot_feetech::ScServoFeetechBus>();
+  bus_ = make_bus();
   if (!bus_->connect(port_, baudrate_)) {
     RCLCPP_ERROR(
       rclcpp::get_logger("xlerobot_hardware"), "%s bus could not open %s",

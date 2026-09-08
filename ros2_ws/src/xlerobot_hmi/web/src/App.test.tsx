@@ -216,12 +216,12 @@ describe('operator console API', () => {
     expect(rendered.getByText(/不据此增加或推断质量通过阈值/)).toBeTruthy()
   })
 
-  it('shows only capture controls in a public calibration session', async () => {
+  it('keeps hand-eye capture controls isolated from bundle activation', async () => {
     const responses: Record<string, unknown> = {
       '/api/v1/bootstrap': {
         release: 'test', unit: 'robot-1', site: '', workspace: 'calibration',
         default_dataset_id: 'xlerobot-glue-stick-grasp-30',
-        mapping_phase: '', calibration_workflow: 'head_camera',
+        mapping_phase: '', calibration_workflow: 'right_handeye',
         calibration_capture_only: true,
         engineering_tools_enabled: true, available_workspaces: ['calibration'],
         named_places: [], active_task: null, mapping: null, perception: null,
@@ -233,6 +233,10 @@ describe('operator console API', () => {
         diagnostics: {}, requirements: {},
       },
       '/api/v1/tasks': { tasks: [] },
+      '/api/v1/calibrations/samples': {
+        sample_count: 0, points: [], spans_m: { x: 0, y: 0, z: 0 },
+        max_pairwise_pose_angle_deg: 0,
+      },
     }
     globalThis.fetch = (async (input: RequestInfo | URL) =>
       new Response(JSON.stringify(responses[String(input)]), {

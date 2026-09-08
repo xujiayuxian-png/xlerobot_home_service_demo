@@ -12,6 +12,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/CapabilityError.msg"
   "msg/CapabilityProgress.msg"
   "msg/CalibrationTargetObservation.msg"
+  "msg/HeadCalibrationStatus.msg"
   "msg/PolicyJointChunk.msg"
   "msg/PolicyStartContext.msg"
   "msg/PerceptionObservation.msg"

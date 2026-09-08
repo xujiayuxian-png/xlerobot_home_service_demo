@@ -17,6 +17,32 @@ export type CalibrationCoverage = {
   max_pairwise_pose_angle_deg: number
 }
 
+export interface HeadCalibrationState {
+  available: boolean
+  state_fresh: boolean
+  state_age_s: number | null
+  action_ready: boolean
+  request_inflight: boolean
+  unit_id: string
+  running: boolean
+  phase: 'IDLE' | 'MOVING' | 'WAITING' | 'CAPTURING' | 'SOLVING' | 'PAUSED' | 'COMPLETED' | 'ERROR'
+  message: string
+  pose_index: number
+  pose_count: number
+  sample_count: number
+  target_sample_count: number
+  pose_states: Array<'pending' | 'moving' | 'waiting' | 'captured' | 'skipped'>
+  pose_pan: number[]
+  pose_tilt: number[]
+  result_uri: string
+  quality_passed: boolean
+  metrics: Record<string, number | null>
+  target: {
+    accepted: boolean, fresh: boolean, age_s: number | null,
+    tag_count?: number, reprojection_rmse_px?: number | null, detail?: string,
+  }
+}
+
 export type ServoCalibrationGroup = 'right_arm' | 'left_arm' | 'head'
 export type ServoCalibrationCommand =
   | 'scan' | 'release_torque' | 'capture_zero' | 'use_existing_zero'
@@ -176,6 +202,14 @@ export const api = {
     }),
   calibrationSampleCoverage: () =>
     request<CalibrationCoverage>('/api/v1/calibrations/samples'),
+  headCalibrationStatus: () =>
+    request<HeadCalibrationState>('/api/v1/calibrations/head/status'),
+  startHeadCalibration: (unitId: string) =>
+    request<{ accepted: boolean, message: string }>('/api/v1/calibrations/head/start', {
+      method: 'POST', body: JSON.stringify({ unit_id: unitId, hardware_confirmed: true }),
+    }),
+  pauseHeadCalibration: () =>
+    request<{ message: string }>('/api/v1/calibrations/head/pause', { method: 'POST', body: '{}' }),
   solveCalibrationSamples: (unitId: string) =>
     request<{
       draft_uri: string, quality_passed: boolean, sample_count: number,

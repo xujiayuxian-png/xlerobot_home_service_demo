@@ -35,13 +35,13 @@
   </xacro:macro>
 
   <xacro:macro name="robot_bus_ros2_control"
-    params="mock_hardware hardware_enabled torque_enabled read_only include_right_bus include_left_bus right_port left_port baudrate calibration">
+    params="mock_hardware hardware_enabled torque_enabled read_only include_right_bus include_left_bus right_port left_port baudrate calibration head_only_control:=false">
     <xacro:property name="right" value="${calibration['right_arm']['joints']}"/>
     <xacro:property name="left" value="${calibration['left_arm']['joints']}"/>
     <xacro:property name="head" value="${calibration['head']['joints']}"/>
 
     <!-- One physical serial device has exactly one ros2_control owner. -->
-    <xacro:if value="${include_right_bus}">
+    <xacro:if value="${include_right_bus and not head_only_control}">
     <ros2_control name="right_bus_system" type="system">
       <hardware>
         <xacro:bus_hardware_parameters plugin="RightBusSystem" mock_hardware="${mock_hardware}"
@@ -83,15 +83,18 @@
           hardware_enabled="${hardware_enabled}" torque_enabled="${torque_enabled}"
           read_only="${read_only}"
           port="${left_port}" baudrate="${baudrate}"/>
+        <param name="head_only_control">${'true' if head_only_control else 'false'}</param>
       </hardware>
       <xacro:calibrated_position_joint name="head_pan_joint" calibration="${head['pan']}"/>
       <xacro:calibrated_position_joint name="head_tilt_joint" calibration="${head['tilt']}"/>
+      <xacro:unless value="${head_only_control}">
       <xacro:calibrated_position_joint name="left_arm_shoulder_pan" calibration="${left['shoulder_pan']}"/>
       <xacro:calibrated_position_joint name="left_arm_shoulder_lift" calibration="${left['shoulder_lift']}"/>
       <xacro:calibrated_position_joint name="left_arm_elbow_flex" calibration="${left['elbow_flex']}"/>
       <xacro:calibrated_position_joint name="left_arm_wrist_flex" calibration="${left['wrist_flex']}"/>
       <xacro:calibrated_position_joint name="left_arm_wrist_roll" calibration="${left['wrist_roll']}"/>
       <xacro:calibrated_position_joint name="left_arm_gripper" calibration="${left['gripper']}" initial_value="0.05"/>
+      </xacro:unless>
     </ros2_control>
     </xacro:if>
   </xacro:macro>

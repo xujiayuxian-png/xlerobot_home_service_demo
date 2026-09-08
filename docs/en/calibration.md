@@ -36,7 +36,7 @@ same public command and always requires explicit hardware consent:
 # Use the web page, finalize, stop it with Ctrl-C, then run the printed command.
 
 ./tools/calibrate capture head-camera --hardware
-# Capture the board at the prescribed poses, stop, then run the printed command.
+# Preview the board, then automatically capture, solve and save a head_camera draft.
 
 ./tools/calibrate capture right-handeye --hardware
 # Capture Tag 23 at the prescribed poses, stop, then run the printed command.
@@ -44,9 +44,11 @@ same public command and always requires explicit hardware consent:
 
 Each capture starts only one workflow and prints its local HMI URL plus the
 exact follow-up command. Servo startup only connects the serial buses: it does
-not enable torque or command motion. Visual calibration starts the holding-torque
-runtime, but does not automatically return to ready; selecting a calibration
-pose executes its trajectory. Support the arm before releasing servo torque.
+not enable torque or command motion. Head-camera calibration opens only the head
+bus and holds only its two servos; neither arm, gripper nor wheel is commanded.
+Hand-eye calibration starts the full holding-torque runtime, without returning
+to ready. Motion begins only after selecting a pose or starting automatic capture.
+Support the arm before releasing servo torque.
 All raw captures stay below
 `.xlerobot/units/<unit>/capture/` and remain outside Git.
 
@@ -60,6 +62,9 @@ instead of deleting it.
 
 Work through **right arm → left arm → head**, without choosing individual
 joints or repeatedly starting/stopping their recordings.
+These are the robot's Follower arms, not the data-collection Leader. A matching
+group-calibration page for the Leader is not available yet; do not copy a
+Follower's measured zeros onto a different Leader arm.
 
 1. Select a group, support it and explicitly release that group's torque.
    Other groups and the wheels are untouched.
@@ -91,6 +96,37 @@ The interaction follows [LeRobot v0.5.1 group capture](https://github.com/huggin
 This implementation preserves ROS physical-zero semantics: it does not invoke
 LeRobot's motor homing writes or assume a full 0–4095 wrist range. Encoder wraps
 and read failures are reported, never counted as successful range coverage.
+
+### Head-camera page: preview, then automatic capture and solve
+
+Import the passing servo draft first, then run
+`./tools/calibrate capture head-camera --hardware`. Lay the complete 4×4 board
+flat and secure it to the table. Its pose relative to the base and the table
+height do not need measuring: the solver estimates the board pose as well.
+
+1. Move to the preview pose using the page: pan=0, tilt=0.8 rad. Check that the
+   complete board is visible: 16 detected tags and reprojection error below 1 px.
+2. Confirm head motion and start automatic calibration. One shared pose file
+   drives 25 views within pan −0.30…0.30 rad and tilt 0.60…1.00 rad. Each view is
+   sampled only after motion completes and a fresh, stable detection is available.
+3. Watch the annotated image, detection status, pose grid and valid sample count.
+   Views without the complete board are explicitly marked skipped. Duplicate
+   samples cannot fill the quota: at least 12 independent samples, observable
+   motion and passing residuals are required to save the head_camera draft.
+4. Inspect translation RMS/p95, rotation RMS and the saved path. This does not
+   activate calibration or change the existing Demo runtime.
+
+The sequence runs on the robot; refreshing the browser never restarts motion.
+Pause cancels the current trajectory and keeps measurements for continuation.
+A process restart also stays paused; use `--resume` for that same session.
+Keep both board and base fixed throughout. After moving either, changing servo
+calibration, or deciding to remeasure from scratch, exit and use `--fresh` to
+archive the previous capture. Never mix measurements from different setups.
+
+Automatic solving uses the same strict solver as the CLI. A failed quality gate
+shows its reason and preserves samples, without saving a passing draft or
+relaxing thresholds. Hand-eye, base and grasp alignment remain necessary before
+a new build can activate its complete bundle.
 
 ### Other components and draft import
 

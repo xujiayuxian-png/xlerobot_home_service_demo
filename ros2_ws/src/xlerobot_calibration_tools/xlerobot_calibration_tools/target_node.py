@@ -7,7 +7,7 @@ from geometry_msgs.msg import TransformStamped
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from scipy.spatial.transform import Rotation
 from sensor_msgs.msg import CameraInfo, Image
 from tf2_ros import TransformBroadcaster
@@ -15,6 +15,13 @@ from tf2_ros import TransformBroadcaster
 from xlerobot_interfaces.msg import CalibrationTargetObservation
 
 from .fiducial import FixedTargetDetector
+
+
+def latest_image_qos():
+    # 1280x720 AprilTag detection can be slower than the 15 Hz camera.
+    # Keep only the newest waiting image, not a queue of already-stale frames.
+    # Preserve the camera timestamp; never disguise latency by restamping it.
+    return QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
 
 
 class CalibrationTargetNode(Node):
@@ -44,11 +51,14 @@ class CalibrationTargetNode(Node):
             '/calibration/target_observation',
             qos_profile_sensor_data,
         )
+        self.debug_images = self.create_publisher(
+            Image, '/calibration/target_debug', latest_image_qos(),
+        )
         self.create_subscription(
             CameraInfo, info_topic, self.on_camera_info, qos_profile_sensor_data
         )
         self.create_subscription(
-            Image, image_topic, self.on_image, qos_profile_sensor_data
+            Image, image_topic, self.on_image, latest_image_qos()
         )
 
     def on_camera_info(self, message):
@@ -66,13 +76,19 @@ class CalibrationTargetNode(Node):
             image = self.bridge.imgmsg_to_cv2(message, desired_encoding='bgr8')
             matrix = np.asarray(self.camera_info.k, dtype=np.float64).reshape(3, 3)
             distortion = np.asarray(self.camera_info.d, dtype=np.float64)
-            estimate = self.detector.detect(image, matrix, distortion)
+            estimate, debug = self.detector.detect_with_debug(image, matrix, distortion)
+            diagnostic = self.detector.diagnostic
+            observation.tag_count = int(diagnostic['tag_count'])
+            observation.reprojection_rmse_px = float(diagnostic['reprojection_rmse_px'])
+            observation.detail = diagnostic['detail']
+            debug_message = self.bridge.cv2_to_imgmsg(debug, encoding='bgr8')
+            debug_message.header = observation.header
+            self.debug_images.publish(debug_message)
         except Exception as error:
             observation.detail = f'detection error: {error}'
             self.observations.publish(observation)
             return
         if estimate is None:
-            observation.detail = 'target absent, incomplete, or above reprojection limit'
             self.observations.publish(observation)
             return
         transform = TransformStamped()

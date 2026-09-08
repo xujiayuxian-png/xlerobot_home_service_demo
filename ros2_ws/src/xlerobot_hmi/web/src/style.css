@@ -304,6 +304,56 @@ button.danger { border-color: #88474f; color: #ff9da7; background: rgba(96, 31, 
 
 /* The servo workbench keeps the live table mounted throughout group capture. */
 .servo-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+
+/* Head calibration is one ROS-owned sequence; polling never remounts the view. */
+.head-calibration-heading, .head-pose-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+.head-calibration-heading h2 { margin-bottom: 8px; }
+.head-calibration-heading p:not(.section-label), .head-pose-heading p { color: var(--text-soft); font-size: .76rem; line-height: 1.6; }
+.head-phase { padding: 9px 14px; border: 1px solid #3d5c59; border-radius: 30px; color: #bdd7ce; font-size: .74rem; white-space: nowrap; }
+.head-phase.complete { background: #173c2e; color: var(--green); }
+.head-calibration-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(290px, 1fr); gap: 24px; margin-top: 20px; }
+.head-calibration-view, .head-calibration-control { min-width: 0; }
+.head-camera-preview { margin: 0; border: 1px solid var(--line); border-radius: 14px; background: #040e13; overflow: hidden; }
+.head-camera-preview img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; color: var(--text-soft); }
+.head-camera-preview figcaption { padding: 10px 14px; font-size: .66rem; color: #8caaa0; }
+.head-visual-metrics { display: grid; grid-template-columns: 1.6fr 1fr 1fr; gap: 10px; margin-top: 12px; }
+.head-visual-metrics > div { padding: 13px; border: 1px solid var(--line-soft); border-radius: 10px; background: #0b1b21; }
+.head-visual-metrics small, .head-visual-metrics strong { display: block; }
+.head-visual-metrics small { color: var(--text-dim); font-size: .61rem; margin-bottom: 7px; }
+.head-visual-metrics strong { font-size: .82rem; font-variant-numeric: tabular-nums; }
+.head-visual-metrics .good strong { color: var(--green); }.head-visual-metrics .waiting strong { color: var(--amber); }
+.head-diagnostic { margin-top: 12px; font-size: .66rem; color: var(--text-soft); overflow-wrap: anywhere; }
+.head-diagnostic summary, .head-restart-help summary { cursor: pointer; }.head-diagnostic p { margin: 8px 0; }
+.head-calibration-control { padding: 20px; border-radius: 14px; border: 1px solid #345047; background: linear-gradient(145deg, #153127, #0b1b21); }
+.head-sample-count { display: flex; gap: 12px; align-items: baseline; margin-bottom: 12px; }
+.head-sample-count strong { font-size: 2.7rem; color: var(--green); font-variant-numeric: tabular-nums; }
+.head-sample-count span { color: #b8ccc4; font-size: .75rem; }
+.head-calibration-control progress { display: block; width: 100%; height: 7px; border: 0; border-radius: 8px; overflow: hidden; accent-color: var(--green); }
+.head-calibration-control progress::-webkit-progress-bar { background: #2a4239; }.head-calibration-control progress::-webkit-progress-value { background: var(--green); }.head-calibration-control progress::-moz-progress-bar { background: var(--green); }
+.head-run-message { min-height: 38px; font-size: .76rem; line-height: 1.6; color: #b8d6c6; overflow-wrap: anywhere; }
+.head-calibration label.head-motion-confirm { display: flex; align-items: flex-start; gap: 9px; margin: 17px 0; font-size: .75rem; line-height: 1.65; }
+.head-motion-confirm input { margin: 3px 0 0; width: 17px; height: 17px; flex: 0 0 auto; accent-color: var(--green); }
+.head-calibration-control button { font-size: .73rem; }.head-calibration-control > button { width: 100%; }
+.head-run-buttons { margin-top: 10px; }.head-run-buttons button { flex: 1; }
+.head-calibration .hint { color: var(--text-soft); font-size: .68rem; line-height: 1.65; }
+.head-warning { padding: 12px; border: 1px solid #886044; border-radius: 9px; background: #382a1e; color: #f4c291; font-size: .72rem; line-height: 1.6; overflow-wrap: anywhere; }
+.head-pose-section { margin-top: 26px; padding-top: 20px; border-top: 1px solid var(--line-soft); }
+.head-pose-heading { align-items: baseline; }.head-pose-heading h3 { font-size: .94rem; }
+.head-pose-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 9px; padding: 0; list-style: none; }
+.head-pose { position: relative; padding: 13px 12px 12px 40px; background: #0b1a20; border: 1px solid var(--line-soft); border-radius: 9px; }
+.head-pose-number { position: absolute; top: 13px; left: 11px; font-size: .72rem; color: #73968a; font-variant-numeric: tabular-nums; }
+.head-pose strong, .head-pose small { display: block; }.head-pose strong { font-size: .7rem; color: #a5bcb2; }.head-pose small { margin-top: 6px; font-size: .58rem; color: #78968a; white-space: nowrap; }
+.head-pose.captured { background: #17382a; border-color: #386d52; }.head-pose.captured strong { color: var(--green); }
+.head-pose.moving, .head-pose.waiting { background: #223d3b; border-color: #7aaba2; }.head-pose.moving strong, .head-pose.waiting strong { color: #d3ece5; }
+.head-pose.skipped { border-color: #6f5438; }.head-pose.skipped strong { color: var(--amber); }
+.head-calibration-result { margin-top: 22px; padding: 20px; border: 1px solid #3b6752; border-radius: 12px; background: #12271f; }
+.head-calibration-result h3 { margin: 0 0 16px; font-size: .92rem; color: #badfc9; }.head-calibration-result p { color: var(--text-soft); font-size: .74rem; line-height: 1.6; }
+.head-result-metrics { display: flex; flex-wrap: wrap; gap: 18px 25px; margin: 0; }.head-result-metrics dt { font-size: .64rem; color: #8eafa0; }.head-result-metrics dd { margin: 7px 0 0; color: #daeee2; font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+.head-result-path, .head-restart-help code { overflow-wrap: anywhere; }.head-result-path code { color: #b9d5c7; }
+.head-restart-help { margin-top: 22px; border-top: 1px solid var(--line-soft); padding-top: 16px; font-size: .7rem; line-height: 1.7; color: var(--text-soft); }
+.head-restart-help p { margin: 10px 0; }.head-restart-help code { color: #b1d0c0; }
+@media (max-width: 1050px) { .head-calibration-layout { grid-template-columns: 1fr; }.head-pose-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+@media (max-width: 650px) { .head-calibration-heading, .head-pose-heading { flex-direction: column; gap: 6px; }.head-calibration-heading h2 { font-size: 1.2rem; }.head-calibration-layout { gap: 16px; }.head-calibration-control { padding: 16px; }.head-visual-metrics { gap: 6px; }.head-visual-metrics > div { padding: 10px 8px; }.head-visual-metrics strong { font-size: .72rem; }.head-pose-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }.head-pose { padding: 11px 8px; }.head-pose-number { position: static; display: inline-block; margin-bottom: 7px; }.head-pose small { font-size: .54rem; }.head-run-buttons { flex-direction: column; } }
 .servo-heading h2 { margin-bottom: 10px; }
 .servo-heading .card-intro { margin-bottom: 0; }
 .servo-phase { padding: 8px 12px; border: 1px solid #36515a; border-radius: 100px; color: var(--text-soft); font-size: .72rem; white-space: nowrap; }

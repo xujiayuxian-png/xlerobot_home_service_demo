@@ -188,9 +188,11 @@ by default, and End leaves teleoperation active so you can put the object down.
 ## Scope, status and licenses
 
 Demo, mapping and collection have been exercised on the reference robot with
-its existing calibration. **The new live calibration workflow and resulting
-physical accuracy still await on-robot acceptance.** Solver replay is not a
-physical accuracy test.
+its existing calibration. The follower-arm and head servo calibration workflow
+has also passed on-robot functional acceptance. Automatic head-camera capture
+and solving have been exercised on the robot. **The remaining calibration
+workflows and independent physical accuracy still await acceptance.** Solver
+replay is not a physical accuracy test.
 
 Real motion requires `--hardware`. Local settings, maps, calibration, recordings,
 weights and logs stay out of Git; runtime assets normally live in `.xlerobot/`.

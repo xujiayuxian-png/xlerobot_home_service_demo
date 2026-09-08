@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type CalibrationCoverage, type SiteSummary } from './api'
 import { JoystickPad } from './JoystickPad'
 import { ServoCalibrationWorkspace } from './ServoCalibrationWorkspace'
+import { HeadCalibrationWorkspace } from './HeadCalibrationWorkspace'
 import { useBaseTeleop } from './useBaseTeleop'
 import {
   activeCameraPerception, activePersonTarget, taskShowsNavigationPath,
@@ -510,7 +511,7 @@ function CalibrationWorkspace({ unitId, workflow, captureOnly, onError }: {
       setResult(`${value.message} · ${value.pose_name}`)
     } catch (reason) { onError(String(reason)) }
   }
-  const visual = workflow === 'head_camera' || workflow === 'right_handeye'
+  const visual = workflow === 'right_handeye'
   useEffect(() => {
     if (!visual) {
       setCoverage(null)
@@ -531,6 +532,8 @@ function CalibrationWorkspace({ unitId, workflow, captureOnly, onError }: {
   }, [workflow, visual, onError])
   if (workflow === 'servo') return <ServoCalibrationWorkspace
     unitId={unitId} captureOnly={captureOnly} onError={onError} />
+  if (workflow === 'head_camera') return <HeadCalibrationWorkspace
+    unitId={unitId} onError={onError} />
   return <section className="engineering-card calibration-card">
     <p className="section-label">UNIT CALIBRATION · {unitId}</p>
     <h2>{workflows[workflow] || '标定工具'}</h2>
@@ -557,12 +560,12 @@ function CalibrationWorkspace({ unitId, workflow, captureOnly, onError }: {
       </div>
       {workflow === 'right_handeye' && coverage &&
         <HandeyeCoveragePanel coverage={coverage} />}
-      <p className="saved">已采样 {sampleCount} / {workflow === 'head_camera' ? 12 : 20}</p>
+      <p className="saved">已采样 {sampleCount} / 20</p>
       <div className="field-row">
         <label>标定姿态
           <select value={poseIndex} onChange={event => setPoseIndex(Number(event.target.value))}>
             {Array.from(
-              { length: workflow === 'head_camera' ? 13 : 20 }, (_, index) =>
+              { length: 20 }, (_, index) =>
                 <option key={index} value={index}>第 {index + 1} 个姿态</option>,
             )}
           </select>

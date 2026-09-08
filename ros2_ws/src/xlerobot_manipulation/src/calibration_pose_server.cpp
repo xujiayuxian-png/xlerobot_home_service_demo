@@ -6,6 +6,8 @@
 #include <exception>
 #include <future>
 #include <memory>
+#include <set>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -17,6 +19,7 @@
 #include "trajectory_msgs/msg/joint_trajectory_point.hpp"
 #include "xlerobot_interfaces/action/move_calibration_pose.hpp"
 #include "xlerobot_interfaces/msg/capability_error.hpp"
+#include "yaml-cpp/yaml.h"
 
 namespace
 {
@@ -26,11 +29,34 @@ using Handle = rclcpp_action::ServerGoalHandle<Move>;
 using Error = xlerobot_interfaces::msg::CapabilityError;
 using namespace std::chrono_literals;
 
-const std::vector<std::vector<double>> kHeadPoses = {
-  {-0.60, 0.45}, {-0.30, 0.45}, {0.00, 0.45}, {0.30, 0.45}, {0.60, 0.45},
-  {-0.60, 0.65}, {-0.30, 0.65}, {0.00, 0.65}, {0.30, 0.65}, {0.60, 0.65},
-  {-0.45, 0.85}, {0.00, 0.85}, {0.45, 0.85},
-};
+std::vector<std::vector<double>> load_head_poses(const std::string & path)
+{
+  // The sequencer and this local motion server consume the same pose file.
+  // No fallback pose table: an absent file cannot silently change motion.
+  if (path.empty()) {return {};}
+  const auto document = YAML::LoadFile(path);
+  if (document["schema"].as<std::string>() != "xlerobot_calibration_pose_set/v1" ||
+    document["workflow"].as<std::string>() != "head_camera" ||
+    document["units"].as<std::string>() != "rad" ||
+    !document["poses"].IsSequence() || document["poses"].size() < 12)
+  {
+    throw std::runtime_error("invalid head-camera calibration pose configuration");
+  }
+  std::vector<std::vector<double>> poses;
+  std::set<std::pair<double, double>> unique;
+  for (const auto & item : document["poses"]) {
+    const auto pan = item["pan"].as<double>();
+    const auto tilt = item["tilt"].as<double>();
+    if (!std::isfinite(pan) || !std::isfinite(tilt) ||
+      pan < -0.30 || pan > 0.30 || tilt < 0.60 || tilt > 1.00 ||
+      !unique.emplace(pan, tilt).second)
+    {
+      throw std::runtime_error("head-camera poses must be unique and inside the reference scan range");
+    }
+    poses.push_back({pan, tilt});
+  }
+  return poses;
+}
 
 const std::vector<std::vector<double>> kArmPoses = {
   {-0.8805, 1.2303, 1.0155, 0.4510, 1.5064},
@@ -62,6 +88,11 @@ public:
   : Node("calibration_pose_server")
   {
     execution_enabled_ = declare_parameter<bool>("execution_enabled", false);
+    allowed_workflow_ = declare_parameter<std::string>("workflow_id", "");
+    head_poses_ = load_head_poses(declare_parameter<std::string>("head_pose_file", ""));
+    if (allowed_workflow_ == Move::Goal::HEAD_CAMERA && head_poses_.empty()) {
+      throw std::runtime_error("head_pose_file is required for head-camera motion");
+    }
     head_client_ = rclcpp_action::create_client<Follow>(
       this, "/head_controller/follow_joint_trajectory");
     arm_client_ = rclcpp_action::create_client<Follow>(
@@ -74,10 +105,11 @@ public:
   }
 
 private:
-  static size_t count(const std::string & workflow)
+  size_t count(const std::string & workflow) const
   {
+    if (!allowed_workflow_.empty() && workflow != allowed_workflow_) {return 0;}
     if (workflow == Move::Goal::HEAD_CAMERA) {
-      return kHeadPoses.size();
+      return head_poses_.size();
     }
     if (workflow == Move::Goal::RIGHT_HANDEYE) {
       return kArmPoses.size();
@@ -273,7 +305,7 @@ private:
     const bool reached = request->workflow_id == Move::Goal::HEAD_CAMERA ?
       follow(
       handle, head_client_, {"head_pan_joint", "head_tilt_joint"},
-      kHeadPoses[request->pose_index], 2.5, error, controller_terminal) :
+      head_poses_[request->pose_index], 2.5, error, controller_terminal) :
       follow(
       handle, arm_client_,
       {"right_arm_shoulder_pan", "right_arm_shoulder_lift", "right_arm_elbow_flex",
@@ -315,6 +347,8 @@ private:
   }
 
   bool execution_enabled_{false};
+  std::string allowed_workflow_;
+  std::vector<std::vector<double>> head_poses_;
   std::atomic_bool busy_{false};
   std::atomic_bool motion_unconfirmed_{false};
   rclcpp_action::Client<Follow>::SharedPtr head_client_;

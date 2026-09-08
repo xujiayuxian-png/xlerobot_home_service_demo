@@ -37,6 +37,8 @@ def calibration_launch(workflow_id: str) -> LaunchDescription:
         ),
         OpaqueFunction(function=_require_explicit_hardware),
         DeclareLaunchArgument('artifact_root', default_value='.xlerobot'),
+        DeclareLaunchArgument('state_root', default_value='.xlerobot'),
+        DeclareLaunchArgument('repo_root', default_value=''),
         DeclareLaunchArgument(
             'task_history_root', default_value='.xlerobot/logs/tasks'
         ),
@@ -118,6 +120,8 @@ def calibration_launch(workflow_id: str) -> LaunchDescription:
                 launch_arguments={
                     'hardware_enabled': 'true',
                     'startup_ready': 'false',
+                    'startup_head_only': 'false',
+                    'head_only_control': 'true' if workflow_id == 'head_camera' else 'false',
                     'geometry_file': LaunchConfiguration('geometry_file'),
                     'servo_calibration_file': LaunchConfiguration(
                         'servo_calibration_file'
@@ -177,7 +181,29 @@ def calibration_launch(workflow_id: str) -> LaunchDescription:
                 package='xlerobot_manipulation',
                 executable='calibration_pose_server',
                 name='calibration_pose_server', output='screen',
-                parameters=[{'execution_enabled': True}],
+                parameters=[{
+                    'execution_enabled': True,
+                    'workflow_id': workflow_id,
+                    'head_pose_file': PathJoinSubstitution([
+                        FindPackageShare('xlerobot_calibration_tools'), 'config',
+                        'head_camera_poses.yaml',
+                    ]),
+                }],
             ),
         ])
+    if workflow_id == 'head_camera':
+        actions.append(Node(
+            package='xlerobot_calibration_tools', executable='auto_head_calibration',
+            name='auto_head_calibration', output='screen', parameters=[{
+                'execution_enabled': True,
+                'unit_id': LaunchConfiguration('unit_id'),
+                'artifact_root': LaunchConfiguration('artifact_root'),
+                'state_root': LaunchConfiguration('state_root'),
+                'repo_root': LaunchConfiguration('repo_root'),
+                'pose_file': PathJoinSubstitution([
+                    FindPackageShare('xlerobot_calibration_tools'), 'config',
+                    'head_camera_poses.yaml',
+                ]),
+            }],
+        ))
     return LaunchDescription(actions)

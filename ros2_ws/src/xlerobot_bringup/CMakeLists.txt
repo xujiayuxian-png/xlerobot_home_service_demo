@@ -24,6 +24,7 @@ install(PROGRAMS
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_initial_pose test/test_initial_pose.py TIMEOUT 30)
+  ament_add_pytest_test(head_only_runtime test/test_head_only_runtime.py TIMEOUT 30)
   ament_add_pytest_test(collection_leader_lifecycle test/test_collection_leader_lifecycle.py TIMEOUT 90)
   ament_add_pytest_test(
     test_fetch_deliver_demo_contract
