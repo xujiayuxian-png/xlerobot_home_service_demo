@@ -38,3 +38,22 @@ Typography or antialiasing can vary slightly with the installed browser/fonts.
 
 Edit layout, camera, lighting and display pose in `robot.html`; edit the route
 diagram directly in `../images/grasp-routes.svg`. Keep the two READMEs in sync.
+
+## Servo zero reference
+
+The servo calibration page uses
+[`calibration-zero.png`](../../ros2_ws/src/xlerobot_hmi/web/public/calibration-zero.png), rendered
+from the same checked-in URDF at **exactly q = 0 for every movable joint**.
+Two orthographic views show the arm/head assembly. This is the mechanical
+zero reference, not a ready pose, LeRobot's approximate midpoint, or a claim
+that the physical robot has already been calibrated. Joint transforms and
+meshes are unchanged; only the materials and framing are styled.
+
+```bash
+source /opt/ros/jazzy/setup.bash
+python3 docs/artwork/render_robot.py --view zero
+```
+
+This writes only the 1400 × 850 calibration image, leaving the README hero
+and detail images unchanged. `capture_zero.mjs` verifies that every movable
+joint is set to zero before capture; it never connects to ROS or hardware.

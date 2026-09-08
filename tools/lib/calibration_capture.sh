@@ -133,6 +133,23 @@ serial=$(config_get robot.devices.head_camera_serial '')
 case $workflow in
   servo)
     launch_file=servo_calibration.launch.py
+    # Offer the known zero only from this unit's verified active runtime.
+    # This remains an explicit web choice; no EEPROM values are written.
+    runtime="$state_root/units/$unit/runtime"
+    if [[ -f $runtime/manifest.yaml ]] && verify_calibration_runtime >/dev/null; then
+      existing_version=$(python3 - "$runtime/manifest.yaml" <<'PY'
+import sys
+import yaml
+with open(sys.argv[1], encoding='utf-8') as stream:
+    print(yaml.safe_load(stream)['active_version'])
+PY
+      )
+      launch_args+=(
+        "existing_servo_file:=$runtime/servos.yaml"
+        "existing_servo_version:=$existing_version"
+      )
+      note "optional existing zero reference: $existing_version (not applied automatically)"
+    fi
     result="$capture_root/calibration_work/servo/result.yaml"
     printf -v result_q '%q' "$result"
     follow_up="$calibrate_q servo --input $result_q --config $config_q"

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Render documentation only; no ROS nodes, device access or robot commands."""
+import argparse
 import http.server
 from pathlib import Path
 import subprocess
@@ -13,6 +14,9 @@ VENDOR = ROOT / ".xlerobot/readme-art/node_modules/three"
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--view", choices=("readme", "zero"), default="readme")
+    args = parser.parse_args()
     source = (PACKAGE / "urdf/two_wheel_reference.urdf.xacro").read_text()
     document = xacro.parse(source.replace("$(find xlerobot_description)", str(PACKAGE)))
     xacro.process_doc(document, mappings={
@@ -50,7 +54,8 @@ def main():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        subprocess.run(["node", str(ROOT / "docs/artwork/capture.mjs"),
+        capture = "capture_zero.mjs" if args.view == "zero" else "capture.mjs"
+        subprocess.run(["node", str(ROOT / "docs/artwork" / capture),
                         f"http://127.0.0.1:{server.server_port}/art/robot.html"], check=True)
     finally:
         server.shutdown()

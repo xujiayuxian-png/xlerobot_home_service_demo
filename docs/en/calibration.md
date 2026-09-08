@@ -43,15 +43,56 @@ same public command and always requires explicit hardware consent:
 ```
 
 Each capture starts only one workflow and prints its local HMI URL plus the
-exact follow-up command. Startup itself never moves the robot; clicking a
-visual-calibration pose does. Support the arm before releasing servo torque.
+exact follow-up command. Servo startup only connects the serial buses: it does
+not enable torque or command motion. Visual calibration starts the holding-torque
+runtime, but does not automatically return to ready; selecting a calibration
+pose executes its trajectory. Support the arm before releasing servo torque.
 All raw captures stay below
 `.xlerobot/units/<unit>/capture/` and remain outside Git.
 
-An existing capture is never mixed in silently. Use `--resume` only to append
+Unfinished servo sessions restore automatically, paused after a process restart;
+refreshing the page does not reset progress. Use `--resume` only to append
 to the same head-camera/hand-eye session. Use `--fresh` after a mechanical
 change; it moves the preceding workflow directory into the local `archive/`
 instead of deleting it.
+
+### Servo page: move the group, finish once
+
+Work through **right arm → left arm → head**, without choosing individual
+joints or repeatedly starting/stopping their recordings.
+
+1. Select a group, support it and explicitly release that group's torque.
+   Other groups and the wheels are untouched.
+2. Choose the zero reference:
+   - **Same robot, no servo reassembly or hardware-offset changes:** explicitly
+     keep the verified active zero and remeasure only the ranges. The source
+     is shown; previous ranges are never passed off as new measurements.
+   - **New build or remeasuring zero:** use the page's URDF zero reference,
+     position the whole group and capture once. This is the physical joint
+     zero, not ready or an arbitrary mid-range pose.
+3. Start group capture and manually move each joint, including the gripper.
+   All joints record together; live position, min/max and coverage show what
+   still needs movement.
+4. Finish the group. Incomplete ranges are identified and remain available
+   for further capture. The existing 60% range requirement still applies;
+   do not force mechanical stops.
+5. Once all three groups pass, save the result, then use the printed command
+   to import it into a strictly validated draft.
+
+Pause/continue preserves progress. Explicitly resetting a group clears only its
+capture, not servo EEPROM or the previous active calibration. Local
+`session.yaml` is checkpointed roughly once per second during recording; an
+abrupt power loss may lose the last second. After a process restart, explicitly
+release torque again before continuing manual capture. Final `result.yaml` is
+written only when all groups pass. Saving never re-enables torque or activates
+the calibration.
+
+The interaction follows [LeRobot v0.5.1 group capture](https://github.com/huggingface/lerobot/blob/1396b9fab7aecddd10006c33c47a487ffdcb54b4/src/lerobot/robots/so_follower/so_follower.py).
+This implementation preserves ROS physical-zero semantics: it does not invoke
+LeRobot's motor homing writes or assume a full 0–4095 wrist range. Encoder wraps
+and read failures are reported, never counted as successful range coverage.
+
+### Other components and draft import
 
 Base geometry is a tape-measure workflow. Either fill in
 `examples/calibration/base_measurements.yaml`, or use the web worksheet started

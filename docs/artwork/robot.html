@@ -21,6 +21,17 @@ h1 { font-size: 78px; line-height: 1.09; letter-spacing: -4px; font-weight: 600;
 .detail .sub { font-size: 20px; }
 .detail .item { border-top: 1px solid #d4dfdc; padding-top: 19px; margin-top: 24px; font-size: 20px; line-height: 1.55; }
 .detail .item span { color: #69807f; font-size: 16px; }
+.zero, html:has(.zero) { width: 1400px; height: 850px; }
+.zero { background: #f5f7f5; }
+.zero .copy { top: 36px; left: 48px; width: 1304px; }
+.zero .eyebrow { font-size: 14px; letter-spacing: 2px; }
+.zero h1 { font-size: 39px; letter-spacing: -1.5px; margin: 12px 0 10px; }
+.zero .sub { font-size: 17px; line-height: 1.5; }
+.zero .view-label { position: absolute; top: 200px; font-size: 14px; letter-spacing: 1.4px; color: #4b6965; font-weight: 700; }
+.zero .front-label { left: 70px; }
+.zero .side-label { left: 752px; }
+.zero .divider { position: absolute; left: 700px; top: 191px; bottom: 93px; border-left: 1px solid #d7e0dc; }
+.zero .footer { padding: 22px 48px; background: #eaf0ec; line-height: 1.6; font-size: 13px; letter-spacing: 0; }
 </style>
 <script type="importmap">{"imports":{"three":"/vendor/build/three.module.js","three/addons/":"/vendor/examples/jsm/"}}</script>
 </head>
@@ -39,7 +50,9 @@ import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
-const detail = new URLSearchParams(location.search).get('view') === 'detail';
+const view = new URLSearchParams(location.search).get('view');
+const detail = view === 'detail';
+const zero = view === 'zero';
 if (detail) {
   document.body.className = 'detail';
   document.getElementById('copy').innerHTML = `<div class="eyebrow">THE SHARED FOUNDATION</div>
@@ -49,9 +62,19 @@ if (detail) {
     <div class="item">SO-101-style arms<br><span>One manipulation stack, three backends</span></div>
     <div class="item">Grasp alignment<br><span>Vision–FK compensation and gravity sag</span></div>`;
 }
+if (zero) {
+  document.body.className = 'zero';
+  document.getElementById('copy').innerHTML = `<div class="eyebrow">XLEROBOT / SERVO CALIBRATION REFERENCE</div>
+    <h1>URDF q = 0 · not the ready pose</h1>
+    <div class="sub">All arm and head joints are at their mechanical zero. Match both views before recording zero.</div>`;
+  document.body.insertAdjacentHTML('beforeend', `<div class="view-label front-label">01 / FRONT VIEW</div>
+    <div class="view-label side-label">02 / RIGHT-SIDE VIEW</div><div class="divider"></div>`);
+  document.querySelector('.footer').innerHTML = `<span>From the checked-in two-wheel URDF · unmodified link transforms and joint axes<br>
+    An assembly reference only — not measured calibration or a motion command.</span><span>Head pan = 0 · Head tilt = 0<br>All six joints per arm = 0</span>`;
+}
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true });
-renderer.setSize(1600, 900);
+renderer.setSize(zero ? 1400 : 1600, zero ? 850 : 900);
 renderer.setPixelRatio(1);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -80,7 +103,8 @@ const robot = new THREE.Group();
 scene.add(robot);
 const links = new Map([...xml.querySelectorAll('robot > link')].map(e => [e.getAttribute('name'), new THREE.Group()]));
 const joints = [...xml.querySelectorAll('robot > joint')];
-const pose = {
+const pose = zero ? Object.fromEntries(joints.filter(j => j.getAttribute('type') !== 'fixed')
+  .map(j => [j.getAttribute('name'), 0])) : {
   right_arm_shoulder_pan: -0.10278, right_arm_shoulder_lift: -0.53076,
   right_arm_elbow_flex: -0.56450, right_arm_wrist_flex: 1.20,
   right_arm_wrist_roll: 0.03068, right_arm_gripper: 0.55,
@@ -184,7 +208,34 @@ const offset = cameraRight.multiplyScalar(-height * 0.43);
 camera.position.add(offset);
 camera.lookAt(target.clone().add(offset));
 camera.updateProjectionMatrix();
-renderer.render(scene, camera);
+if (zero) {
+  // Two orthographic views of the same unchanged URDF tree. Keep the framing
+  // around the arm/head assembly; the bottom of the cart is intentionally cropped.
+  renderer.setScissorTest(true);
+  const views = [
+    { x: 24, position: new THREE.Vector3(3, 0, 0) },
+    { x: 724, position: new THREE.Vector3(0, -3, 0) },
+  ];
+  const width = 652;
+  const panelHeight = 530;
+  const assemblyHeight = 0.61;
+  const referenceTarget = new THREE.Vector3(-0.13, 0, 0.965);
+  for (const frame of views) {
+    camera.left = -assemblyHeight * width / panelHeight / 2;
+    camera.right = -camera.left;
+    camera.top = assemblyHeight / 2;
+    camera.bottom = -camera.top;
+    camera.position.copy(referenceTarget).add(frame.position);
+    camera.lookAt(referenceTarget);
+    camera.updateProjectionMatrix();
+    renderer.setViewport(frame.x, 91, width, panelHeight);
+    renderer.setScissor(frame.x, 91, width, panelHeight);
+    renderer.render(scene, camera);
+  }
+  renderer.setScissorTest(false);
+} else {
+  renderer.render(scene, camera);
+}
 window.renderInfo = { visuals, meshes: geometryCache.size, bounds: { min: bounds.min.toArray(), max: bounds.max.toArray() }, pose };
 await document.fonts.ready;
 await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));

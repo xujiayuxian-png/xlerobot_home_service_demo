@@ -4,13 +4,22 @@ uint8 CAPTURE_ZERO=2
 uint8 START_RANGE=3
 uint8 FINISH_RANGE=4
 uint8 FINALIZE=5
+uint8 STATUS=6
+uint8 PAUSE_RANGE=7
+uint8 RESET_GROUP=8
+uint8 USE_EXISTING_ZERO=9
 
 uint8 command
 string group
-string joint
+# START_RANGE and FINISH_RANGE apply to every joint in group.
 ---
 CapabilityError error
 string phase
 string[] joint_names
 int32[] raw_positions
 string result_uri
+string active_group
+string[] completed_groups
+string[] released_groups
+string session_uri
+ServoCalibrationJoint[] joints

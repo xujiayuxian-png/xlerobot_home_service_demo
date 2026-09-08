@@ -1966,6 +1966,11 @@ class ConsoleApplication:
                 '/api/v1/calibrations/servo/step',
                 self.servo_calibration_step,
             ),
+            web.get(
+                '/api/v1/calibrations/servo/status',
+                self.servo_calibration_status,
+            ),
+            web.get('/calibration-zero.png', self.servo_zero_reference),
             web.post(
                 '/api/v1/calibrations/{unit_id}/activate',
                 self.activate_calibration,
@@ -2018,6 +2023,13 @@ class ConsoleApplication:
                  'Run the documented Vite build step.',
             status=503,
         )
+
+    async def servo_zero_reference(self, _request):
+        static = self._static_root()
+        image = static / 'calibration-zero.png' if static else None
+        if image is None or not image.is_file():
+            raise web.HTTPNotFound(text='calibration zero reference has not been built')
+        return web.FileResponse(image)
 
     async def bootstrap(self, _request):
         engineering = bool(self.node.parameter('enable_engineering_tools'))
@@ -3087,11 +3099,50 @@ class ConsoleApplication:
             ) from error
         return web.json_response(coverage)
 
-    async def servo_calibration_step(self, request):
+    def _require_servo_workspace(self, request):
         self._require_engineering_workspace(request)
         self._require_workspace('calibration')
         if str(self.node.parameter('calibration_workflow')) != 'servo':
             raise web.HTTPNotFound(text='servo calibration tool is not active')
+
+    @staticmethod
+    def _servo_calibration_evidence(response):
+        return {
+            'phase': response.phase,
+            'message': response.error.message,
+            'joint_names': list(response.joint_names),
+            'raw_positions': list(response.raw_positions),
+            'result_uri': response.result_uri,
+            'active_group': response.active_group,
+            'completed_groups': list(response.completed_groups),
+            'released_groups': list(response.released_groups),
+            'session_uri': response.session_uri,
+            'joints': [{
+                'name': joint.name, 'servo_id': joint.servo_id,
+                'position': joint.position, 'zero': joint.zero,
+                'reference_zero': joint.reference_zero,
+                'zero_source': joint.zero_source,
+                'raw_min': joint.raw_min, 'raw_max': joint.raw_max,
+                'coverage': joint.coverage,
+                'zero_captured': joint.zero_captured,
+                'range_captured': joint.range_captured,
+                'online': joint.online, 'message': joint.message,
+            } for joint in response.joints],
+        }
+
+    async def servo_calibration_status(self, request):
+        self._require_servo_workspace(request)
+        response = await self._call_service(
+            self.node.servo_calibration_client,
+            ServoCalibrationStep.Request(command=ServoCalibrationStep.Request.STATUS),
+            5.0,
+        )
+        self._require_capability_success(response.error)
+        # Polling is observational: no torque command, sample reset or audit flood.
+        return web.json_response(self._servo_calibration_evidence(response))
+
+    async def servo_calibration_step(self, request):
+        self._require_servo_workspace(request)
         payload = await request.json()
         commands = {
             'scan': ServoCalibrationStep.Request.SCAN,
@@ -3100,6 +3151,9 @@ class ConsoleApplication:
             'start_range': ServoCalibrationStep.Request.START_RANGE,
             'finish_range': ServoCalibrationStep.Request.FINISH_RANGE,
             'finalize': ServoCalibrationStep.Request.FINALIZE,
+            'pause_range': ServoCalibrationStep.Request.PAUSE_RANGE,
+            'reset_group': ServoCalibrationStep.Request.RESET_GROUP,
+            'use_existing_zero': ServoCalibrationStep.Request.USE_EXISTING_ZERO,
         }
         command_name = str(payload.get('command', '')).strip()
         if command_name not in commands:
@@ -3107,21 +3161,17 @@ class ConsoleApplication:
         unit_id = str(payload.get('unit_id', '')).strip()
         if not unit_id:
             raise web.HTTPBadRequest(text='unit_id is required')
+        if unit_id != str(self.node.parameter('unit_id')):
+            raise web.HTTPBadRequest(text='unit_id does not match this calibration session')
         message = ServoCalibrationStep.Request(
             command=commands[command_name],
             group=str(payload.get('group', '')).strip(),
-            joint=str(payload.get('joint', '')).strip(),
         )
         response = await self._call_service(
             self.node.servo_calibration_client, message, 10.0
         )
         self._require_capability_success(response.error)
-        evidence = {
-            'phase': response.phase,
-            'joint_names': list(response.joint_names),
-            'raw_positions': list(response.raw_positions),
-            'result_uri': response.result_uri,
-        }
+        evidence = self._servo_calibration_evidence(response)
         if (
             command_name == 'finalize'
             and not bool(self.node.parameter('calibration_capture_only'))

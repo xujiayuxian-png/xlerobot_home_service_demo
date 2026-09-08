@@ -65,6 +65,8 @@ def calibration_launch(workflow_id: str) -> LaunchDescription:
         ])),
         DeclareLaunchArgument('web_bind_host', default_value='0.0.0.0'),
         DeclareLaunchArgument('web_port', default_value='8080'),
+        DeclareLaunchArgument('existing_servo_file', default_value=''),
+        DeclareLaunchArgument('existing_servo_version', default_value=''),
         Node(
             package='xlerobot_commissioning', executable='calibration_workbench',
             name=f'{workflow_id}_calibration', output='screen', parameters=[{
@@ -98,6 +100,9 @@ def calibration_launch(workflow_id: str) -> LaunchDescription:
             name='servo_calibration_server', output='screen', parameters=[{
                 'right_port': LaunchConfiguration('right_bus'),
                 'left_port': LaunchConfiguration('left_bus'),
+                'unit_id': LaunchConfiguration('unit_id'),
+                'existing_servo_file': LaunchConfiguration('existing_servo_file'),
+                'existing_servo_version': LaunchConfiguration('existing_servo_version'),
                 'result_file': PathJoinSubstitution([
                     artifact_root, 'calibration_work', 'servo', 'result.yaml'
                 ]),

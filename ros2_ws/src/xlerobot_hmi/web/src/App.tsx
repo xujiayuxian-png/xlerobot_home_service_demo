@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type CalibrationCoverage, type SiteSummary } from './api'
 import { JoystickPad } from './JoystickPad'
+import { ServoCalibrationWorkspace } from './ServoCalibrationWorkspace'
 import { useBaseTeleop } from './useBaseTeleop'
 import {
   activeCameraPerception, activePersonTarget, taskShowsNavigationPath,
@@ -443,8 +444,6 @@ function CalibrationWorkspace({ unitId, workflow, captureOnly, onError }: {
   const [rotationActual, setRotationActual] = useState('6.283185,6.283185')
   const [sampleCount, setSampleCount] = useState(0)
   const [poseIndex, setPoseIndex] = useState(0)
-  const [servoGroup, setServoGroup] = useState('right_arm')
-  const [servoJoint, setServoJoint] = useState('shoulder_pan')
   const [coverage, setCoverage] = useState<CalibrationCoverage | null>(null)
   const workflows: Record<string, string> = {
     servo: '舵机标定', base_geometry: '底盘几何',
@@ -530,19 +529,8 @@ function CalibrationWorkspace({ unitId, workflow, captureOnly, onError }: {
     })
     return () => { active = false }
   }, [workflow, visual, onError])
-  const servoJoints: Record<string, string[]> = {
-    right_arm: ['shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll', 'gripper'],
-    left_arm: ['shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll', 'gripper'],
-    head: ['pan', 'tilt'],
-  }
-  const servoStep = async (command: string) => {
-    try {
-      const value = await api.servoCalibrationStep(
-        unitId, command, servoGroup, servoJoint,
-      )
-      setResult(`${value.phase} · ${JSON.stringify(value.metrics || value.raw_positions)}`)
-    } catch (reason) { onError(String(reason)) }
-  }
+  if (workflow === 'servo') return <ServoCalibrationWorkspace
+    unitId={unitId} captureOnly={captureOnly} onError={onError} />
   return <section className="engineering-card calibration-card">
     <p className="section-label">UNIT CALIBRATION · {unitId}</p>
     <h2>{workflows[workflow] || '标定工具'}</h2>
@@ -550,32 +538,7 @@ function CalibrationWorkspace({ unitId, workflow, captureOnly, onError }: {
       ? <p>此页面只采集原始标定结果；请回到命令行用 tools/calibrate 严格求解、导入并激活。</p>
       : <><p>所有结果先进入 draft；四项质量门槛全部通过后才能激活。激活不会修改仓库配置。</p>
         <button onClick={preflight}>检查当前工作流</button></>}
-    {workflow === 'servo' ? <>
-      <label>标定分组<select value={servoGroup} onChange={event => {
-        setServoGroup(event.target.value)
-        setServoJoint(servoJoints[event.target.value][0])
-      }}>
-        <option value="right_arm">右臂与右夹爪</option>
-        <option value="left_arm">左臂与左夹爪</option>
-        <option value="head">头部</option>
-      </select></label>
-      <label>当前关节<select value={servoJoint}
-        onChange={event => setServoJoint(event.target.value)}>
-        {servoJoints[servoGroup].map(name => <option key={name}>{name}</option>)}
-      </select></label>
-      <div className="button-row">
-        <button onClick={() => servoStep('scan')}>1. 扫描并读取</button>
-        <button onClick={() => servoStep('release_torque')}>2. 释放本组扭矩</button>
-        <button onClick={() => servoStep('capture_zero')}>3. 记录本组零位</button>
-      </div>
-      <div className="button-row">
-        <button className="primary" onClick={() => servoStep('start_range')}>4. 开始记录当前关节范围</button>
-        <button onClick={() => servoStep('finish_range')}>5. 完成当前关节范围</button>
-        <button onClick={() => servoStep('finalize')}>{captureOnly
-          ? '6. 完成采集并保存结果' : '6. 验收全部并写入 draft'}</button>
-      </div>
-      <p className="hint">先支撑机械臂，再释放扭矩。整组摆到机械零位后记录一次零位；随后逐关节开始记录、手动覆盖安全活动范围、完成记录。禁止用力顶机械限位。</p>
-    </> : workflow === 'base_geometry' ? <>
+    {workflow === 'base_geometry' ? <>
       <div className="field-row">
         <label>当前轮径 m<input value={nominalRadius} onChange={event => setNominalRadius(event.target.value)} /></label>
         <label>当前轮距 m<input value={nominalSeparation} onChange={event => setNominalSeparation(event.target.value)} /></label>

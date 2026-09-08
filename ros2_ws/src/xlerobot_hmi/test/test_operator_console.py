@@ -36,7 +36,9 @@ from xlerobot_hmi.operator_console import (
     transient_state_qos_profile,
 )
 from xlerobot_hmi.manual_control import ManualControlCoordinator
-from xlerobot_interfaces.msg import CapabilityError, PerceptionObservation, TaskEvent
+from xlerobot_interfaces.msg import (
+    CapabilityError, PerceptionObservation, ServoCalibrationJoint, TaskEvent,
+)
 from xlerobot_interfaces.srv import BeginEpisode, FinalizeEpisode, ReviewEpisode, ServoCalibrationStep
 import yaml
 from xlerobot_assets import ArtifactCatalog
@@ -1286,6 +1288,7 @@ def test_capture_only_servo_finalize_returns_result_without_legacy_import():
         'workspace': 'calibration',
         'calibration_workflow': 'servo',
         'calibration_capture_only': True,
+        'unit_id': 'robot-1',
     }
     audits = []
     node = SimpleNamespace(
@@ -1312,7 +1315,7 @@ def test_capture_only_servo_finalize_returns_result_without_legacy_import():
         async def json():
             return {
                 'command': 'finalize', 'unit_id': 'robot-1',
-                'group': 'right_arm', 'joint': 'gripper',
+                'group': 'right_arm',
             }
 
     async def finalize():
@@ -1325,6 +1328,123 @@ def test_capture_only_servo_finalize_returns_result_without_legacy_import():
     assert len(calls) == 1
     assert calls[0][0] is node.servo_calibration_client
     assert audits
+
+
+def _servo_console_for_test():
+    values = {
+        'enable_engineering_tools': True, 'workspace': 'calibration',
+        'calibration_workflow': 'servo', 'calibration_capture_only': True,
+        'unit_id': 'robot-1',
+    }
+    audits = []
+    node = SimpleNamespace(
+        parameter=lambda name: values[name],
+        servo_calibration_client=object(),
+        history=SimpleNamespace(audit=lambda *args: audits.append(args)),
+    )
+    return ConsoleApplication(node), values, audits
+
+
+def test_servo_status_is_observational_and_preserves_group_progress():
+    application, _, audits = _servo_console_for_test()
+    commands = []
+
+    async def call(_client, request, _timeout):
+        commands.append(request.command)
+        response = ServoCalibrationStep.Response()
+        response.phase = 'RANGE_RECORDING'
+        response.active_group = 'right_arm'
+        response.completed_groups = ['left_arm']
+        response.released_groups = ['right_arm']
+        response.session_uri = 'file:///capture/session.yaml'
+        response.joints = [ServoCalibrationJoint(
+            name='right_arm.shoulder_pan', servo_id=1,
+            position=2100, zero=2000, reference_zero=2000,
+            zero_source='existing:unit-v1', raw_min=900, raw_max=3100,
+            coverage=0.82, zero_captured=True, range_captured=False,
+            online=True,
+        )]
+        return response
+
+    application._call_service = call
+
+    async def status():
+        for _ in range(2):
+            response = await application.servo_calibration_status(object())
+            result = json.loads(response.text)
+            assert result['active_group'] == 'right_arm'
+            assert result['completed_groups'] == ['left_arm']
+            assert result['released_groups'] == ['right_arm']
+            assert result['joints'][0]['raw_min'] == 900
+            assert result['joints'][0]['zero_source'] == 'existing:unit-v1'
+            assert result['joints'][0]['coverage'] == 0.82
+
+    asyncio.run(status())
+    assert commands == [ServoCalibrationStep.Request.STATUS] * 2
+    assert not audits
+
+
+def test_servo_reference_serves_only_the_fixed_built_asset(tmp_path):
+    application, _, _ = _servo_console_for_test()
+    application._static_root = lambda: tmp_path
+
+    async def check():
+        with pytest.raises(web.HTTPNotFound):
+            await application.servo_zero_reference(object())
+        image = tmp_path / 'calibration-zero.png'
+        image.write_bytes(b'asset contents')
+        response = await application.servo_zero_reference(object())
+        assert isinstance(response, web.FileResponse)
+        assert response._path == image
+
+    asyncio.run(check())
+
+
+@pytest.mark.parametrize('command,constant', [
+    ('start_range', 'START_RANGE'), ('finish_range', 'FINISH_RANGE'),
+    ('pause_range', 'PAUSE_RANGE'), ('reset_group', 'RESET_GROUP'),
+    ('use_existing_zero', 'USE_EXISTING_ZERO'),
+])
+def test_servo_web_actions_address_whole_group(command, constant):
+    application, _, audits = _servo_console_for_test()
+    calls = []
+
+    async def call(_client, message, _timeout):
+        calls.append(message)
+        response = ServoCalibrationStep.Response()
+        response.phase = 'PAUSED'
+        return response
+
+    application._call_service = call
+
+    class Request:
+        async def json(self):
+            return {'unit_id': 'robot-1', 'command': command, 'group': 'head'}
+
+    asyncio.run(application.servo_calibration_step(Request()))
+    assert calls[0].command == getattr(ServoCalibrationStep.Request, constant)
+    assert calls[0].group == 'head'
+    assert not hasattr(calls[0], 'joint')
+    assert len(audits) == 1
+
+
+def test_servo_wrong_unit_or_wrong_workspace_never_calls_backend():
+    application, values, _ = _servo_console_for_test()
+
+    class Request:
+        async def json(self):
+            return {'unit_id': 'different-unit', 'command': 'release_torque',
+                    'group': 'right_arm'}
+
+    async def check():
+        with pytest.raises(web.HTTPBadRequest) as wrong_unit:
+            await application.servo_calibration_step(Request())
+        assert 'unit_id' in wrong_unit.value.text
+        values['calibration_workflow'] = 'head_camera'
+        with pytest.raises(web.HTTPNotFound):
+            await application.servo_calibration_status(object())
+
+    asyncio.run(check())
 
 
 def test_collection_home_requires_prepared_state_and_uses_typed_service():

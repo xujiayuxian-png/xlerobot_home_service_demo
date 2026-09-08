@@ -1,24 +1,18 @@
 // Copyright 2026 Lisa
-
 #include <algorithm>
 #include <chrono>
-#include <cmath>
-#include <cstdint>
 #include <filesystem>
-#include <fstream>
-#include <limits>
 #include <memory>
-#include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
-#include <system_error>
-#include <unordered_map>
-#include <utility>
 #include <vector>
 
 #include "rclcpp/rclcpp.hpp"
 #include "xlerobot_feetech/scservo_feetech_bus.hpp"
+#include "xlerobot_feetech/servo_calibration_session.hpp"
 #include "xlerobot_interfaces/msg/capability_error.hpp"
+#include "xlerobot_interfaces/msg/servo_calibration_joint.hpp"
 #include "xlerobot_interfaces/srv/servo_calibration_step.hpp"
 
 namespace
@@ -26,41 +20,8 @@ namespace
 using Service = xlerobot_interfaces::srv::ServoCalibrationStep;
 using Error = xlerobot_interfaces::msg::CapabilityError;
 using Bus = xlerobot_feetech::ScServoFeetechBus;
+using Session = xlerobot_feetech::ServoCalibrationSession;
 using namespace std::chrono_literals;
-
-struct JointSpec
-{
-  std::string group;
-  std::string name;
-  uint8_t id;
-  int direction;
-  double lower;
-  double upper;
-};
-
-struct JointCapture
-{
-  std::optional<int> offset;
-  std::optional<int> raw_min;
-  std::optional<int> raw_max;
-};
-
-const std::vector<JointSpec> kJoints = {
-  {"right_arm", "shoulder_pan", 1, 1, -2.05, 2.05},
-  {"right_arm", "shoulder_lift", 2, -1, -1.40, 1.85},
-  {"right_arm", "elbow_flex", 3, 1, -1.65, 1.70},
-  {"right_arm", "wrist_flex", 4, 1, -1.75, 1.75},
-  {"right_arm", "wrist_roll", 5, -1, -3.09, 3.09},
-  {"right_arm", "gripper", 6, 1, 0.0, 1.65},
-  {"left_arm", "shoulder_pan", 1, 1, -2.05, 2.05},
-  {"left_arm", "shoulder_lift", 2, -1, -1.45, 1.78},
-  {"left_arm", "elbow_flex", 3, 1, -1.50, 1.70},
-  {"left_arm", "wrist_flex", 4, 1, -1.75, 1.75},
-  {"left_arm", "wrist_roll", 5, -1, -3.09, 3.09},
-  {"left_arm", "gripper", 6, 1, 0.0, 1.65},
-  {"head", "pan", 7, -1, -1.57, 1.57},
-  {"head", "tilt", 8, 1, -0.76, 1.45},
-};
 
 class ServoCalibrationServer : public rclcpp::Node
 {
@@ -70,8 +31,19 @@ public:
   {
     const auto right_port = declare_parameter<std::string>("right_port", "/dev/right_arm");
     const auto left_port = declare_parameter<std::string>("left_port", "/dev/left_arm");
+    const auto unit_id = declare_parameter<std::string>("unit_id", "");
     output_ = declare_parameter<std::string>(
       "result_file", ".xlerobot/calibration_work/servo/result.yaml");
+    session_file_ = std::filesystem::path(output_).parent_path() / "session.yaml";
+    session_ = std::make_unique<Session>(unit_id, right_port + "|" + left_port);
+    const auto reference = declare_parameter<std::string>("existing_servo_file", "");
+    const auto version = declare_parameter<std::string>("existing_servo_version", "");
+    if (!reference.empty()) {session_->load_reference(reference, version);}
+    if (std::filesystem::exists(session_file_)) {session_->restore(session_file_);}
+    if (std::filesystem::exists(output_)) {session_->recover_finalized_result(output_);}
+    if (session_->finalized() && !std::filesystem::exists(output_)) {
+      throw std::runtime_error("finalized session result is missing; restore it or use --fresh");
+    }
     const auto baudrate = declare_parameter<int>("baudrate", 1000000);
     if (!right_.connect(right_port, baudrate)) {
       throw std::runtime_error("failed to open right servo bus: " + right_port);
@@ -81,248 +53,211 @@ public:
     }
     service_ = create_service<Service>(
       "/calibration/servo_step",
-      std::bind(
-        &ServoCalibrationServer::step, this, std::placeholders::_1,
-        std::placeholders::_2));
-    timer_ = create_wall_timer(20ms, std::bind(&ServoCalibrationServer::sample_range, this));
-    RCLCPP_INFO(get_logger(), "Exclusive servo calibration buses are ready");
+      std::bind(&ServoCalibrationServer::step, this, std::placeholders::_1, std::placeholders::_2));
+    timer_ = create_wall_timer(50ms, std::bind(&ServoCalibrationServer::sample_range, this));
+    persist();
+    RCLCPP_INFO(get_logger(), "Servo calibration ready: %s; no torque/motion enabled", session_->phase().c_str());
+  }
+
+  ~ServoCalibrationServer() override
+  {
+    if (!session_) {return;}
+    try {session_->save(session_file_);} catch (const std::exception & error) {
+      RCLCPP_ERROR(get_logger(), "Cannot save servo session on shutdown: %s", error.what());
+    }
   }
 
 private:
-  Bus & bus(const std::string & group)
+  Bus & bus(const std::string & group) {return group == "right_arm" ? right_ : left_;}
+
+  Session::Positions read_positions(const std::string & name)
   {
-    return group == "right_arm" ? right_ : left_;
+    const auto indices = session_->group(name);
+    std::vector<uint8_t> ids;
+    for (const auto i : indices) {ids.push_back(Session::specs()[i].id);}
+    std::vector<int> positions;
+    // One bus transaction per whole group. Valid replies survive another joint's
+    // timeout; missing rows are visibly offline and cannot pass Finish.
+    bus(name).syncReadPositions(ids, positions);
+    Session::Positions sample;
+    for (size_t i = 0; i < indices.size(); ++i) {
+      sample.push_back(i < positions.size() && positions[i] != -1 ?
+        std::optional<int>(positions[i]) : std::nullopt);
+    }
+    return sample;
   }
 
-  std::vector<const JointSpec *> group(const std::string & name) const
-  {
-    std::vector<const JointSpec *> result;
-    for (const auto & joint : kJoints) {
-      if (joint.group == name) {
-        result.push_back(&joint);
-      }
-    }
-    return result;
-  }
+  void refresh(const std::string & name) {session_->observe(name, read_positions(name));}
 
-  const JointSpec * joint(const std::string & group_name, const std::string & name) const
+  void persist()
   {
-    const auto found = std::find_if(kJoints.begin(), kJoints.end(), [&](const auto & row) {
-          return row.group == group_name && row.name == name;
-      });
-    return found == kJoints.end() ? nullptr : &*found;
-  }
-
-  static std::string key(const JointSpec & joint)
-  {
-    return joint.group + "." + joint.name;
-  }
-
-  static void fail(Service::Response & response, const std::string & message)
-  {
-    response.error.code = Error::INVALID_GOAL;
-    response.error.message = message;
-  }
-
-  void scan(
-    const std::vector<const JointSpec *> & joints, Service::Response & response)
-  {
-    for (const auto * item : joints) {
-      const auto position = bus(item->group).readPosition(item->id);
-      if (!position) {
-        throw std::runtime_error(
-                item->group + "." + item->name + " did not respond");
-      }
-      response.joint_names.push_back(key(*item));
-      response.raw_positions.push_back(*position);
-    }
-    response.phase = "SCANNED";
-  }
-
-  void release(
-    const std::vector<const JointSpec *> & joints, Service::Response & response)
-  {
-    for (const auto * item : joints) {
-      if (!bus(item->group).enableTorque(item->id, false)) {
-        throw std::runtime_error("failed to release torque: " + key(*item));
-      }
-    }
-    response.phase = "TORQUE_RELEASED";
-  }
-
-  void capture_zero(
-    const std::vector<const JointSpec *> & joints, Service::Response & response)
-  {
-    std::vector<std::pair<std::string, int>> measured;
-    for (const auto * item : joints) {
-      const auto position = bus(item->group).readPosition(item->id);
-      if (!position) {
-        throw std::runtime_error("failed to read zero: " + key(*item));
-      }
-      measured.emplace_back(key(*item), *position);
-      response.joint_names.push_back(key(*item));
-      response.raw_positions.push_back(*position);
-    }
-    for (const auto & [name, position] : measured) {
-      captures_[name].offset = position;
-    }
-    response.phase = "ZERO_CAPTURED";
-  }
-
-  void start_range(const JointSpec & item, Service::Response & response)
-  {
-    if (active_) {
-      throw std::runtime_error("finish the active range before starting another");
-    }
-    if (!captures_[key(item)].offset) {
-      throw std::runtime_error("capture the group zero pose first");
-    }
-    const auto position = bus(item.group).readPosition(item.id);
-    if (!position) {
-      throw std::runtime_error("failed to read range start: " + key(item));
-    }
-    active_ = &item;
-    active_min_ = *position;
-    active_max_ = *position;
-    response.phase = "RANGE_RECORDING";
-    response.joint_names.push_back(key(item));
-    response.raw_positions.push_back(*position);
-  }
-
-  void finish_range(const JointSpec & item, Service::Response & response)
-  {
-    if (active_ != &item) {
-      throw std::runtime_error("the requested joint is not recording a range");
-    }
-    const auto expected = (item.upper - item.lower) * 4096.0 / (2.0 * M_PI);
-    const auto measured = active_max_ - active_min_;
-    if (measured < expected * 0.6) {
-      throw std::runtime_error("recorded range covers less than 60% of the ROS range");
-    }
-    auto & capture = captures_[key(item)];
-    capture.raw_min = active_min_;
-    capture.raw_max = active_max_;
-    active_ = nullptr;
-    response.phase = "RANGE_CAPTURED";
-    response.joint_names = {key(item) + ".min", key(item) + ".max"};
-    response.raw_positions = {active_min_, active_max_};
+    session_->save(session_file_);
+    last_save_ = std::chrono::steady_clock::now();
+    persistence_error_.clear();
   }
 
   void sample_range()
   {
-    if (!active_) {
-      return;
-    }
-    const auto position = bus(active_->group).readPosition(active_->id);
-    if (position) {
-      active_min_ = std::min(active_min_, *position);
-      active_max_ = std::max(active_max_, *position);
+    if (!session_->recording()) {return;}
+    try {
+      refresh(session_->active_group());
+      if (std::chrono::steady_clock::now() - last_save_ >= 1s) {persist();}
+    } catch (const std::exception & error) {
+      const auto group = session_->active_group();
+      session_->pause_range(group);
+      persistence_error_ = std::string("recording paused; session save/read failed: ") + error.what();
+      RCLCPP_ERROR(get_logger(), "%s", persistence_error_.c_str());
     }
   }
 
-  void finalize(Service::Response & response)
+  void release(const std::string & name)
   {
-    if (active_) {
-      throw std::runtime_error("finish the active range before finalizing");
-    }
-    for (const auto & item : kJoints) {
-      const auto found = captures_.find(key(item));
-      if (found == captures_.end() || !found->second.offset ||
-        !found->second.raw_min || !found->second.raw_max)
-      {
-        throw std::runtime_error("calibration is incomplete: " + key(item));
+    session_->check_group_change(name);
+    if (session_->recording()) {throw std::runtime_error("pause recording before releasing a group");}
+    bool success = true;
+    std::string failed;
+    for (const auto i : session_->group(name)) {
+      const auto & item = Session::specs()[i];
+      // Explicit release only: arm IDs 1..6, head IDs 7..8, never wheels 9/10.
+      // Do not initialize mode, write homing offsets, or enable torque here.
+      if (!bus(name).enableTorque(item.id, false)) {
+        success = false;
+        failed += (failed.empty() ? "" : ", ") + item.key();
       }
     }
-    const std::filesystem::path target(output_);
-    std::filesystem::create_directories(target.parent_path());
-    const auto temporary = target.string() + ".tmp";
-    std::ofstream stream(temporary, std::ios::trunc);
-    if (!stream) {
-      throw std::runtime_error("cannot create servo result file");
+    if (!success) {
+      released_groups_.erase(name);
+      throw std::runtime_error("torque release incomplete; support the group and retry: " + failed);
     }
-    stream << "{\n  \"schema\": \"xlerobot_servo_calibration/v1\"";
-    for (const auto & group_name : {"right_arm", "left_arm", "head"}) {
-      stream << ",\n  \"" << group_name << "\": {\"joints\": {";
-      bool first = true;
-      for (const auto * item : group(group_name)) {
-        const auto & value = captures_.at(key(*item));
-        stream << (first ? "\n" : ",\n") << "      \"" << item->name << "\": {"
-               << "\"servo_id\": " << static_cast<int>(item->id)
-               << ", \"direction\": " << item->direction
-               << ", \"offset\": " << *value.offset
-               << ", \"raw_min\": " << *value.raw_min
-               << ", \"raw_max\": " << *value.raw_max
-               << ", \"limit_min\": " << item->lower
-               << ", \"limit_max\": " << item->upper << "}";
-        first = false;
-      }
-      stream << "\n    }}";
+    released_groups_.insert(name);
+    refresh(name);
+  }
+
+  void require_release(const std::string & name) const
+  {
+    if (!released_groups_.count(name)) {
+      throw std::runtime_error("support this group and explicitly release its torque first");
     }
-    stream << "\n}\n";
-    stream.close();
-    if (!stream) {
-      throw std::runtime_error("failed to finish servo result file");
+  }
+
+  void response_state(Service::Response & response)
+  {
+    response.phase = session_->phase();
+    response.active_group = session_->active_group();
+    response.completed_groups = session_->completed_groups();
+    response.released_groups.assign(released_groups_.begin(), released_groups_.end());
+    response.session_uri = "file://" + std::filesystem::absolute(session_file_).string();
+    if (session_->finalized()) {
+      response.result_uri = "file://" + std::filesystem::absolute(output_).string();
     }
-    std::error_code error;
-    std::filesystem::rename(temporary, target, error);
-    if (error) {
-      std::filesystem::remove(target, error);
-      error.clear();
-      std::filesystem::rename(temporary, target, error);
+    for (size_t i = 0; i < Session::specs().size(); ++i) {
+      const auto & item = Session::specs()[i];
+      const auto & captured = session_->captures()[i];
+      xlerobot_interfaces::msg::ServoCalibrationJoint row;
+      row.name = item.key();
+      row.servo_id = item.id;
+      row.position = captured.position.value_or(-1);
+      row.zero = captured.zero.value_or(-1);
+      row.reference_zero = captured.reference_zero.value_or(-1);
+      row.zero_source = captured.zero_source;
+      row.raw_min = captured.raw_min.value_or(-1);
+      row.raw_max = captured.raw_max.value_or(-1);
+      row.coverage = session_->coverage(i);
+      row.zero_captured = captured.zero.has_value();
+      row.range_captured = captured.range_captured;
+      row.online = captured.online;
+      row.message = session_->message(i);
+      response.joint_names.push_back(row.name);
+      response.raw_positions.push_back(row.position);
+      response.joints.push_back(std::move(row));
     }
-    if (error) {
-      throw std::runtime_error("failed to publish servo result file: " + error.message());
-    }
-    response.phase = "FINALIZED";
-    response.result_uri = "file://" + std::filesystem::absolute(target).string();
   }
 
   void step(
     const std::shared_ptr<Service::Request> request,
     std::shared_ptr<Service::Response> response)
   {
+    std::string message = "servo calibration step complete";
     try {
-      const auto joints = group(request->group);
-      if (request->command != Service::Request::FINALIZE && joints.empty()) {
-        throw std::runtime_error("group must be right_arm, left_arm, or head");
-      }
-      if (request->command == Service::Request::SCAN) {
-        scan(joints, *response);
+      if (request->command == Service::Request::STATUS) {
+        // Read-only metadata. Web polling never starts sampling or motor writes.
+        if (!persistence_error_.empty()) {message = persistence_error_;}
+      } else if (request->command == Service::Request::SCAN) {
+        refresh(request->group);
+        message = "group positions refreshed";
       } else if (request->command == Service::Request::RELEASE_TORQUE) {
-        release(joints, *response);
+        release(request->group);
+        message = "group torque released; support the arm/head while moving it";
       } else if (request->command == Service::Request::CAPTURE_ZERO) {
-        capture_zero(joints, *response);
-      } else if (request->command == Service::Request::START_RANGE ||  // NOLINT
-        request->command == Service::Request::FINISH_RANGE)
-      {
-        const auto * selected = joint(request->group, request->joint);
-        if (!selected) {
-          throw std::runtime_error("joint does not belong to the selected group");
+        session_->check_group_change(request->group);
+        if (session_->recording()) {
+          throw std::runtime_error("pause range recording before changing the zero pose");
         }
-        if (request->command == Service::Request::START_RANGE) {
-          start_range(*selected, *response);
-        } else {
-          finish_range(*selected, *response);
+        require_release(request->group);
+        const auto positions = read_positions(request->group);
+        session_->observe(request->group, positions);
+        session_->capture_zero(request->group, positions);
+        persist();
+      } else if (request->command == Service::Request::USE_EXISTING_ZERO) {
+        session_->check_group_change(request->group);
+        require_release(request->group);
+        session_->use_existing_zero(request->group);
+        persist();
+        message = "existing software zeros reused; joint ranges still need recording";
+      } else if (request->command == Service::Request::START_RANGE) {
+        session_->check_group_change(request->group);
+        require_release(request->group);
+        refresh(request->group);
+        session_->start_range(request->group);
+        persist();
+      } else if (request->command == Service::Request::FINISH_RANGE) {
+        if (!session_->recording() || session_->active_group() != request->group) {
+          throw std::runtime_error("this group is not recording; resume before finishing");
         }
+        refresh(request->group);  // Never finish from a stale successful read.
+        session_->finish_range(request->group);
+        persist();
+      } else if (request->command == Service::Request::PAUSE_RANGE) {
+        session_->pause_range(request->group);
+        persist();
+      } else if (request->command == Service::Request::RESET_GROUP) {
+        session_->reset_group(request->group);
+        persist();
       } else if (request->command == Service::Request::FINALIZE) {
-        finalize(*response);
+        session_->finalize(output_);
+        persist();
+        message = "all fourteen joints saved; the active calibration has not changed";
       } else {
         throw std::runtime_error("unknown servo calibration command");
       }
+      if (request->command != Service::Request::STATUS && !persistence_error_.empty()) {
+        throw std::runtime_error(persistence_error_);
+      }
       response->error.code = Error::NONE;
-      response->error.message = "servo calibration step complete";
+      response->error.message = message;
     } catch (const std::exception & error) {
-      fail(*response, error.what());
+      response->error.code = Error::INVALID_GOAL;
+      response->error.message = error.what();
+      // A rejected finish keeps sampling and preserves newly collected ranges.
+      if (request->command != Service::Request::STATUS && session_->recording()) {
+        try {persist();} catch (const std::exception & save_error) {
+          session_->pause_range(session_->active_group());
+          persistence_error_ = std::string("session save failed: ") + save_error.what();
+          response->error.message += "; " + persistence_error_;
+        }
+      }
     }
+    response_state(*response);
   }
 
   Bus right_;
   Bus left_;
   std::string output_;
-  std::unordered_map<std::string, JointCapture> captures_;
-  const JointSpec * active_{nullptr};
-  int active_min_{std::numeric_limits<int>::max()};
-  int active_max_{std::numeric_limits<int>::min()};
+  std::filesystem::path session_file_;
+  std::unique_ptr<Session> session_;
+  std::set<std::string> released_groups_;
+  std::chrono::steady_clock::time_point last_save_{};
+  std::string persistence_error_;
   rclcpp::Service<Service>::SharedPtr service_;
   rclcpp::TimerBase::SharedPtr timer_;
 };

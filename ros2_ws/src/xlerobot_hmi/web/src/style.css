@@ -301,3 +301,83 @@ button.danger { border-color: #88474f; color: #ff9da7; background: rgba(96, 31, 
 .collection-warning h3 { margin-top: 0; color: #fca5a5; }
 .collection-storage { border: 1px solid #475569; padding: 14px; border-radius: 10px; margin: 12px 0; overflow-wrap: anywhere; }
 .collection-storage code { user-select: text; }
+
+/* The servo workbench keeps the live table mounted throughout group capture. */
+.servo-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+.servo-heading h2 { margin-bottom: 10px; }
+.servo-heading .card-intro { margin-bottom: 0; }
+.servo-phase { padding: 8px 12px; border: 1px solid #36515a; border-radius: 100px; color: var(--text-soft); font-size: .72rem; white-space: nowrap; }
+.servo-phase.recording { color: var(--green); border-color: #3e8968; background: #163b2d; }
+.servo-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 24px 0; }
+.servo-group { display: flex; align-items: center; gap: 12px; padding: 15px; text-align: left; background: #0a1b22; }
+.servo-group.selected { background: #17372f; border-color: #65bd96; box-shadow: inset 0 0 0 1px #65bd9622; }
+.servo-group-number { color: #73938c; font-size: 1.25rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+.servo-group.selected .servo-group-number { color: var(--green); }
+.servo-group strong, .servo-group small { display: block; }.servo-group small { margin-top: 5px; color: var(--text-soft); font-size: .65rem; }
+.servo-group em { margin-left: auto; color: #9fbaaf; font-size: .65rem; font-style: normal; white-space: nowrap; }
+.servo-main-grid { display: grid; grid-template-columns: minmax(300px, .85fr) minmax(0, 1.15fr); gap: 22px; align-items: start; }
+.servo-steps { display: grid; gap: 12px; }
+.servo-step { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; padding: 16px; border: 1px solid var(--line-soft); border-radius: 12px; background: #0a1b22; }
+.servo-step.current { border-color: #527f71; background: linear-gradient(135deg, #163229, #0b1d22); }
+.servo-step-index { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; border: 1px solid #385148; color: #8eada0; font-size: .74rem; font-weight: 750; }
+.servo-step.current .servo-step-index { color: #062318; background: var(--green); border-color: var(--green); }
+.servo-step h3 { margin: 3px 0 9px; font-size: .9rem; }
+.servo-step p { color: var(--text-soft); font-size: .73rem; line-height: 1.65; margin-bottom: 12px; }
+.servo-step p strong { color: #ddeae5; }
+.servo-step button { font-size: .74rem; }
+.servo-step p.servo-check { margin: 8px 0 0; color: #a2c4b2; }
+.servo-step p.servo-range-hint { margin: 10px 0 0; color: var(--amber); }
+.servo-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.servo-existing-zero { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.servo-existing-zero summary { cursor: pointer; color: #9bbab2; font-size: .7rem; line-height: 1.5; }
+.servo-existing-zero p { margin: 10px 0 0; }
+.servo-existing-zero label { display: flex; align-items: flex-start; gap: 8px; font-size: .7rem; }
+.servo-existing-zero input { width: 16px; height: 16px; margin: 0; flex: 0 0 auto; accent-color: var(--green); }
+.servo-existing-zero button { margin-top: 12px; }
+.servo-zero-reference { margin: 0 0 12px; }.servo-zero-reference summary { cursor: pointer; color: #a2c9b8; font-size: .72rem; }.servo-zero-reference img { width: 100%; margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; }.servo-zero-reference p { font-size: .65rem; margin: 5px 0 0; }
+.servo-readings { min-width: 0; padding: 18px; background: #081920; border: 1px solid var(--line-soft); border-radius: 14px; }
+.servo-readings-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.servo-readings-heading h3 { margin-bottom: 5px; font-size: .92rem; }
+.servo-readings-heading p { color: var(--text-dim); font-size: .61rem; letter-spacing: .04em; margin: 0; }
+.servo-readings-heading button { padding: 7px 10px; font-size: .64rem; white-space: nowrap; }
+.servo-table-scroll { overflow-x: auto; }
+.servo-table { width: 100%; border-collapse: collapse; font-size: .71rem; font-variant-numeric: tabular-nums; }
+.servo-table thead th { padding: 8px 8px 12px; color: var(--text-dim); font-size: .6rem; font-weight: 500; text-align: left; white-space: nowrap; }
+.servo-table tbody th, .servo-table td { border-top: 1px solid var(--line-soft); padding: 12px 8px; text-align: left; }
+.servo-table tbody th { min-width: 125px; max-width: 190px; font-weight: 500; }
+.servo-table tbody th strong, .servo-table tbody th small, .servo-table tbody th span { display: block; }
+.servo-table tbody th small { color: var(--text-dim); font-size: .56rem; margin-top: 4px; }
+.servo-table tbody th span { margin-top: 5px; color: #8fb6a3; font-size: .59rem; line-height: 1.4; overflow-wrap: anywhere; }
+.servo-table td { white-space: nowrap; }
+.servo-table td small { display: block; color: var(--text-dim); font-size: .56rem; margin-top: 5px; }
+.servo-table .servo-joint-warning th span { color: var(--amber); }
+.servo-coverage { position: relative; min-width: 64px; height: 7px; border-radius: 10px; background: #23363c; }
+.servo-coverage span { display: block; height: 100%; border-radius: 10px; background: #b39258; transition: width .2s; }
+.servo-coverage.enough span { background: var(--green); }
+.servo-coverage i { position: absolute; left: 60%; top: -2px; height: 11px; width: 1px; background: #b7cec3; }
+.servo-reset { margin-top: 16px; padding-top: 13px; border-top: 1px solid var(--line-soft); }
+.servo-reset [role="alertdialog"] { padding: 12px; border-radius: 9px; border: 1px solid #87534a; background: #382824; }
+.servo-reset strong { color: #ffd6c9; font-size: .76rem; }.servo-reset p { color: #cfaca2; font-size: .7rem; line-height: 1.6; margin: 8px 0 12px; }
+.servo-reset .servo-actions button { font-size: .7rem; }
+.servo-footer { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-top: 22px; margin-top: 22px; border-top: 1px solid var(--line); }
+.servo-footer strong { color: #c6e6d6; font-size: .85rem; }.servo-footer p { max-width: 670px; margin: 8px 0 0; font-size: .7rem; line-height: 1.6; color: var(--text-soft); }
+.servo-footer button { flex: 0 0 auto; font-size: .76rem; }
+.servo-operation { margin: 12px 0 0; min-height: 18px; font-size: .76rem; color: var(--green); }
+.servo-file { margin: 10px 0 0; color: var(--text-dim); font-size: .63rem; overflow-wrap: anywhere; }
+.servo-file code { margin-left: 6px; color: #8aaba2; }
+.servo-error { margin-bottom: 16px; padding: 14px; border: 1px solid #986545; border-radius: 11px; background: #37281f; overflow-wrap: anywhere; }
+.servo-error strong { color: #ffd1a4; font-size: .85rem; }.servo-error p { font-size: .74rem; color: #d5bda8; margin: 8px 0; }.servo-error code { font-size: .7rem; color: #f4bc9f; }
+@media (max-width: 1100px) { .servo-main-grid { grid-template-columns: 1fr; }.servo-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); }.servo-step { grid-template-columns: 1fr; } }
+@media (max-width: 780px) { .servo-steps { grid-template-columns: 1fr; }.servo-step { grid-template-columns: 28px minmax(0, 1fr); }.servo-groups { gap: 7px; }.servo-group { padding: 12px; flex-wrap: wrap; gap: 8px; }.servo-group-number { font-size: 1rem; }.servo-group em { width: 100%; margin-left: 0; }.servo-group small { font-size: .58rem; }.servo-footer { align-items: stretch; flex-direction: column; gap: 14px; } }
+@media (max-width: 520px) {
+  .servo-heading { gap: 10px; }.servo-heading h2 { font-size: 1.15rem; }.servo-phase { padding: 7px 8px; font-size: .62rem; }.servo-readings { padding: 12px; }.servo-group-number { display: none; }.servo-group strong { font-size: .83rem; }.servo-step { padding: 13px; }
+  .servo-table, .servo-table tbody { display: block; width: 100%; }.servo-table thead { display: none; }
+  .servo-table tbody tr { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 10px 6px; padding: 12px; margin-top: 8px; border: 1px solid var(--line-soft); border-radius: 9px; }
+  .servo-table tbody th { grid-column: 1 / -1; min-width: 0; max-width: none; padding: 0; border: 0; }
+  .servo-table tbody th strong { display: inline; font-size: .76rem; }.servo-table tbody th small { display: inline; margin-left: 8px; font-size: .53rem; }
+  .servo-table tbody th span { margin-top: 6px; }.servo-table td { padding: 0; border: 0; font-size: .68rem; }
+  .servo-table td::before { display: block; color: var(--text-dim); font-size: .56rem; margin-bottom: 4px; }
+  .servo-table td:nth-child(2)::before { content: '当前位置'; }.servo-table td:nth-child(3)::before { content: '零位'; }.servo-table td:nth-child(4)::before { content: '已采集范围'; }
+  .servo-table td:last-child { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding-top: 2px; }
+  .servo-table td:last-child small { margin: 0; }.servo-coverage { min-width: 0; }
+}

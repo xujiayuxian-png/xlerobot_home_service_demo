@@ -8,6 +8,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(xlerobot_interfaces REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 set(SCSERVO_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/SCServo_Linux")
 if(NOT EXISTS "${SCSERVO_SOURCE_DIR}/CMakeLists.txt")
@@ -28,7 +29,11 @@ target_link_libraries(${PROJECT_NAME} PRIVATE SCServo)
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 
 add_executable(servo_calibration_server src/servo_calibration_server.cpp)
-target_link_libraries(servo_calibration_server ${PROJECT_NAME})
+add_library(servo_calibration_session STATIC src/servo_calibration_session.cpp)
+target_include_directories(servo_calibration_session PUBLIC include)
+target_link_libraries(servo_calibration_session PUBLIC yaml-cpp)
+target_compile_features(servo_calibration_session PUBLIC cxx_std_17)
+target_link_libraries(servo_calibration_server ${PROJECT_NAME} servo_calibration_session)
 target_compile_features(servo_calibration_server PUBLIC cxx_std_17)
 ament_target_dependencies(servo_calibration_server rclcpp xlerobot_interfaces)
 
@@ -45,6 +50,9 @@ install(
 install(DIRECTORY include/ DESTINATION include)
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_servo_calibration_session test/test_servo_calibration_session.cpp)
+  target_link_libraries(test_servo_calibration_session servo_calibration_session)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_servo_calibration_contract
     test/test_servo_calibration_contract.py)

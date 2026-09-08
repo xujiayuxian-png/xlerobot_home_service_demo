@@ -17,6 +17,40 @@ export type CalibrationCoverage = {
   max_pairwise_pose_angle_deg: number
 }
 
+export type ServoCalibrationGroup = 'right_arm' | 'left_arm' | 'head'
+export type ServoCalibrationCommand =
+  | 'scan' | 'release_torque' | 'capture_zero' | 'use_existing_zero'
+  | 'start_range' | 'finish_range' | 'pause_range' | 'reset_group' | 'finalize'
+
+export interface ServoCalibrationJoint {
+  name: string
+  servo_id: number
+  position: number
+  zero: number
+  reference_zero: number
+  zero_source: string
+  raw_min: number
+  raw_max: number
+  coverage: number
+  zero_captured: boolean
+  range_captured: boolean
+  online: boolean
+  message: string
+}
+
+export interface ServoCalibrationState {
+  phase: 'IDLE' | 'ZERO_CAPTURED' | 'RANGE_RECORDING' | 'PAUSED' | 'RANGE_CAPTURED' | 'FINALIZED'
+  joint_names: string[]
+  raw_positions: number[]
+  result_uri: string
+  active_group: string
+  completed_groups: string[]
+  released_groups: string[]
+  session_uri: string
+  joints: ServoCalibrationJoint[]
+  message?: string
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -155,10 +189,12 @@ export const api = {
     }>('/api/v1/calibrations/move-pose', {
       method: 'POST', body: JSON.stringify({ pose_index: poseIndex }),
     }),
+  servoCalibrationStatus: () =>
+    request<ServoCalibrationState>('/api/v1/calibrations/servo/status'),
   servoCalibrationStep: (
-    unitId: string, command: string, group: string, joint: string,
-  ) => request<any>('/api/v1/calibrations/servo/step', {
-    method: 'POST', body: JSON.stringify({ unit_id: unitId, command, group, joint }),
+    unitId: string, command: ServoCalibrationCommand, group: ServoCalibrationGroup,
+  ) => request<ServoCalibrationState>('/api/v1/calibrations/servo/step', {
+    method: 'POST', body: JSON.stringify({ unit_id: unitId, command, group }),
   }),
   startCollection: (payload: Record<string, unknown>) =>
     request<CollectionState>('/api/v1/collections/sessions', {

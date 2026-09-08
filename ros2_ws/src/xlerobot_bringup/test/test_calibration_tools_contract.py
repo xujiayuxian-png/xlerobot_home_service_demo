@@ -49,6 +49,9 @@ def test_shared_composition_passes_fixed_workflow_to_backend_and_console():
     assert "workflow_id == 'servo'" in source
     assert "executable='servo_calibration_server'" in source
     assert 'technician_pin' not in source
+    assert "'existing_servo_file': LaunchConfiguration('existing_servo_file')" in source
+    assert "'existing_servo_version': LaunchConfiguration('existing_servo_version')" in source
+    assert "'unit_id': LaunchConfiguration('unit_id')" in source
 
 
 def test_public_capture_wrapper_requires_explicit_hardware_before_ros():
@@ -66,3 +69,24 @@ def test_public_capture_wrapper_requires_explicit_hardware_before_ros():
     assert 'render --for "$workflow"' in helper
     assert '--fresh and --resume are mutually exclusive' in helper
     assert 'previous capture archived without deletion' in helper
+    assert 'verify_calibration_runtime >/dev/null' in helper
+    assert 'not applied automatically' in helper
+
+
+def test_servo_capture_rejects_unit_mismatch_before_opening_devices(tmp_path):
+    import subprocess
+    import yaml
+
+    config = tmp_path / 'local.yaml'
+    config.write_text(yaml.safe_dump({
+        'schema': 'xlerobot_demo/v1',
+        'robot': {'unit_id': 'robot-a'},
+        'calibration': {'unit': 'robot-b', 'state_root': str(tmp_path / 'state')},
+    }))
+    result = subprocess.run([
+        str(ROOT.parents[2] / 'tools/calibrate'), 'capture', 'servo',
+        '--hardware', '--config', str(config),
+    ], capture_output=True, text=True, check=False)
+    assert result.returncode == 2
+    assert 'robot.unit_id and calibration.unit must be the same' in result.stderr
+    assert not (tmp_path / 'state').exists()
