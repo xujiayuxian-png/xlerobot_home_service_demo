@@ -33,6 +33,7 @@ setup(
     license='Apache-2.0',
     entry_points={
         'console_scripts': [
+            'hover_validation = xlerobot_calibration_tools.hover_node:main',
             'solve_head_camera_calibration = xlerobot_calibration_tools.cli:main_head',
             'solve_arm_handeye_calibration = xlerobot_calibration_tools.cli:main_arm',
             'collect_transform_samples = xlerobot_calibration_tools.collector_node:main',

@@ -25,7 +25,7 @@ export interface HeadCalibrationState {
   request_inflight: boolean
   unit_id: string
   running: boolean
-  phase: 'IDLE' | 'MOVING' | 'WAITING' | 'CAPTURING' | 'SOLVING' | 'VALIDATING' | 'PAUSED' | 'COMPLETED' | 'ERROR'
+  phase: 'IDLE' | 'MOVING' | 'RETURNING' | 'WAITING' | 'CAPTURING' | 'SOLVING' | 'VALIDATING' | 'PAUSED' | 'COMPLETED' | 'ERROR'
   message: string
   pose_index: number
   pose_count: number
@@ -46,7 +46,7 @@ export interface HeadCalibrationState {
   }
 }
 
-export type ServoCalibrationGroup = 'right_arm' | 'left_arm' | 'head'
+export type ServoCalibrationGroup = 'right_arm' | 'left_arm' | 'head' | 'leader'
 export type ServoCalibrationCommand =
   | 'scan' | 'release_torque' | 'capture_zero' | 'use_existing_zero'
   | 'start_range' | 'finish_range' | 'pause_range' | 'reset_group' | 'finalize'
@@ -207,6 +207,10 @@ export const api = {
     request<CalibrationCoverage>('/api/v1/calibrations/samples'),
   headCalibrationStatus: () =>
     request<HeadCalibrationState>('/api/v1/calibrations/head/status'),
+  resetVisualCalibration: (unitId: string, handeye: boolean) =>
+    request<{ message: string }>(`/api/v1/calibrations/${handeye ? 'handeye' : 'head'}/reset`, {
+      method: 'POST', body: JSON.stringify({ unit_id: unitId, confirm: true }),
+    }),
   handeyeCalibrationStatus: () =>
     request<HeadCalibrationState>('/api/v1/calibrations/handeye/status'),
   startHandeyeCalibration: (unitId: string) =>

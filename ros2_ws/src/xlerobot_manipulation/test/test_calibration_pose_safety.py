@@ -1,7 +1,7 @@
 import os
+from pathlib import Path
 import time
 import unittest
-from pathlib import Path
 
 from action_msgs.msg import GoalStatus
 from launch import LaunchDescription
@@ -22,8 +22,9 @@ def generate_test_description():
         parameters=[{'execution_enabled': False, 'head_pose_file': str(
             Path(__file__).resolve().parents[2] / 'xlerobot_calibration_tools'
             / 'config/head_camera_poses.yaml'
-        ), 'handeye_pose_file': str(Path(__file__).resolve().parents[2]
-                                  / 'xlerobot_calibration_tools/config/right_handeye_poses.yaml')}],
+        ), 'handeye_pose_file': str(
+            Path(__file__).resolve().parents[2]
+            / 'xlerobot_calibration_tools/config/right_handeye_poses.yaml')}],
         output='screen',
     )
     return LaunchDescription([server, launch_testing.actions.ReadyToTest()])

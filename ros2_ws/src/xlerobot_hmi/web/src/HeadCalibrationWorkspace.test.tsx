@@ -28,6 +28,37 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks() })
 
 describe('head camera automatic calibration', () => {
+  it.each([false, true])('archives a completed session without motion (handeye=%s)', async (handeye) => {
+    state = { ...state, phase: 'COMPLETED', quality_passed: true, sample_count: 26 }
+    vi.spyOn(api, 'handeyeCalibrationStatus').mockImplementation(async () => structuredClone(state))
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const reset = vi.spyOn(api, 'resetVisualCalibration').mockImplementation(async () => {
+      state = { ...state, phase: 'IDLE', quality_passed: false, sample_count: 0 }
+      return { message: '旧会话已归档' }
+    })
+    render(<HeadCalibrationWorkspace {...props} handeye={handeye} />)
+    await flush()
+    fireEvent.click(button('归档并重新标定'))
+    await flush()
+    await advance()
+    expect(reset).toHaveBeenCalledExactlyOnceWith('robot-1', handeye)
+    expect(button('开始自动标定').disabled).toBe(true)
+    expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(false)
+    expect(api.startHeadCalibration).not.toHaveBeenCalled()
+    expect(api.moveCalibrationPose).not.toHaveBeenCalled()
+  })
+
+  it('does not reset when confirmation is canceled or a scan is running', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const reset = vi.spyOn(api, 'resetVisualCalibration')
+    render(<HeadCalibrationWorkspace {...props} />)
+    await flush()
+    fireEvent.click(button('归档并重新标定'))
+    expect(reset).not.toHaveBeenCalled()
+    state = { ...state, running: true, phase: 'MOVING' }
+    await advance()
+    expect(button('归档并重新标定').disabled).toBe(true)
+  })
   it('mounts as a read-only observer with dynamic poses and real debug stream', async () => {
     render(<HeadCalibrationWorkspace {...props} />)
     await flush()
@@ -118,7 +149,7 @@ describe('head camera automatic calibration', () => {
     expect(screen.getAllByText('已跳过')).toHaveLength(10)
     expect(screen.queryByText('待补采')).toBeNull()
     expect(activate).not.toHaveBeenCalled()
-    expect(screen.getByText('./tools/calibrate capture head-camera --hardware --fresh')).toBeTruthy()
+    expect(button('归档并重新标定').disabled).toBe(false)
   })
 
   it('uses the existing single-pose action only for explicitly confirmed preview', async () => {

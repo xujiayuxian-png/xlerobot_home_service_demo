@@ -111,7 +111,7 @@ class FakeCalibrationIO(Node):
             detail='software-only fixture observation'))
 
     def move(self, handle):
-        index = handle.request.pose_index
+        index = 'ready' if handle.request.return_ready else handle.request.pose_index
         self.moves.append(index)
         self.events.append(('move', index))
         self.motion_active += 1
@@ -280,10 +280,11 @@ def test_real_ros_head_sweep_saves_strict_draft_and_preserves_active(tmp_path, m
     with runtime(tmp_path, monkeypatch) as running:
         assert running.start().accepted
         assert_completed_draft(running)
-        assert running.io.moves == list(range(12))
+        assert running.io.moves == [*range(12), 'ready']
         assert running.io.events == [
             item for index in range(12)
-            for item in [('move', index), ('arrived', index), ('capture', index)]]
+            for item in [('move', index), ('arrived', index), ('capture', index)]] + [
+                ('move', 'ready'), ('arrived', 'ready')]
 
 
 def test_real_ros_cancel_is_confirmed_then_resume_keeps_completed_samples(tmp_path, monkeypatch):
@@ -303,10 +304,11 @@ def test_real_ros_cancel_is_confirmed_then_resume_keeps_completed_samples(tmp_pa
         assert running.node.session.sample_path.read_bytes() == saved_prefix
         assert not (running.unit_root / 'draft/components/head_camera.yaml').exists()
         assert running.node.motion_unconfirmed is False
+        assert 'ready' not in running.io.moves
         running.io.hold_pose = None
         assert running.start().accepted
         assert_completed_draft(running)
-        assert running.io.moves == [0, 1, 2, 3, *range(3, 12)]
+        assert running.io.moves == [0, 1, 2, 3, *range(3, 12), 'ready']
 
 
 def test_real_solver_quality_failure_does_not_publish_a_draft(tmp_path, monkeypatch):
@@ -341,7 +343,7 @@ def test_handeye_real_ros_freezes_fit_before_holdout_and_gates_draft(tmp_path, m
     with runtime(tmp_path, monkeypatch, workflow='right_handeye', perturb=perturb) as running:
         assert running.start().accepted
         wrapped = completed(running.latest_goal.get_result_async(), 70)
-        assert running.io.moves == list(range(26))
+        assert running.io.moves == [*range(26), *(['ready'] if perturb == 0 else [])]
         assert running.io.captures == list(range(26))
         assert not running.io.io_errors
         assert running.io.max_motion_active == 1
@@ -373,4 +375,4 @@ def test_handeye_cancel_during_validation_resumes_without_refitting(tmp_path, mo
         assert wrapped.status == GoalStatus.STATUS_SUCCEEDED, wrapped.result.error.message
         assert running.node.session.fit_path.read_bytes() == frozen
         assert running.io.captures == list(range(26))
-        assert running.io.moves == [*range(23), *range(22, 26)]
+        assert running.io.moves == [*range(23), *range(22, 26), 'ready']

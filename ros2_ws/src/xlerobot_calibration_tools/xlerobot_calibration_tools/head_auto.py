@@ -49,6 +49,27 @@ class HeadSession:
     frames = FRAMES
     schema = 'xlerobot_head_capture_progress/v1'
 
+    def restart(self, draft_path=None):
+        """Archive one capture directory, preserving drafts and active runtime."""
+        import shutil
+        import uuid
+        archive = None
+        if self.directory.exists():
+            if draft_path is not None and draft_path.is_file():
+                shutil.copy2(draft_path, self.directory / 'draft_snapshot.yaml')
+            archive = self.directory.with_name(self.directory.name + '.archive-' + uuid.uuid4().hex)
+            self.directory.rename(archive)
+        try:
+            fresh = type(self)(self.directory, self.unit, self.poses, self.pose_hash,
+                               servo_hash=self.document['servo_sha256'])
+            fresh.phase('IDLE', 'new session ready; confirm movement before starting')
+        except Exception:
+            # Leave evidence recoverable if creating a fresh progress file fails.
+            if archive is not None and not self.directory.exists():
+                archive.rename(self.directory)
+            raise
+        return fresh, archive
+
     def __init__(self, directory, unit, poses, pose_hash, *, servo_hash=''):
         self.directory = Path(directory)
         self.path = self.directory / 'progress.yaml'

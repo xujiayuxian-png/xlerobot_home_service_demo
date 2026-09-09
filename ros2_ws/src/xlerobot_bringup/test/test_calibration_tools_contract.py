@@ -79,7 +79,8 @@ def test_public_capture_wrapper_requires_explicit_hardware_before_ros():
     helper = (ROOT.parents[2] / 'tools/lib/calibration_capture.sh').read_text()
     assert "printf -v config_q '%q' \"$XLEROBOT_CONFIG\"" in helper
     assert helper.count('--config $config_q') == 3
-    assert 'render --for "$workflow"' in helper
+    assert 'render --for "$render_for"' in helper
+    assert '[[ $workflow != hover ]] || render_for=right-handeye' in helper
     assert '--fresh and --resume are mutually exclusive' in helper
     assert 'previous capture archived without deletion' in helper
     assert 'verify_calibration_runtime >/dev/null' in helper

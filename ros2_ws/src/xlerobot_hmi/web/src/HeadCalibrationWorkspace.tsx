@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, type HeadCalibrationState } from './api'
+import { LiveCameraImage } from './LiveCameraImage'
 
 const phases: Record<string, string> = {
   IDLE: '准备就绪', MOVING: '头部移动中', WAITING: '等待清晰、稳定的标定板',
   CAPTURING: '保存样本', SOLVING: '正在求解', PAUSED: '已暂停',
   COMPLETED: '标定完成', ERROR: '需要处理后继续',
   VALIDATING: '独立留出验证中',
+  RETURNING: '结果已保存 · 正在回 ready',
 }
 const poseLabels: Record<string, string> = {
   pending: '待采集', moving: '移动中', waiting: '等待识别', captured: '已采集', skipped: '待补采',
@@ -67,19 +69,27 @@ export function HeadCalibrationWorkspace({ unitId, onError, handeye = false }: {
   const resume = Boolean(state && (count > 0 || state.phase === 'PAUSED' || state.phase === 'ERROR'))
   const startLabel = complete ? '本次标定已完成' : resume ? '继续自动采集 / 补采' : '开始自动标定'
 
-  const command = async (operation: 'start' | 'pause' | 'preview') => {
+  const command = async (operation: 'start' | 'pause' | 'preview' | 'reset') => {
     if (busyRef.current) return
+    if (operation === 'reset' && !window.confirm('归档本轮样本和报告，开始新的标定会话？已有草稿和生效标定不变，不会运动或释放扭矩。')) return
     busyRef.current = true
     setBusy(operation)
     setActionError('')
     setNotice('')
     try {
-      const result = operation === 'start' ? await (handeye ? api.startHandeyeCalibration(unitId) : api.startHeadCalibration(unitId))
+      const result = operation === 'reset' ? await api.resetVisualCalibration(unitId, handeye)
+        : operation === 'start' ? await (handeye ? api.startHandeyeCalibration(unitId) : api.startHeadCalibration(unitId))
         : operation === 'pause' ? await (handeye ? api.pauseHandeyeCalibration() : api.pauseHeadCalibration())
           : await api.moveCalibrationPose(0)
       if (!mounted.current) return
       setNotice(result.message)
       if (operation === 'start') { setAwaitingStart(true); setConfirmed(false) }
+      if (operation === 'reset') {
+        setConfirmed(false)
+        setAwaitingStart(false)
+        setState(null)
+        setReceivedAt(0)
+      }
     } catch (reason) {
       if (mounted.current) {
         const message = String(reason)
@@ -96,6 +106,7 @@ export function HeadCalibrationWorkspace({ unitId, onError, handeye = false }: {
     <div className="head-calibration-heading">
       <div><p className="section-label">{handeye ? 'RIGHT HAND–EYE' : 'HEAD CAMERA'} · {unitId}</p>
         <h2>{handeye ? '右臂手眼自动标定与验证' : '头部相机自动标定'}</h2>
+        <p>{handeye ? '成功保存后，右臂和头部回到 ready；夹爪保持不变。' : '成功保存后头部回到 ready，不操作机械臂。'}暂停或失败时不会自动回位。</p>
         <p>{handeye ? '固定夹爪 Tag 23：20 姿态拟合 → 冻结参数 → 6 个独立姿态验证。' : '放好整板，剩下的交给机器人：转头 → 等待稳定 → 采样 → 求解。'}</p></div>
       <span className={`head-phase ${complete ? 'complete' : ''}`} role="status">
         {!live ? '等待实时状态' : handeye && state?.phase === 'MOVING' ? '右臂 / 头部移动中'
@@ -105,7 +116,8 @@ export function HeadCalibrationWorkspace({ unitId, onError, handeye = false }: {
     <div className="head-calibration-layout">
       <div className="head-calibration-view">
         <figure className="head-camera-preview">
-          <img src="/api/v1/cameras/detection/stream" alt="D455 标定板实时画面与 AprilTag 检测框" />
+          <LiveCameraImage src="/api/v1/cameras/detection/stream" ready={state !== null}
+            alt="D455 标定板实时画面与 AprilTag 检测框" />
           <figcaption>{handeye ? 'AprilTag 36h11 · Tag 23 · 黑色外边框边长 60 mm · 固定在右夹爪固定侧' : 'AprilTag 36h11 · 4 × 4 · ID 0–15 · 单 Tag 40 mm'}</figcaption>
         </figure>
         <div className="head-visual-metrics" aria-label="标定板识别状态">
@@ -149,7 +161,7 @@ export function HeadCalibrationWorkspace({ unitId, onError, handeye = false }: {
         {actionError && <p className="head-warning" role="alert">{actionError}</p>}
         {notice && <p className="hint" aria-live="polite">{notice}</p>}
         <p className="hint">打开网页、刷新或重连不会发起运动。暂停后保持当前位置，继续时只补未完成的姿态。</p>
-        {handeye && <p className="hint">全程头部固定在 0 / 0.796 rad，不开合夹爪，不移动底盘。新增验证姿态尚待现场验收。</p>}
+        {handeye && <p className="hint">采样时头部固定在 0 / 0.796 rad，不开合夹爪，不移动底盘。留出验证测的是视觉–FK 闭合误差，不代表绝对抓取精度。</p>}
       </div>
     </div>
     <div className="head-pose-section">
@@ -191,11 +203,13 @@ export function HeadCalibrationWorkspace({ unitId, onError, handeye = false }: {
         {state.report_uri && <p className="head-result-path">逐姿态验证报告：<code>{state.report_uri}</code></p>}
         <p>不会自动替换当前生效标定，也不会自动运行 Demo。</p>
       </section>}
-    <details className="head-restart-help"><summary>板挪过位置了 / 需要从头重来？</summary>
+    <section className="head-restart-help"><h3>重新标定</h3>
       <p>{handeye ? 'Tag 必须保持同一安装位置；重新安装 Tag、移动底盘、修改头部或舵机标定后，请新建会话。'
         : '一组样本必须使用同一个固定标定板位置。只要移动过标定板或底盘，就不要继续原会话。'}</p>
-      <p>先暂停并停止当前标定工具，再启动以下命令。旧采样会归档保留，不会删除。</p>
-      <code>./tools/calibrate capture {handeye ? 'right-handeye' : 'head-camera'} --hardware --fresh</code>
-    </details>
+      <p>归档本轮样本、拟合与验证报告，然后回到待开始状态。不会运动或释放扭矩；已有草稿和生效标定不变。运行中请先暂停。</p>
+      <button disabled={!ready || running || Boolean(busy)} onClick={() => void command('reset')}>
+        {busy === 'reset' ? '正在归档…' : '归档并重新标定'}</button>
+      <p>若修改了舵机或头相机标定、采样配置，仍需重新启动工具加载新配置。</p>
+    </section>
   </section>
 }

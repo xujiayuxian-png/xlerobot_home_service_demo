@@ -8,6 +8,7 @@ const groups: Array<{ id: ServoCalibrationGroup, title: string, subtitle: string
   { id: 'right_arm', title: '右臂', subtitle: '5 个关节 + 夹爪' },
   { id: 'left_arm', title: '左臂', subtitle: '5 个关节 + 夹爪' },
   { id: 'head', title: '头部', subtitle: '水平转动 + 俯仰' },
+  { id: 'leader', title: 'Leader 主臂', subtitle: '独立示教臂 · 6 个舵机' },
 ]
 const jointNames: Record<string, string> = {
   shoulder_pan: '肩部水平', shoulder_lift: '肩部抬升', elbow_flex: '肘部',
@@ -41,8 +42,9 @@ function rangeReady(joint: ServoCalibrationJoint | undefined): boolean {
     && (!joint.message || joint.message === 'range sufficient' || joint.message === 'range captured'))
 }
 
-export function ServoCalibrationWorkspace({ unitId, captureOnly, onError }: {
-  unitId: string, captureOnly: boolean, onError: (message: string) => void
+export function ServoCalibrationWorkspace({ unitId, captureOnly, onError, onRestart, restartBusy = false }: {
+  unitId: string, captureOnly: boolean, onError: (message: string) => void,
+  onRestart?: () => void, restartBusy?: boolean,
 }) {
   const [state, setState] = useState<ServoCalibrationState | null>(null)
   const [group, setGroup] = useState<ServoCalibrationGroup>('right_arm')
@@ -61,6 +63,7 @@ export function ServoCalibrationWorkspace({ unitId, captureOnly, onError }: {
 
   const acceptStatus = (value: ServoCalibrationState) => {
     setState(value)
+    if (!initialized.current && value.joints.some(joint => joint.name.startsWith('leader.'))) setGroup('leader')
     // Restore a running/paused group on first load. Ordinary status updates must
     // never jump the user's selected tab or remount the controls.
     if ((!initialized.current || value.phase === 'RANGE_RECORDING')
@@ -127,6 +130,8 @@ export function ServoCalibrationWorkspace({ unitId, captureOnly, onError }: {
   }
 
   const selected = groups.find(item => item.id === group)!
+  const leaderOnly = state?.joints.some(joint => joint.name.startsWith('leader.')) ?? false
+  const availableGroups = groups.filter(item => leaderOnly ? item.id === 'leader' : item.id !== 'leader')
   const names = group === 'head' ? ['pan', 'tilt'] : armJoints
   const rows = names.map(name => ({
     name, joint: state?.joints.find(joint => joint.name === `${group}.${name}`),
@@ -140,7 +145,7 @@ export function ServoCalibrationWorkspace({ unitId, captureOnly, onError }: {
   const hasReference = rows.every(({ joint }) =>
     joint && Number.isFinite(joint.reference_zero) && joint.reference_zero >= 0)
   const enoughRange = rows.every(({ joint }) => rangeReady(joint))
-  const allComplete = groups.every(item => state?.completed_groups.includes(item.id))
+  const allComplete = availableGroups.every(item => state?.completed_groups.includes(item.id))
   const disabled = Boolean(busy) || !state || Boolean(readError) || finalized
   const step = completed ? 3 : recording || hasZero ? 2 : released ? 1 : 0
 
@@ -157,8 +162,18 @@ export function ServoCalibrationWorkspace({ unitId, captureOnly, onError }: {
       </span>
     </header>
 
+    {onRestart && <div className="servo-reset">
+      <button disabled={Boolean(busy) || recording || restartBusy} onClick={onRestart}>
+        {restartBusy ? '正在归档并重新开始…' : leaderOnly ? '重新开始 Leader 标定' : '重新开始从臂 / 头部标定'}
+      </button>
+      <p>归档本轮全部记录并开始新一轮，不删除旧结果，不改变生效标定，不自动上力或移动。
+        {recording ? '请先暂停范围采集。' : ''}</p>
+    </div>}
+    {finalized && <p className="notice">本轮已保存。单组重采仅用于尚未保存的采集；要重新标定，请使用上方“重新开始”按钮。
+      {!onRestart && '独立工具请退出后使用 --fresh 重新启动。'}</p>}
+
     <div className="servo-groups" role="group" aria-label="标定分组">
-      {groups.map((item, index) => <button key={item.id}
+      {availableGroups.map((item, index) => <button key={item.id}
         className={`servo-group ${group === item.id ? 'selected' : ''}`}
         aria-pressed={group === item.id}
         disabled={Boolean(busy) || (recording && group !== item.id)}
@@ -169,6 +184,7 @@ export function ServoCalibrationWorkspace({ unitId, captureOnly, onError }: {
       </button>)}
     </div>
 
+    {leaderOnly && <p className="card-intro">Leader 独立标定 · 尚未实机验收。仅连接示教臂，不使用从臂零位；结果单独保存，不替换机器人标定。</p>}
     {readError && <div className="servo-error" role="alert">
       <strong>暂时无法读取舵机状态</strong><p>显示的是最后一次读数，操作按钮暂不可用。正在自动重试，不会清空已采集数据。</p><code>{readError}</code>
     </div>}
@@ -261,7 +277,7 @@ export function ServoCalibrationWorkspace({ unitId, captureOnly, onError }: {
     </div>
 
     <footer className="servo-footer">
-      <div><strong>{state?.completed_groups.length ?? 0} / 3 组完成</strong>
+      <div><strong>{state?.completed_groups.length ?? 0} / {availableGroups.length} 组完成</strong>
         <p>采集进度自动保存在机器人上，刷新页面不丢失；重启工具后可继续。完成采集只保存本机结果，不自动上力，不替换 active 标定。</p>
       </div>
       <button className="primary" disabled={disabled || recording || !allComplete}

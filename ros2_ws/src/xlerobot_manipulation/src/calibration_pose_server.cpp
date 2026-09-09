@@ -51,7 +51,8 @@ std::vector<std::vector<double>> load_head_poses(const std::string & path)
       pan < -0.30 || pan > 0.30 || tilt < 0.60 || tilt > 1.00 ||
       !unique.emplace(pan, tilt).second)
     {
-      throw std::runtime_error("head-camera poses must be unique and inside the reference scan range");
+      throw std::runtime_error(
+          "head-camera poses must be unique and inside the reference scan range");
     }
     poses.push_back({pan, tilt});
   }
@@ -76,7 +77,13 @@ std::vector<std::vector<double>> load_handeye_poses(const std::string & path)
     throw std::runtime_error("invalid right-handeye calibration pose configuration");
   }
   const std::vector<std::pair<double, double>> bounds{
-    {-0.92, 0.36}, {-0.56, 1.39}, {0.10, 1.19}, {-0.78, 0.46}, {1.50, 1.51}};
+    // Flex envelope includes the per-pose upward visibility adjustments.
+    {-0.92, 0.36}, {-0.56, 1.39}, {0.10, 1.19}, {-0.98, 0.46}, {1.50, 1.51}};
+  const double offset = document["wrist_roll_offset_rad"] ?
+    document["wrist_roll_offset_rad"].as<double>() : 0.0;
+  if (offset != 0.0 && offset != -std::acos(-1.0) / 2.0) {
+    throw std::runtime_error("unsupported hand-eye wrist mounting offset");
+  }
   std::vector<std::vector<double>> poses;
   std::set<std::vector<double>> unique;
   for (const auto & item : document["poses"]) {
@@ -89,7 +96,9 @@ std::vector<std::vector<double>> load_handeye_poses(const std::string & path)
         throw std::runtime_error("hand-eye pose outside reference capture envelope");
       }
     }
-    poses.push_back(row);
+    auto adjusted = row;
+    adjusted[4] += offset;
+    poses.push_back(adjusted);
   }
   return poses;
 }
@@ -104,6 +113,20 @@ public:
     allowed_workflow_ = declare_parameter<std::string>("workflow_id", "");
     head_poses_ = load_head_poses(declare_parameter<std::string>("head_pose_file", ""));
     arm_poses_ = load_handeye_poses(declare_parameter<std::string>("handeye_pose_file", ""));
+    const auto ready_path = declare_parameter<std::string>("ready_pose_file", "");
+    if (!ready_path.empty()) {
+      const auto ready = YAML::LoadFile(ready_path)["startup_ready_pose"]["ros__parameters"];
+      arm_ready_ = ready["arm_ready_positions"].as<std::vector<double>>();
+      head_ready_ = ready["head_ready_positions"].as<std::vector<double>>();
+      if (arm_ready_.size() != 5 || head_ready_.size() != 2) {
+        throw std::runtime_error("invalid shared ready pose dimensions");
+      }
+      for (const auto & values : {arm_ready_, head_ready_}) {
+        for (const auto value : values) {
+          if (!std::isfinite(value)) {throw std::runtime_error("non-finite ready pose");}
+        }
+      }
+    }
     if (allowed_workflow_ == Move::Goal::HEAD_CAMERA && head_poses_.empty()) {
       throw std::runtime_error("head_pose_file is required for head-camera motion");
     }
@@ -139,7 +162,9 @@ private:
   {
     const auto poses = count(request->workflow_id);
     if (
-      poses == 0 || request->pose_index >= poses || motion_unconfirmed_.load() ||
+      poses == 0 || (!request->return_ready && request->pose_index >= poses) ||
+      (request->return_ready && (head_ready_.empty() || arm_ready_.empty())) ||
+      motion_unconfirmed_.load() ||
       busy_.exchange(true))
     {
       return rclcpp_action::GoalResponse::REJECT;
@@ -308,6 +333,33 @@ private:
     }
     std::string error;
     bool controller_terminal = true;
+    if (request->return_ready) {
+      result->pose_name = request->workflow_id + "_ready";
+      feedback(handle, 0.1F, "returning to shared reference ready pose");
+      bool reached = true;
+      if (request->workflow_id == Move::Goal::RIGHT_HANDEYE) {
+        reached = follow(handle, arm_client_,
+            {"right_arm_shoulder_pan", "right_arm_shoulder_lift", "right_arm_elbow_flex",
+              "right_arm_wrist_flex", "right_arm_wrist_roll"}, arm_ready_, 5.0, error,
+            controller_terminal);
+      }
+      if (reached) {
+        reached = follow(handle, head_client_, {"head_pan_joint", "head_tilt_joint"},
+          head_ready_, 2.5, error, controller_terminal);
+      }
+      if (!reached) {
+        if (!controller_terminal) {motion_unconfirmed_.store(true);}
+        finish_failed(handle, result, error, controller_terminal);
+      } else if (handle->is_canceling()) {
+        result->error.code = Error::CANCELED;
+        handle->canceled(result);
+      } else {
+        result->error.code = Error::NONE;
+        result->error.message = "ready pose reached";
+        handle->succeed(result);
+      }
+      return;
+    }
     feedback(handle, 0.1F, "moving to a configured reference calibration pose");
     if (request->workflow_id == Move::Goal::RIGHT_HANDEYE && !follow(
         handle, head_client_, {"head_pan_joint", "head_tilt_joint"},
@@ -367,6 +419,8 @@ private:
   std::string allowed_workflow_;
   std::vector<std::vector<double>> head_poses_;
   std::vector<std::vector<double>> arm_poses_;
+  std::vector<double> arm_ready_;
+  std::vector<double> head_ready_;
   std::atomic_bool busy_{false};
   std::atomic_bool motion_unconfirmed_{false};
   rclcpp_action::Client<Follow>::SharedPtr head_client_;

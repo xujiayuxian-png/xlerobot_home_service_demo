@@ -5,6 +5,7 @@ base_from_jaw @ Y, NOT a stationary tag in the base frame.
 """
 
 from copy import deepcopy
+import math
 from pathlib import Path
 
 import numpy as np
@@ -35,7 +36,8 @@ def load_poses(path):
         raise ValueError('expected the reference right_handeye pose set and fixed head pose')
     rows = value.get('poses')
     # This is a bounded reference sweep, not an arbitrary trajectory uploader.
-    bounds = [(-0.92, 0.36), (-0.56, 1.39), (0.10, 1.19), (-0.78, 0.46), (1.50, 1.51)]
+    # Flex envelope includes the per-pose upward visibility adjustments.
+    bounds = [(-0.92, 0.36), (-0.56, 1.39), (0.10, 1.19), (-0.98, 0.46), (1.50, 1.51)]
     if not isinstance(rows, list) or len(rows) != FIT_COUNT + VALIDATION_COUNT:
         raise ValueError('hand-eye requires 20 fitting and 6 held-out poses')
     for row in rows:
@@ -45,6 +47,10 @@ def load_poses(path):
             raise ValueError('hand-eye pose is outside the reference capture envelope')
     if len({tuple(row) for row in rows}) != len(rows):
         raise ValueError('fitting and held-out poses must be distinct')
+    offset = value.get('wrist_roll_offset_rad', 0.0)
+    if isinstance(offset, bool) or offset not in (0.0, -math.pi / 2):
+        raise ValueError('unsupported hand-eye wrist mounting offset')
+    rows = [row[:4] + [row[4] + offset] for row in rows]
     return rows, sha256_file(Path(path))
 
 

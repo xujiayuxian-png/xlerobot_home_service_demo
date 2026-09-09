@@ -31,11 +31,14 @@ public:
   {
     const auto right_port = declare_parameter<std::string>("right_port", "/dev/right_arm");
     const auto left_port = declare_parameter<std::string>("left_port", "/dev/left_arm");
+    leader_only_ = declare_parameter<bool>("leader_only", false);
+    const auto leader_port = declare_parameter<std::string>("leader_port", "/dev/right_master_arm");
     const auto unit_id = declare_parameter<std::string>("unit_id", "");
     output_ = declare_parameter<std::string>(
       "result_file", ".xlerobot/calibration_work/servo/result.yaml");
     session_file_ = std::filesystem::path(output_).parent_path() / "session.yaml";
-    session_ = std::make_unique<Session>(unit_id, right_port + "|" + left_port);
+    session_ = std::make_unique<Session>(unit_id,
+      leader_only_ ? leader_port : right_port + "|" + left_port, leader_only_);
     const auto reference = declare_parameter<std::string>("existing_servo_file", "");
     const auto version = declare_parameter<std::string>("existing_servo_version", "");
     if (!reference.empty()) {session_->load_reference(reference, version);}
@@ -45,10 +48,10 @@ public:
       throw std::runtime_error("finalized session result is missing; restore it or use --fresh");
     }
     const auto baudrate = declare_parameter<int>("baudrate", 1000000);
-    if (!right_.connect(right_port, baudrate)) {
-      throw std::runtime_error("failed to open right servo bus: " + right_port);
+    if (!right_.connect(leader_only_ ? leader_port : right_port, baudrate)) {
+      throw std::runtime_error("failed to open servo bus: " + (leader_only_ ? leader_port : right_port));
     }
-    if (!left_.connect(left_port, baudrate)) {
+    if (!leader_only_ && !left_.connect(left_port, baudrate)) {
       throw std::runtime_error("failed to open left servo bus: " + left_port);
     }
     service_ = create_service<Service>(
@@ -68,13 +71,14 @@ public:
   }
 
 private:
-  Bus & bus(const std::string & group) {return group == "right_arm" ? right_ : left_;}
+  bool leader_only_{false};
+  Bus & bus(const std::string & group) {return leader_only_ || group == "right_arm" ? right_ : left_;}
 
   Session::Positions read_positions(const std::string & name)
   {
     const auto indices = session_->group(name);
     std::vector<uint8_t> ids;
-    for (const auto i : indices) {ids.push_back(Session::specs()[i].id);}
+    for (const auto i : indices) {ids.push_back(session_->selected_specs()[i].id);}
     std::vector<int> positions;
     // One bus transaction per whole group. Valid replies survive another joint's
     // timeout; missing rows are visibly offline and cannot pass Finish.
@@ -117,7 +121,7 @@ private:
     bool success = true;
     std::string failed;
     for (const auto i : session_->group(name)) {
-      const auto & item = Session::specs()[i];
+      const auto & item = session_->selected_specs()[i];
       // Explicit release only: arm IDs 1..6, head IDs 7..8, never wheels 9/10.
       // Do not initialize mode, write homing offsets, or enable torque here.
       if (!bus(name).enableTorque(item.id, false)) {
@@ -150,8 +154,8 @@ private:
     if (session_->finalized()) {
       response.result_uri = "file://" + std::filesystem::absolute(output_).string();
     }
-    for (size_t i = 0; i < Session::specs().size(); ++i) {
-      const auto & item = Session::specs()[i];
+    for (size_t i = 0; i < session_->selected_specs().size(); ++i) {
+      const auto & item = session_->selected_specs()[i];
       const auto & captured = session_->captures()[i];
       xlerobot_interfaces::msg::ServoCalibrationJoint row;
       row.name = item.key();
@@ -226,7 +230,7 @@ private:
       } else if (request->command == Service::Request::FINALIZE) {
         session_->finalize(output_);
         persist();
-        message = "all fourteen joints saved; the active calibration has not changed";
+        message = "all session joints saved; active calibration has not changed";
       } else {
         throw std::runtime_error("unknown servo calibration command");
       }

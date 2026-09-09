@@ -48,7 +48,23 @@ def parser() -> argparse.ArgumentParser:
     )
     commands = result.add_subparsers(dest='command', required=True)
     common = _common()
+    web_ui = commands.add_parser('web', help='unified calibration page; no devices open until a session is selected')
+    web_ui.add_argument('--config', type=Path)
+    web_ui.add_argument('--hardware', action='store_true')
+    web_ui.add_argument('--web-port', type=int, default=8080)
+    web_ui.add_argument('--web-host', default='0.0.0.0')
     commands.add_parser('status', parents=[common])
+    lidar = commands.add_parser('lidar-yaw', help='offline straight-wall yaw reference; never applies changes')
+    lidar.add_argument('--points', type=Path, required=True)
+    lidar.add_argument('--current-yaw-deg', type=float, required=True)
+    lidar.add_argument('--roll-deg', type=float, default=180)
+    lidar.add_argument('--wall-normal-deg', type=float, default=0)
+    replace = commands.add_parser('replace', parents=[common], help='replace selected drafts, retain other active values, and render')
+    replace.add_argument('--version', required=True)
+    replace.add_argument('--components', nargs='+', required=True, choices=('servo', 'head-camera', 'right-handeye'))
+    replace.add_argument('--dry-run', action='store_true')
+    switch = commands.add_parser('switch', parents=[common], help='select and render a saved calibration version')
+    switch.add_argument('--version', required=True)
 
     imported = commands.add_parser(
         'import-runtime', parents=[common],
@@ -64,6 +80,7 @@ def parser() -> argparse.ArgumentParser:
         'workflow', choices=('servo', 'base', 'head-camera', 'right-handeye')
     )
     capture.add_argument('--hardware', action='store_true')
+    capture.add_argument('--leader', action='store_true', help='servo capture: Leader attachment only')
     capture_mode = capture.add_mutually_exclusive_group()
     capture_mode.add_argument('--fresh', action='store_true')
     capture_mode.add_argument('--resume', action='store_true')
@@ -206,6 +223,10 @@ def run(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     repo = _repo_root()
     try:
+        if args.command == 'web':
+            from .workbench import main as web_main
+            web_main((argv if argv is not None else sys.argv[1:])[1:])
+            return 0
         if args.command == 'replay':
             workflow = args.workflow.replace('-', '_')
             fixture = repo / 'examples/calibration' / args.workflow
@@ -228,10 +249,19 @@ def run(argv: list[str] | None = None) -> int:
                 'live capture must be invoked through the repository tools/calibrate wrapper'
             )
 
+        if args.command == 'lidar-yaw':
+            from .lidar_alignment import estimate_yaw
+            _dump(estimate_yaw(args.points, args.current_yaw_deg, args.roll_deg, args.wall_normal_deg))
+            return 0
         state_root, unit = _defaults(args, repo)
         store = UnitCalibrationStore(state_root, repo)
         if args.command == 'status':
             _dump(store.status(unit))
+        elif args.command == 'replace':
+            _dump(store.replace_from_draft(unit, args.version,
+                  [name.replace('-', '_') for name in args.components], dry_run=args.dry_run))
+        elif args.command == 'switch':
+            _dump({'status': 'switched', 'runtime': str(store.switch(unit, args.version)), 'version': args.version})
         elif args.command == 'import-runtime':
             version = store.import_runtime(unit, args.input.resolve(), args.version)
             _dump({'status': 'existing_runtime_imported', 'version': version,

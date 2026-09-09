@@ -40,8 +40,9 @@ class ServoCalibrationSession
 {
 public:
   using Positions = std::vector<std::optional<int>>;
-  ServoCalibrationSession(std::string unit_id, std::string bus_identity);
+  ServoCalibrationSession(std::string unit_id, std::string bus_identity, bool leader_only = false);
   static const std::vector<ServoCalibrationSpec> & specs();
+  const std::vector<ServoCalibrationSpec> & selected_specs() const {return specs_;}
   std::vector<size_t> group(const std::string & name) const;
   const std::vector<ServoCalibrationCapture> & captures() const {return captures_;}
   const std::string & phase() const {return phase_;}
@@ -70,6 +71,9 @@ private:
   void validate_complete() const;
   void set_zeros(const std::string & name, const Positions & positions, const std::string & source);
   std::string unit_id_;
+  bool leader_only_;
+  std::vector<ServoCalibrationSpec> specs_;
+  std::vector<std::string> groups_;
   std::string bus_identity_;
   std::string reference_version_;
   std::string phase_{"IDLE"};

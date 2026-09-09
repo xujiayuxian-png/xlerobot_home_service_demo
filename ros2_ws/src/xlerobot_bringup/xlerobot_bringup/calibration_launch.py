@@ -3,6 +3,7 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -46,6 +47,11 @@ def calibration_launch(workflow_id: str) -> LaunchDescription:
         DeclareLaunchArgument('unit_id', default_value='reference-two-wheel'),
         DeclareLaunchArgument('right_bus', default_value='/dev/right_arm'),
         DeclareLaunchArgument('left_bus', default_value='/dev/left_arm'),
+        DeclareLaunchArgument('leader_only', default_value='false'),
+        DeclareLaunchArgument('hover_mode', default_value='false'),
+        DeclareLaunchArgument('hover_web_port', default_value='8082'),
+        DeclareLaunchArgument('leader_port', default_value='/dev/right_master_arm'),
+        DeclareLaunchArgument('servo_capture_directory', default_value='servo'),
         DeclareLaunchArgument(
             'd455_serial',
             default_value='',
@@ -102,11 +108,13 @@ def calibration_launch(workflow_id: str) -> LaunchDescription:
             name='servo_calibration_server', output='screen', parameters=[{
                 'right_port': LaunchConfiguration('right_bus'),
                 'left_port': LaunchConfiguration('left_bus'),
+                'leader_only': LaunchConfiguration('leader_only'),
+                'leader_port': LaunchConfiguration('leader_port'),
                 'unit_id': LaunchConfiguration('unit_id'),
                 'existing_servo_file': LaunchConfiguration('existing_servo_file'),
                 'existing_servo_version': LaunchConfiguration('existing_servo_version'),
                 'result_file': PathJoinSubstitution([
-                    artifact_root, 'calibration_work', 'servo', 'result.yaml'
+                    artifact_root, 'calibration_work', LaunchConfiguration('servo_capture_directory'), 'result.yaml'
                 ]),
             }],
         ))
@@ -149,12 +157,14 @@ def calibration_launch(workflow_id: str) -> LaunchDescription:
             Node(
                 package='xlerobot_calibration_tools',
                 executable='detect_calibration_target',
+                condition=UnlessCondition(LaunchConfiguration('hover_mode')),
                 name='calibration_target_detector', output='screen',
                 parameters=[{'workflow_id': workflow_id}],
             ),
             Node(
                 package='xlerobot_calibration_tools',
                 executable='collect_transform_samples',
+                condition=UnlessCondition(LaunchConfiguration('hover_mode')),
                 name='transform_sample_collector', output='screen',
                 parameters=[{
                     'calibration_id': LaunchConfiguration('unit_id'),
@@ -185,6 +195,9 @@ def calibration_launch(workflow_id: str) -> LaunchDescription:
                 parameters=[{
                     'execution_enabled': True,
                     'workflow_id': workflow_id,
+                    'ready_pose_file': PathJoinSubstitution([
+                        FindPackageShare('xlerobot_manipulation'), 'config', 'startup_ready.yaml',
+                    ]),
                     'head_pose_file': PathJoinSubstitution([
                         FindPackageShare('xlerobot_calibration_tools'), 'config',
                         'head_camera_poses.yaml',
@@ -200,6 +213,7 @@ def calibration_launch(workflow_id: str) -> LaunchDescription:
         executable = 'auto_head_calibration' if workflow_id == 'head_camera' else 'auto_handeye_calibration'
         actions.append(Node(
             package='xlerobot_calibration_tools', executable=executable,
+            condition=UnlessCondition(LaunchConfiguration('hover_mode')),
             name=executable, output='screen', parameters=[{
                 'execution_enabled': True,
                 'unit_id': LaunchConfiguration('unit_id'),
@@ -210,6 +224,17 @@ def calibration_launch(workflow_id: str) -> LaunchDescription:
                     FindPackageShare('xlerobot_calibration_tools'), 'config',
                     f'{workflow_id}_poses.yaml',
                 ]),
+            }],
+        ))
+    if workflow_id == 'right_handeye':
+        actions.append(Node(
+            package='xlerobot_calibration_tools', executable='hover_validation',
+            condition=IfCondition(LaunchConfiguration('hover_mode')),
+            name='hover_validation', output='screen', parameters=[{
+                'execution_enabled': True,
+                'unit_id': LaunchConfiguration('unit_id'),
+                'state_root': LaunchConfiguration('state_root'),
+                'port': LaunchConfiguration('hover_web_port'),
             }],
         ))
     return LaunchDescription(actions)

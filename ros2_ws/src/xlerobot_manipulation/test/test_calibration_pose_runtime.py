@@ -1,8 +1,8 @@
 import os
+from pathlib import Path
 import threading
 import time
 import unittest
-from pathlib import Path
 
 from action_msgs.msg import GoalStatus
 from control_msgs.action import FollowJointTrajectory
@@ -28,8 +28,11 @@ def generate_test_description():
         parameters=[{'execution_enabled': True, 'head_pose_file': str(
             Path(__file__).resolve().parents[2] / 'xlerobot_calibration_tools'
             / 'config/head_camera_poses.yaml'
-        ), 'handeye_pose_file': str(Path(__file__).resolve().parents[2]
-                                  / 'xlerobot_calibration_tools/config/right_handeye_poses.yaml')}],
+        ), 'handeye_pose_file': str(
+            Path(__file__).resolve().parents[2]
+            / 'xlerobot_calibration_tools/config/right_handeye_poses.yaml'),
+            'ready_pose_file': str(
+                Path(__file__).resolve().parents[1] / 'config/startup_ready.yaml')}],
         output='screen',
     )
     return LaunchDescription([server, launch_testing.actions.ReadyToTest()])
@@ -87,6 +90,30 @@ class FakeCalibrationController(RclpyNode):
 
 
 class CalibrationPoseRuntimeTest(unittest.TestCase):
+    def test_return_ready_uses_shared_targets_and_only_workflow_joints(self):
+        import yaml
+        ready_path = Path(__file__).resolve().parents[1] / 'config/startup_ready.yaml'
+        ready = yaml.safe_load(ready_path.read_text())['startup_ready_pose']['ros__parameters']
+        self.fake.immediate = True
+        try:
+            for workflow in ('head_camera', 'right_handeye'):
+                self.fake.requests.clear()
+                handle = self._wait(self.client.send_goal_async(MoveCalibrationPose.Goal(
+                    workflow_id=workflow, return_ready=True)), 3.0)
+                self.assertTrue(handle.accepted)
+                result = self._wait(handle.get_result_async(), 5.0)
+                self.assertEqual(result.status, GoalStatus.STATUS_SUCCEEDED)
+                self.assertEqual(len(self.fake.requests), 1 if workflow == 'head_camera' else 2)
+                self.assertEqual(
+                    list(self.fake.requests[-1].points[-1].positions),
+                    ready['head_ready_positions'])
+                if workflow == 'right_handeye':
+                    self.assertEqual(
+                        list(self.fake.requests[0].points[-1].positions),
+                        ready['arm_ready_positions'])
+        finally:
+            self.fake.immediate = False
+
     @classmethod
     def setUpClass(cls):
         rclpy.init()
@@ -132,8 +159,9 @@ class CalibrationPoseRuntimeTest(unittest.TestCase):
 
     def test_handeye_motion_uses_yaml_and_only_fixed_head_then_right_arm(self):
         import yaml
-        document = yaml.safe_load((Path(__file__).resolve().parents[2]
-                                  / 'xlerobot_calibration_tools/config/right_handeye_poses.yaml').read_text())
+        pose_path = (Path(__file__).resolve().parents[2]
+                     / 'xlerobot_calibration_tools/config/right_handeye_poses.yaml')
+        document = yaml.safe_load(pose_path.read_text())
         self.fake.immediate = True
         self.fake.requests.clear()
         try:
@@ -147,7 +175,9 @@ class CalibrationPoseRuntimeTest(unittest.TestCase):
             self.assertEqual(head.joint_names, ['head_pan_joint', 'head_tilt_joint'])
             self.assertEqual(list(head.points[0].positions), document['head_pose'])
             self.assertEqual(arm.joint_names, document['joint_order'])
-            self.assertEqual(list(arm.points[0].positions), document['poses'][25])
+            expected = list(document['poses'][25])
+            expected[4] += document.get('wrist_roll_offset_rad', 0.0)
+            self.assertEqual(list(arm.points[0].positions), expected)
         finally:
             self.fake.immediate = False
 

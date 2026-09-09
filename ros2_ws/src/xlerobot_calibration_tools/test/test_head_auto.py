@@ -134,7 +134,8 @@ def fake_node(tmp_path, monkeypatch):
     node.capture_future = None
     node.publish_status = lambda: None
     node.moves = []
-    node.move = lambda handle, index: node.moves.append(index)
+    node.move = lambda handle, index, return_ready=False: node.moves.append(
+        'ready' if return_ready else index)
     node.wait_target = lambda handle: node.session.document['pose_index'] < 12
     fixture = TransformSampleSet.read(REPO / 'examples/calibration/head-camera/samples.yaml')
     samples = TransformSampleSet('test-unit', HEAD_MODEL, 'base_link', 'head_tilt_link',
@@ -163,6 +164,7 @@ def test_automatic_flow_uses_real_strict_solver_and_only_saves_draft(tmp_path, m
     node, handle = fake_node(tmp_path, monkeypatch)
     result = node.execute(handle)
     assert handle.terminal == 'succeeded', result.error.message
+    assert node.moves[-1] == 'ready'
     assert result.quality_passed
     assert node.session.document['sample_count'] == 12
     assert node.session.document['pose_states'].count('captured') == 12

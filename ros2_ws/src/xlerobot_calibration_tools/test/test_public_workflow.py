@@ -79,6 +79,30 @@ def components():
     }
 
 
+def test_selective_replace_preserves_base_and_restores_original(tmp_path, components):
+    store = UnitCalibrationStore(tmp_path, REPO)
+    for name, doc in components.items():
+        store.save_component('unit', name, deepcopy(doc))
+    store.activate('unit', 'original')
+    runtime = store.render_active('unit')
+    before = {p.name: p.read_bytes() for p in runtime.glob('*.yaml') if p.name != 'manifest.yaml'}
+    preview = store.replace_from_draft('unit', 'new', ['head_camera', 'right_handeye'], dry_run=True)
+    assert preview['retained'] == ['servo', 'base_geometry', 'grasp_alignment']
+    assert store.active_version('unit').name == 'original'
+    store.replace_from_draft('unit', 'new', ['head_camera', 'right_handeye'])
+    assert store.verify_runtime('unit')['active_version'] == 'new'
+    assert (runtime / 'controllers.yaml').read_bytes() == before['controllers.yaml']
+    assert (runtime / 'servos.yaml').read_bytes() == before['servos.yaml']
+    with pytest.raises(ValueError):
+        store.replace_from_draft('unit', 'new', ['head_camera'])
+    store.switch('unit', 'original')
+    assert store.verify_runtime('unit')['active_version'] == 'original'
+    assert all((runtime / name).read_bytes() == value for name, value in before.items())
+    with pytest.raises(ValueError):
+        store.switch('unit', 'missing')
+    assert store.verify_runtime('unit')['active_version'] == 'original'
+
+
 def test_public_replays_pass_strict_and_robust_quality_gates(components):
     head = components['head_camera']
     handeye = components['right_handeye']

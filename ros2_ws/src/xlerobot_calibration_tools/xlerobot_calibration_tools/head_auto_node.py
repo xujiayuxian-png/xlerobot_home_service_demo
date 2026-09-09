@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import threading
 import time
+from std_srvs.srv import Trigger
 
 from ament_index_python.packages import get_package_share_directory
 import rclpy
@@ -73,6 +74,7 @@ class HeadCalibrationNode(Node):
         repo_root = Path(str(self.declare_parameter('repo_root', str(Path.cwd())).value))
         default_poses = Path(get_package_share_directory('xlerobot_calibration_tools')) / f'config/{workflow}_poses.yaml'
         pose_file = str(self.declare_parameter('pose_file', str(default_poses)).value)
+        self.pose_file = Path(pose_file)
         poses, pose_hash = (load_handeye_poses if self.handeye else load_poses)(pose_file)
         servo_file = state_root / 'units' / unit / 'draft/components/servo.yaml'
         servo_hash = hashlib.sha256(servo_file.read_bytes()).hexdigest()
@@ -81,6 +83,7 @@ class HeadCalibrationNode(Node):
             servo_hash = hashlib.sha256(servo_file.read_bytes() + head_file.read_bytes()).hexdigest()
         self.predecessors = [servo_file, head_file] if self.handeye else [servo_file]
         self.predecessor_bytes = [path.read_bytes() for path in self.predecessors]
+        self.draft_path = servo_file.with_name(workflow + '.yaml')
         session_class = HandeyeSession if self.handeye else HeadSession
         self.session = session_class(artifact_root / f'calibration_work/{workflow}', unit, poses, pose_hash,
                                    servo_hash=servo_hash)
@@ -106,7 +109,36 @@ class HeadCalibrationNode(Node):
                                    cancel_callback=lambda _: CancelResponse.ACCEPT,
                                    callback_group=self.callbacks)
         self.create_timer(1.0, self.publish_status, callback_group=self.callbacks)
+        self.create_service(Trigger, f'/calibration/{endpoint}_reset', self.reset_session,
+                            callback_group=self.callbacks)
         self.publish_status()
+
+    def reset_session(self, request, response):
+        with self.lock:
+            if self.busy or self.motion_unconfirmed or self.capture_unconfirmed:
+                response.success = False
+                response.message = '请先暂停，等待运动和采样完全结束。'
+                return response
+            try:
+                if hashlib.sha256(self.pose_file.read_bytes()).hexdigest() != self.session.pose_hash:
+                    raise ValueError('采样姿态配置已改变，请重新启动工具。')
+                if any(p.read_bytes() != before for p, before in
+                       zip(self.predecessors, self.predecessor_bytes)):
+                    raise ValueError('前序标定已改变，请重新启动工具以加载新配置。')
+                if self.session.document['phase'] == 'IDLE' and not self.session.document['sample_count']:
+                    response.success = True
+                    response.message = '已经是空白会话；请确认运动后点击开始标定。'
+                    return response
+                self.session, archive = self.session.restart(self.draft_path)
+                self.observations.clear()
+                response.success = True
+                response.message = ('新会话已准备好；未触发运动，草稿和生效标定不变。'
+                                    + (f' 旧会话归档：{archive}' if archive else ''))
+            except Exception as error:
+                response.success = False
+                response.message = str(error)
+        self.publish_status()
+        return response
 
     def on_observation(self, message):
         stamp = message.header.stamp.sec + message.header.stamp.nanosec / 1e9
@@ -181,12 +213,13 @@ class HeadCalibrationNode(Node):
             if future is self.capture_future:
                 self.capture_unconfirmed = False
 
-    def move(self, handle, index):
+    def move(self, handle, index, *, return_ready=False):
         if handle.is_cancel_requested:
             raise SweepPaused('paused before movement')
         if not self.move_client.wait_for_server(timeout_sec=3.0):
             raise SweepPaused('calibration motion controller is unavailable')
-        request = MoveCalibrationPose.Goal(workflow_id=self.workflow, pose_index=index, dry_run=False)
+        request = MoveCalibrationPose.Goal(workflow_id=self.workflow, pose_index=index,
+                                           dry_run=False, return_ready=return_ready)
         # An unanswered goal request may already have reached the controller.
         self.motion_unconfirmed = True
         goal_handle = self._wait(self.move_client.send_goal_async(request), 5.0)
@@ -295,8 +328,15 @@ class HeadCalibrationNode(Node):
                 raise ValueError('predecessor calibration changed during capture; draft unchanged')
             self.store.save_component(self.session.unit, self.workflow, document)
             uri = (self.store.draft_components(self.session.unit) / f'{self.workflow}.yaml').as_uri()
+            self.transition('RETURNING', '标定草稿已保存，正在回到 ready 姿态')
+            try:
+                self.move(handle, 0, return_ready=True)
+            except Exception as error:
+                raise SweepPaused(f'标定草稿已保存，但回 ready 未完成：{error}；检查后可继续') from error
             with self.lock:
                 self.session.complete(uri, self.session.document['metrics'] if self.handeye else document['metrics'])
+                self.session.document['message'] = '标定通过，草稿已保存，已回到 ready 姿态；生效配置未改变'
+                self.session.save()
             result.error.code = CapabilityError.NONE
             result.error.message = self.session.document['message']
             result.artifact_uri = uri

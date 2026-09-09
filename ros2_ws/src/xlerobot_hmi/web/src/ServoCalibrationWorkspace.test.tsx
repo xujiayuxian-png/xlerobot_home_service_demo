@@ -54,7 +54,33 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks() })
 
+it('offers only Leader and finalizes one independent group', async () => {
+  server.joints = server.joints.slice(0, 6).map(j => ({ ...j, name: j.name.replace('right_arm.', 'leader.') }))
+  server.completed_groups = ['leader']
+  render(<ServoCalibrationWorkspace {...props} />)
+  await flush()
+  expect(screen.getByText('1 / 1 组完成')).toBeTruthy()
+  const tabs = screen.getByRole('group', { name: '标定分组' })
+  expect(within(tabs).getAllByRole('button')).toHaveLength(1)
+  expect(within(tabs).getByText('Leader 主臂')).toBeTruthy()
+  fireEvent.click(button('完成采集并保存结果'))
+  await flush()
+  expect(api.servoCalibrationStep).toHaveBeenCalledWith('robot-1', 'finalize', 'leader')
+})
+
 describe('whole-group servo calibration', () => {
+  it.each([false, true])('offers a restart even after finalized (Leader=%s)', async leader => {
+    server.phase = 'FINALIZED'
+    if (leader) server.joints = server.joints.slice(0, 6).map(j => ({ ...j, name: j.name.replace('right_arm.', 'leader.') }))
+    const restart = vi.fn()
+    render(<ServoCalibrationWorkspace {...props} onRestart={restart} />)
+    await flush()
+    const name = leader ? '重新开始 Leader 标定' : '重新开始从臂 / 头部标定'
+    expect(button(name).disabled).toBe(false)
+    fireEvent.click(button(name))
+    expect(restart).toHaveBeenCalledOnce()
+    expect(api.servoCalibrationStep).not.toHaveBeenCalled()
+  })
   it('reads on mount without any torque or movement command and shows six joints', async () => {
     render(<ServoCalibrationWorkspace {...props} />)
     await flush()

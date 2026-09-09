@@ -15,4 +15,8 @@ if [[ ${1-} != -h && ${1-} != --help ]]; then
 fi
 
 export PYTHONPATH="$repo_root/ros2_ws/src/xlerobot_calibration_tools${PYTHONPATH:+:$PYTHONPATH}"
+if [[ ${1-} == web ]]; then
+  shift
+  exec python3 -m xlerobot_calibration_tools.workbench "$@"
+fi
 exec python3 -m xlerobot_calibration_tools.public_cli "$@"

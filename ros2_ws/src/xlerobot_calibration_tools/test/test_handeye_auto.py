@@ -17,6 +17,30 @@ from xlerobot_calibration_tools.transforms import invert
 POSES = Path(__file__).resolve().parents[1] / 'config/right_handeye_poses.yaml'
 
 
+def test_clockwise_mount_offset_preserves_other_joints(tmp_path):
+    raw = yaml.safe_load(POSES.read_text())
+    poses, _ = load_poses(POSES)
+    for actual, reference in zip(poses, raw['poses']):
+        assert actual[:4] == reference[:4]
+        assert actual[4] == pytest.approx(reference[4] - np.pi / 2)
+    raw['wrist_roll_offset_rad'] = 0.2
+    invalid = tmp_path / 'invalid.yaml'
+    invalid.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError, match='mounting offset'):
+        load_poses(invalid)
+
+
+def test_lifted_flex_stays_in_bounded_capture_envelope(tmp_path):
+    poses, _ = load_poses(POSES)
+    assert min(row[3] for row in poses) == pytest.approx(-.9747)
+    raw = yaml.safe_load(POSES.read_text())
+    raw['poses'][11][3] = -.99
+    invalid = tmp_path / 'outside-flex-envelope.yaml'
+    invalid.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError, match='capture envelope'):
+        load_poses(invalid)
+
+
 def session(path):
     poses, identity = load_poses(POSES)
     return HandeyeSession(path, 'test-unit', poses, identity, servo_hash='test-predecessors')

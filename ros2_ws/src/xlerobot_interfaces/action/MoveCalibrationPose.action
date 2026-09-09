@@ -4,6 +4,8 @@ string RIGHT_HANDEYE=right_handeye
 string workflow_id
 uint32 pose_index
 bool dry_run
+# Return this workflow's controlled joints to the shared reference ready pose.
+bool return_ready
 ---
 CapabilityError error
 string pose_name

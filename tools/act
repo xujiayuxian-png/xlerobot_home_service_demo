@@ -7,7 +7,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 usage() {
   cat <<'EOF'
 Usage:
-  tools/act collect --hardware [--config PATH] [--head-tilt RAD]
+  tools/act collect --hardware [--config PATH] [--head-tilt RAD] [--leader-calibration PATH]
   tools/act convert [--dataset PATH] [--version ID] [--repo-id ID] [--dry-run]
   tools/act train [--dataset PATH] [--repo-id ID] [--output PATH] [--resume] [--dry-run]
   tools/act evaluate [--checkpoint PATH] [--output PATH]
@@ -79,11 +79,12 @@ PY
 }
 
 collect() {
-  local hardware=false head_tilt=0.8
+  local hardware=false head_tilt=0.8 leader_calibration=''
   while (($#)); do
     case $1 in
       --hardware) hardware=true; shift ;;
       --head-tilt) (($# >= 2)) || die '--head-tilt requires radians'; head_tilt=$2; shift 2 ;;
+      --leader-calibration) (($# >= 2)) || die '--leader-calibration requires PATH'; leader_calibration=$(absolute_from_repo "$2"); shift 2 ;;
       *) die "unsupported collect option: $1" ;;
     esac
   done
@@ -105,6 +106,10 @@ collect() {
   note 'starting LIVE ACT collection: Leader input can move the right Follower arm'
   local serial
   local device_arguments=()
+  if [[ -n $leader_calibration ]]; then
+    [[ -f $leader_calibration ]] || die 'Leader calibration file does not exist'
+    device_arguments+=("leader_calibration_file:=$leader_calibration")
+  fi
   serial=$(config_get robot.devices.head_camera_serial '')
   [[ -z $serial ]] || device_arguments+=("d455_serial:=$serial")
   exec ros2 launch xlerobot_bringup act_collection.launch.py \

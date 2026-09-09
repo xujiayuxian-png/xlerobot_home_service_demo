@@ -211,7 +211,7 @@ def test_transform_message_conversion_rejects_zero_quaternion():
     assert np.allclose(matrix[:3, 3], [0.1, 0.2, 0.3])
 
 
-def test_collector_never_falls_back_to_latest_moving_transform():
+def test_collector_never_falls_back_to_latest_moving_transform(tmp_path):
     observation = CalibrationTargetObservation()
     observation.header.stamp.sec = 10
     observation.accepted = True
@@ -229,21 +229,17 @@ def test_collector_never_falls_back_to_latest_moving_transform():
     buffer = Buffer()
     collector = SimpleNamespace(
         _lock=threading.Lock(),
+        _observation_condition=threading.Condition(),
         _observation=observation,
         _max_target_age_sec=0.25,
         _buffer=buffer,
-        _output=None,
-        _samples=SimpleNamespace(
-            camera_frame='camera',
-            target_frame='target',
-            base_frame='base',
-            moving_frame='moving',
-            samples=[],
-        ),
+        _output=tmp_path / 'samples.yaml',
+        _samples=TransformSampleSet('test', HEAD_MODEL, 'base', 'moving', 'camera', 'target'),
         get_clock=lambda: SimpleNamespace(
             now=lambda: Time(seconds=10.1, clock_type=ClockType.ROS_TIME)
         ),
     )
+    collector._fresh_snapshot = lambda: TransformSampleCollector._fresh_snapshot(collector)
     response = TransformSampleCollector._capture(
         collector,
         CaptureCalibrationSample.Request(job_id='job-001'),
@@ -252,7 +248,8 @@ def test_collector_never_falls_back_to_latest_moving_transform():
 
     assert response.error.code == CapabilityError.INVALID_GOAL
     assert 'historical moving TF unavailable' in response.error.message
-    assert buffer.calls == [
-        ('camera', 'target', 10_000_000_000),
-        ('base', 'moving', 10_000_000_000),
-    ]
+    # Exact-time TF may be retried while waiting for the next synchronized
+    # observation, but a zero/latest timestamp must never be requested.
+    assert len(buffer.calls) >= 2
+    assert buffer.calls[::2] == [('camera', 'target', 10_000_000_000)] * (len(buffer.calls) // 2)
+    assert buffer.calls[1::2] == [('base', 'moving', 10_000_000_000)] * (len(buffer.calls) // 2)

@@ -207,7 +207,7 @@ class UnitCalibrationStore:
         self._select(unit, version)
         return version
 
-    def import_runtime(self, unit: str, source: Path, version: str) -> str:
+    def import_runtime(self, unit: str, source: Path, version: str, *, replacement=None) -> str:
         """Activate a complete existing-unit snapshot, with no new quality claim."""
         unit, version = _id(unit, 'unit'), _id(version, 'version')
         documents = {name: load_yaml(source / name) for name in IMPORT_FILES}
@@ -227,6 +227,9 @@ class UnitCalibrationStore:
                 'quality_revalidated': False,
                 'sha256': {name: _sha256(staging / name) for name in IMPORT_FILES},
             }
+            if replacement is not None:
+                manifest['source'] = 'selective_draft_replacement'
+                manifest['replacement'] = replacement
             _atomic_yaml(staging / 'manifest.yaml', manifest)
             os.replace(staging, destination)
         finally:
@@ -234,6 +237,74 @@ class UnitCalibrationStore:
                 shutil.rmtree(staging)
         self._select(unit, version)
         return version
+
+    def switch(self, unit: str, version: str) -> Path:
+        """Select and render a saved version; restore the previous selection on error."""
+        previous = self.active_version(unit)
+        previous_id = previous.name if previous else None
+        try:
+            self.rollback(unit, version)
+            runtime = self.render_active(unit)
+            self.verify_runtime(unit)
+            return runtime
+        except Exception:
+            if previous_id is not None:
+                self.rollback(unit, previous_id)
+                self.render_active(unit)
+            raise
+
+    def replace_from_draft(self, unit: str, version: str, components: list[str], *, dry_run=False):
+        """Replace selected measured components; retain all other active values.
+
+        This is a same-unit configuration operation, not a new quality claim for
+        retained base/alignment values or a hardware acceptance of the mixed set.
+        """
+        self.verify_runtime(unit)
+        previous = self.active_version(unit).name
+        _id(version, 'version')
+        if not components or len(set(components)) != len(components) or any(
+                name not in ('servo', 'head_camera', 'right_handeye') for name in components):
+            raise ValueError('select distinct servo/head-camera/right-handeye drafts')
+        runtime = self.unit_root(unit) / 'runtime'
+        documents = {name: load_yaml(runtime / name) for name in IMPORT_FILES}
+        changes = {}
+        for name in components:
+            path = self.draft_components(unit) / f'{name}.yaml'
+            document = load_yaml(path)
+            validate_component(name, document)
+            changes[name] = {'draft_sha256': _sha256(path), 'quality_passed': True}
+            if name == 'servo':
+                documents['servos.yaml'] = {key: document[key] for key in ('right_arm', 'left_arm', 'head')}
+            elif name == 'head_camera':
+                geometry = documents['geometry.yaml']['sensors']
+                geometry['head_camera_xyz'], geometry['head_camera_rpy'] = self._pose_strings(document['x'])
+                documents['transforms.yaml'][name] = document
+            else:
+                geometry = documents['geometry.yaml']['right_arm']
+                geometry['tag23_xyz'], geometry['tag23_rpy'] = self._pose_strings(document['y'])
+                documents['transforms.yaml'][name] = document
+        report = {'previous_version': previous, 'version': version, 'replaced': changes,
+                  'retained': [name for name in COMPONENTS if name not in components],
+                  'hardware_verified': False}
+        documents['transforms.yaml']['provenance'] = report
+        documents['grasp_alignment.yaml'].setdefault('validation', 'existing_unit_runtime')
+        documents['grasp_alignment.yaml'].setdefault('provenance', {'retained_from': previous})
+        validate_documents(documents, self.repo_root)
+        if dry_run:
+            return {**report, 'dry_run': True}
+        if (self.unit_root(unit) / 'versions' / version).exists():
+            raise ValueError(f'calibration version already exists: {version}')
+        with tempfile.TemporaryDirectory(prefix='xlerobot-calibration-replace-') as folder:
+            for name, document in documents.items():
+                _atomic_yaml(Path(folder) / name, document)
+            try:
+                self.import_runtime(unit, Path(folder), version, replacement=report)
+                self.render_active(unit)
+                self.verify_runtime(unit)
+            except Exception:
+                self.switch(unit, previous)
+                raise
+        return {**report, 'dry_run': False, 'runtime': str(runtime)}
 
     def active_version(self, unit: str) -> Path | None:
         active = self.unit_root(unit) / 'active'

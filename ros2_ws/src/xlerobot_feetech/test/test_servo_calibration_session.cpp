@@ -87,6 +87,32 @@ TEST_F(ServoSessionTest, OneWholeArmCaptureRecordsAllSixAndLeavesOthersUntouched
   for (const auto i : session.group("left_arm")) {EXPECT_FALSE(session.captures()[i].zero);}
 }
 
+TEST_F(ServoSessionTest, LeaderIsAnIndependentSixJointSessionAndResult)
+{
+  Session leader("unit", "leader-port", true);
+  EXPECT_EQ(leader.selected_specs().size(), 6U);
+  EXPECT_THROW(leader.group("right_arm"), std::runtime_error);
+  EXPECT_THROW(leader.group("head"), std::runtime_error);
+  leader.capture_zero("leader", Session::Positions(6, 2048));
+  leader.start_range("leader");
+  for (int value : {500, 2048, 3596}) {leader.observe("leader", Session::Positions(6, value));}
+  leader.finish_range("leader");
+  const auto result = folder / "leader.yaml";
+  leader.finalize(result);
+  const auto document = YAML::LoadFile(result.string());
+  EXPECT_EQ(document["attachment"].as<std::string>(), "right_leader");
+  EXPECT_EQ(document["joints"].size(), 6U);
+  EXPECT_FALSE(document["right_arm"]);
+  leader.save(folder / "leader-session.yaml");
+  Session restored("unit", "leader-port", true);
+  restored.restore(folder / "leader-session.yaml");
+  restored.recover_finalized_result(result);
+  EXPECT_TRUE(restored.finalized());
+  Session fresh("unit", "leader-port", true);
+  fresh.load_reference(result, "local-result");
+  EXPECT_EQ(fresh.captures()[0].reference_zero.value(), 2048);
+}
+
 TEST_F(ServoSessionTest, InsufficientFinishKeepsRecordingAndNamesDeficientJoints)
 {
   start("right_arm");

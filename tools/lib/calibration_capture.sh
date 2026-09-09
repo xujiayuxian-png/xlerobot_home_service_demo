@@ -7,7 +7,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 usage() {
   cat <<'EOF'
 Usage:
-  tools/calibrate capture servo --hardware [--fresh] [--config PATH] [--web-port PORT]
+  tools/calibrate capture servo --hardware [--leader] [--fresh|--resume] [--config PATH] [--web-port PORT]
   tools/calibrate capture base --hardware [--fresh] [--config PATH] [--web-port PORT]
   tools/calibrate capture head-camera --hardware [--fresh|--resume] [--config PATH] [--web-port PORT]
   tools/calibrate capture right-handeye --hardware [--fresh|--resume] [--config PATH] [--web-port PORT]
@@ -32,13 +32,20 @@ fi
 workflow=$1
 shift
 hardware=false
+leader=false
 fresh=false
 resume=false
 web_port=8080
+web_host=''
+hover_web_port=8082
 while (($#)); do
   case $1 in
     --hardware)
       hardware=true
+      shift
+      ;;
+    --leader)
+      leader=true
       shift
       ;;
     --fresh)
@@ -59,6 +66,16 @@ while (($#)); do
       web_port=$2
       shift 2
       ;;
+    --web-host)
+      (($# >= 2)) || die '--web-host requires a bind address'
+      web_host=$2
+      shift 2
+      ;;
+    --hover-web-port)
+      (($# >= 2)) || die '--hover-web-port requires a port'
+      hover_web_port=$2
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -70,12 +87,12 @@ while (($#)); do
 done
 
 case $workflow in
-  servo|base|head-camera|right-handeye) ;;
+  servo|base|head-camera|right-handeye|hover) ;;
   *) die 'capture workflow must be servo, base, head-camera, or right-handeye' ;;
 esac
 $fresh && $resume && die '--fresh and --resume are mutually exclusive'
-$resume && [[ $workflow != head-camera && $workflow != right-handeye ]] && \
-  die '--resume is valid only for head-camera or right-handeye samples'
+$leader && [[ $workflow != servo ]] && die '--leader is only valid for servo capture'
+$resume && [[ $workflow == base ]] && die '--resume is not supported for base capture'
 if ! [[ $web_port =~ ^[0-9]+$ ]] || ((web_port < 1 || web_port > 65535)); then
   die '--web-port must be an integer from 1 to 65535'
 fi
@@ -92,6 +109,7 @@ unit=$(config_get robot.unit_id '')
 capture_root="$state_root/units/$unit/capture"
 history_root="$capture_root/logs"
 workflow_id=${workflow//-/_}
+$leader && workflow_id=leader_servo
 work_root="$capture_root/calibration_work/$workflow_id"
 if $fresh && [[ -e $work_root || -L $work_root ]]; then
   archive_root="$capture_root/archive"
@@ -127,7 +145,7 @@ launch_args=(
   "unit_id:=$unit"
   "right_bus:=$(config_get robot.devices.right_arm /dev/right_arm)"
   "left_bus:=$(config_get robot.devices.left_arm /dev/left_arm)"
-  "web_bind_host:=$(config_get services.bind_host 0.0.0.0)"
+  "web_bind_host:=${web_host:-$(config_get services.bind_host 0.0.0.0)}"
   "web_port:=$web_port"
 )
 
@@ -140,7 +158,7 @@ case $workflow in
     # Offer the known zero only from this unit's verified active runtime.
     # This remains an explicit web choice; no EEPROM values are written.
     runtime="$state_root/units/$unit/runtime"
-    if [[ -f $runtime/manifest.yaml ]] && verify_calibration_runtime >/dev/null; then
+    if ! $leader && [[ -f $runtime/manifest.yaml ]] && verify_calibration_runtime >/dev/null; then
       existing_version=$(python3 - "$runtime/manifest.yaml" <<'PY'
 import sys
 import yaml
@@ -157,6 +175,12 @@ PY
     result="$capture_root/calibration_work/servo/result.yaml"
     printf -v result_q '%q' "$result"
     follow_up="$calibrate_q servo --input $result_q --config $config_q"
+    if $leader; then
+      launch_args+=("leader_only:=true" "servo_capture_directory:=leader_servo"
+        "leader_port:=$(config_get robot.devices.leader_arm /dev/right_master_arm)")
+      note 'Leader-only capture: six Leader IDs, no Follower/head/wheel bus opened; not hardware accepted'
+      follow_up="Leader result: $work_root/result.yaml; pass it explicitly with tools/act collect --leader-calibration PATH --hardware"
+    fi
     ;;
   base)
     launch_file=base_geometry_calibration.launch.py
@@ -164,10 +188,12 @@ PY
     printf -v result_q '%q' "$result"
     follow_up="$calibrate_q base --input $result_q --config $config_q"
     ;;
-  head-camera|right-handeye)
-    "$repo_root/tools/calibrate" render --for "$workflow" \
+  head-camera|right-handeye|hover)
+    render_for=$workflow
+    [[ $workflow != hover ]] || render_for=right-handeye
+    "$repo_root/tools/calibrate" render --for "$render_for" \
       --config "$XLEROBOT_CONFIG" >/dev/null
-    runtime="$state_root/units/$unit/draft/runtime/$workflow_id"
+    runtime="$state_root/units/$unit/draft/runtime/${render_for//-/_}"
     launch_args+=(
       "geometry_file:=$runtime/geometry.yaml"
       "servo_calibration_file:=$runtime/servos.yaml"
@@ -178,6 +204,7 @@ PY
     else
       launch_file=right_handeye_calibration.launch.py
     fi
+    [[ $workflow != hover ]] || launch_args+=("hover_mode:=true" "hover_web_port:=$hover_web_port")
     result="$capture_root/calibration_work/$workflow_id/samples.yaml"
     printf -v result_q '%q' "$result"
     follow_up="$calibrate_q $workflow --samples $result_q --config $config_q"

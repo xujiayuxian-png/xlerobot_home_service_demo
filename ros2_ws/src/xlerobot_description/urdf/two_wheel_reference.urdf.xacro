@@ -11,7 +11,7 @@
   <xacro:arg name="right_bus_port" default="/dev/right_arm"/>
   <xacro:arg name="left_bus_port" default="/dev/left_arm"/>
   <xacro:arg name="bus_baudrate" default="1000000"/>
-  <xacro:arg name="lidar_yaw_deg" default="186.442"/>
+  <xacro:arg name="lidar_yaw_deg" default=""/>
   <xacro:arg name="geometry_file" default="$(find xlerobot_description)/config/two_wheel_reference_geometry.yaml"/>
   <xacro:arg name="servo_calibration_file" default="$(find xlerobot_description)/config/two_wheel_reference_servos.yaml"/>
 
@@ -46,7 +46,7 @@
     parent="base_link"
     lidar_xyz="${sensors['lidar_xyz']}"
     lidar_roll="${sensors['lidar_roll']}"
-    lidar_yaw_deg="$(arg lidar_yaw_deg)"
+    lidar_yaw_deg="${float('$(arg lidar_yaw_deg)') if '$(arg lidar_yaw_deg)' else sensors['lidar_yaw_deg']}"
     lidar_radius="0.0285"
     lidar_height="0.04"/>
 

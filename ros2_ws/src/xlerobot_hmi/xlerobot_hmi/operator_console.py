@@ -575,6 +575,9 @@ class OperatorConsoleNode(Node):
             if str(self.parameter('calibration_workflow')) in {'head_camera', 'right_handeye'}:
                 handeye = str(self.parameter('calibration_workflow')) == 'right_handeye'
                 endpoint = 'handeye' if handeye else 'head'
+                self.head_calibration_reset_client = self.create_client(
+                    Trigger, f'/calibration/{endpoint}_reset'
+                )
                 from xlerobot_interfaces.msg import HandeyeCalibrationStatus
                 self.head_calibration_client = ActionClient(
                     self, CalibrationJob, f'/calibration/{endpoint}_auto'
@@ -2041,9 +2044,11 @@ class ConsoleApplication:
             web.get('/api/v1/calibrations/head/status', self.head_calibration_status),
             web.post('/api/v1/calibrations/head/start', self.start_head_calibration),
             web.post('/api/v1/calibrations/head/pause', self.pause_head_calibration),
+            web.post('/api/v1/calibrations/head/reset', self.reset_visual_calibration),
             web.get('/api/v1/calibrations/handeye/status', self.head_calibration_status),
             web.post('/api/v1/calibrations/handeye/start', self.start_head_calibration),
             web.post('/api/v1/calibrations/handeye/pause', self.pause_head_calibration),
+            web.post('/api/v1/calibrations/handeye/reset', self.reset_visual_calibration),
             web.post('/api/v1/calibrations/jobs', self.calibration_job),
             web.post('/api/v1/calibrations/imports', self.import_calibration),
             web.post(
@@ -3046,6 +3051,28 @@ class ConsoleApplication:
             raise web.HTTPServiceUnavailable(text='visual calibration status is not fresh')
         if self._head_auto_inflight or state.get('running'):
             raise web.HTTPConflict(text='pause automatic calibration before manual operation')
+
+    async def reset_visual_calibration(self, request):
+        self._require_head_calibration(request)
+        self._head_manual_available()
+        payload = await request.json()
+        if payload.get('confirm') is not True or payload.get('unit_id') != str(self.node.parameter('unit_id')):
+            raise web.HTTPBadRequest(text='explicit confirm and matching unit_id are required')
+        self._head_manual_available()
+        if self.node.manual_control.action_active():
+            raise web.HTTPConflict(text='wait for the preview motion to finish before resetting')
+        self._head_auto_inflight = True
+        try:
+            response = await self._call_service(
+                self.node.head_calibration_reset_client, Trigger.Request(), 10.0)
+            if not response.success:
+                raise web.HTTPConflict(text=response.message)
+            self.node.history.audit('operator', 'calibration.session.reset', 'success', {
+                'unit_id': payload['unit_id'], 'message': response.message,
+            })
+            return web.json_response({'message': response.message})
+        finally:
+            self._head_auto_inflight = False
 
     async def start_head_calibration(self, request):
         self._require_head_calibration(request)

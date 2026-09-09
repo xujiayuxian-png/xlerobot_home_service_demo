@@ -70,6 +70,11 @@ nav { display: flex; gap: 8px; padding: 5px; width: fit-content; border: 1px sol
 nav button { color: #789198; background: transparent; border: 0; padding: 9px 16px; border-radius: 8px; }
 nav button.active { color: #fff; background: #1c3840; }
 .operator-view-tabs { margin-left: auto; }
+.calibration-workbench .operator-view-tabs { max-width: 100%; overflow-x: auto; }
+.calibration-workbench .operator-view-tabs button { flex: 0 0 auto; white-space: nowrap; }
+@media (max-width: 760px) {
+  .calibration-workbench .app-header { flex-direction: column; align-items: flex-start; gap: 12px; }
+}
 .notice { padding: 11px 14px; background: #4c3529; border: 1px solid #7f5944; border-radius: 10px; margin-bottom: 16px; }
 
 article, .engineering-card {
@@ -435,3 +440,29 @@ button.danger { border-color: #88474f; color: #ff9da7; background: rgba(96, 31, 
   .servo-table td:last-child { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding-top: 2px; }
   .servo-table td:last-child small { margin: 0; }.servo-coverage { min-width: 0; }
 }
+.calibration-workbench .engineering-card { margin-top: 16px; }
+.calibration-workbench pre { max-height: 340px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.calibration-workbench code { overflow-wrap: anywhere; }
+.calibration-workbench label { display: inline-flex; align-items: center; gap: 8px; margin: 8px 14px 8px 0; }
+.calibration-workbench input[type="checkbox"] { width: auto; flex: none; margin: 0; }
+.calibration-workbench > .engineering-card > label { font-size: 14px; }
+.calibration-workbench [hidden] { display: none !important; }
+.workbench-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
+.workbench-camera { display: block; width: min(100%, 800px); border-radius: 12px; margin: 16px 0; }
+.hover-report-heading { display: flex; justify-content: space-between; gap: 20px; align-items: center; }
+.hover-report-heading > strong { color: #f0ba62; }
+.hover-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 24px 0; }
+.hover-summary-grid > div { padding: 18px; background: #142d32; border: 1px solid #315252; border-radius: 14px; }
+.hover-summary-grid small, .hover-summary-grid span { display: block; color: #99b8c1; }
+.hover-summary-grid strong { display: block; color: #70e3c2; font-size: 36px; margin: 8px 0; }
+.hover-summary-grid em { font-size: 16px; font-style: normal; }
+.hover-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.hover-charts figure { margin: 0; background: #0c1c24; border-radius: 14px; padding: 16px; }
+.hover-charts svg { width: 100%; max-height: 250px; }
+.hover-charts text { fill: #c5d7df; font: 13px sans-serif; }
+.hover-report table { width: 100%; margin: 22px 0; border-collapse: collapse; }
+.hover-report th, .hover-report td { padding: 12px 8px; border-bottom: 1px solid #30444d; text-align: left; }
+.hover-suggestion { padding: 20px; margin: 20px 0; border-radius: 14px; border: 1px solid #826944; background: #29291f; }
+.hover-suggestion h3 { color: #f0c478; }
+.hover-suggestion p { line-height: 1.7; }
+@media (max-width: 760px) { .hover-summary-grid, .hover-charts { grid-template-columns: 1fr; }.hover-report-heading { display: block; }.hover-report table { font-size: 12px; } }

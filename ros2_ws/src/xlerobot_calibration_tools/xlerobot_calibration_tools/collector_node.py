@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import replace
 import threading
+import time
 
 import rclpy
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from tf2_ros import Buffer, TransformException, TransformListener
 
@@ -82,12 +86,14 @@ class TransformSampleCollector(Node):
         self._buffer = Buffer()
         self._listener = TransformListener(self._buffer, self)
         self._lock = threading.Lock()
+        self._observation_condition = threading.Condition()
         self._observation = None
         self.create_subscription(
             CalibrationTargetObservation,
             '/calibration/target_observation',
             self._on_observation,
-            qos_profile_sensor_data,
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT),
+            callback_group=ReentrantCallbackGroup(),
         )
         self._service = self.create_service(
             CaptureCalibrationSample,
@@ -101,34 +107,61 @@ class TransformSampleCollector(Node):
         )
 
     def _on_observation(self, message):
-        self._observation = message
+        with self._observation_condition:
+            self._observation = message
+            self._observation_condition.notify_all()
+
+    def _fresh_snapshot(self):
+        """Wait briefly for fresh evidence and exact-stamp TF, never restamp it.
+
+        Observation and TF callbacks remain runnable while the serialized capture
+        service reads/writes YAML or waits. A late frame is not a failed pose if
+        the next frame arrives within this bounded, stationary capture window.
+        """
+        deadline = time.monotonic() + 1.0
+        detail = 'no accepted calibration target is visible'
+        with self._observation_condition:
+            while True:
+                observation = self._observation
+                if observation is not None and observation.accepted:
+                    stamp = Time.from_msg(observation.header.stamp)
+                    age = (self.get_clock().now() - stamp).nanoseconds / 1.0e9
+                    if 0 <= age <= self._max_target_age_sec:
+                        try:
+                            visual = self._buffer.lookup_transform(
+                                self._samples.camera_frame, self._samples.target_frame, stamp)
+                            moving = self._buffer.lookup_transform(
+                                self._samples.base_frame, self._samples.moving_frame, stamp)
+                            return observation, stamp, age, visual, moving
+                        except TransformException as error:
+                            # TF and observation travel on separate topics.
+                            detail = f'waiting for image-time TF: {error}'
+                    else:
+                        detail = f'target observation age {age:.3f}s exceeds limit'
+                else:
+                    detail = 'no accepted calibration target is visible'
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ValueError(f'{detail}; no synchronized fresh observation within 1 second')
+                self._observation_condition.wait(timeout=min(.02, remaining))
 
     def _capture(self, request, response):
         with self._lock:
             try:
+                # The sequencer may archive a completed/paused session without
+                # restarting this read-only collector. Disk is authoritative.
+                old = self._samples
+                self._samples = TransformSampleSet.read(
+                    self._output, expected_model=old.model,
+                    expected_calibration_id=old.calibration_id,
+                    expected_frames={'base': old.base_frame, 'moving': old.moving_frame,
+                                     'camera': old.camera_frame, 'target': old.target_frame},
+                    min_translation_m=old.min_translation_m,
+                    min_rotation_deg=old.min_rotation_deg,
+                ) if self._output.exists() else replace(old, samples=[], stamps_sec=[], qualities=[])
                 if not request.job_id.strip():
                     raise ValueError('job_id is required')
-                observation = self._observation
-                if observation is None or not observation.accepted:
-                    raise ValueError('no accepted calibration target is visible')
-                visual_stamp = Time.from_msg(observation.header.stamp)
-                age_sec = (
-                    self.get_clock().now() - visual_stamp
-                ).nanoseconds / 1.0e9
-                if age_sec < 0 or age_sec > self._max_target_age_sec:
-                    raise ValueError(
-                        f'target observation age {age_sec:.3f}s exceeds limit'
-                    )
-                visual = self._buffer.lookup_transform(
-                    self._samples.camera_frame,
-                    self._samples.target_frame,
-                    visual_stamp,
-                )
-                moving = self._buffer.lookup_transform(
-                    self._samples.base_frame,
-                    self._samples.moving_frame,
-                    visual_stamp,
-                )
+                observation, visual_stamp, age_sec, visual, moving = self._fresh_snapshot()
                 sample = self._samples.append_and_write_atomic(
                     self._output,
                     transform_to_matrix(moving.transform),
@@ -136,6 +169,7 @@ class TransformSampleCollector(Node):
                     visual_stamp.nanoseconds / 1.0e9,
                     {
                         'capture_job_id': request.job_id,
+                        'observation_age_sec': age_sec,
                         'tag_count': int(observation.tag_count),
                         'reprojection_rmse_px': float(
                             observation.reprojection_rmse_px
@@ -157,12 +191,15 @@ def main(args=None) -> None:
     """Run the read-only collector."""
     rclpy.init(args=args)
     node = None
+    executor = MultiThreadedExecutor(num_threads=3)
     try:
         node = TransformSampleCollector()
-        rclpy.spin(node)
+        executor.add_node(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
+        executor.shutdown()
         if node is not None:
             node.destroy_node()
         if rclpy.ok():

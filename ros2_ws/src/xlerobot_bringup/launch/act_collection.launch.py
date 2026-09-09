@@ -50,6 +50,7 @@ def runtime(context):
         include('xlerobot_bringup', 'leader_runtime.launch.py', {
             'hardware_enabled': enabled,
             'leader_port': LaunchConfiguration('leader_port'),
+            'leader_calibration_file': LaunchConfiguration('leader_calibration_file'),
             'control_enable_lease_s': LaunchConfiguration(
                 'control_enable_lease_s'
             ),
@@ -176,6 +177,8 @@ def generate_launch_description():
         ])),
         DeclareLaunchArgument('grasp_alignment_file', default_value=''),
         DeclareLaunchArgument('leader_port', default_value='/dev/right_master_arm'),
+        DeclareLaunchArgument('leader_calibration_file', default_value=PathJoinSubstitution([
+            FindPackageShare('xlerobot_description'), 'config', 'two_wheel_reference_leader_servos.yaml'])),
         DeclareLaunchArgument('control_enable_lease_s', default_value='1.0'),
         DeclareLaunchArgument(
             'control_heartbeat_period_s', default_value='0.2'

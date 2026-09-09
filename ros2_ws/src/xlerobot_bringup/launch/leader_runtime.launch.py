@@ -22,6 +22,7 @@ def runtime(context):
         ' mock_hardware:=false',
         ' hardware_enabled:=true',
         ' port:=', LaunchConfiguration('leader_port'),
+        ' calibration_file:=', LaunchConfiguration('leader_calibration_file'),
     ]), value_type=str)}
     config = PathJoinSubstitution([
         FindPackageShare('xlerobot_bringup'), 'config', 'leader_controllers.yaml'
@@ -67,6 +68,8 @@ def generate_launch_description():
             description='Explicit consent to open the Leader motor bus.',
         ),
         DeclareLaunchArgument('leader_port', default_value='/dev/right_master_arm'),
+        DeclareLaunchArgument('leader_calibration_file', default_value=PathJoinSubstitution([
+            FindPackageShare('xlerobot_description'), 'config', 'two_wheel_reference_leader_servos.yaml'])),
         DeclareLaunchArgument('control_enable_lease_s', default_value='1.0'),
         OpaqueFunction(function=runtime),
     ])

@@ -23,8 +23,19 @@ def test_fit_and_heldout_poses_are_in_limits_and_kinematically_distinct():
         chain.insert(0, joint)
         link = joint.find('parent').attrib['link']
     transforms = []
-    for row in config['poses']:
+    legacy_flex = [.4510, .4525, .4525, .4403, .4495, .4495,
+                   -.4771, -.4648, -.4633, -.7762, -.7747, -.7747,
+                   .4456, .4464, .4464, .4449, -.0184, -.0123, -.0115,
+                   .4449, .4517, .4525, .4490, -.4710, -.7750, .4460]
+    legacy_poses = [row[:3] + [flex, row[4]]
+                    for row, flex in zip(config['poses'], legacy_flex)]
+    adjustments = np.array(legacy_flex) - np.array(config['poses'])[:, 3]
+    assert np.all(adjustments >= .12 - 1e-8)
+    assert np.all(adjustments <= .24 + 1e-8)
+    assert len(set(np.round(adjustments, 4))) >= 5
+    for row in config['poses'] + legacy_poses:
         positions = dict(zip(config['joint_order'], row))
+        positions['right_arm_wrist_roll'] += config.get('wrist_roll_offset_rad', 0.0)
         for name, angle in positions.items():
             limits = joints[name].find('limit')
             assert float(limits.attrib['lower']) <= angle <= float(limits.attrib['upper'])
@@ -42,6 +53,18 @@ def test_fit_and_heldout_poses_are_in_limits_and_kinematically_distinct():
                 rotation[:3, :3] = Rotation.from_rotvec(axis * positions[joint.attrib['name']]).as_matrix()
             pose = pose @ fixed @ rotation
         transforms.append(pose)
+    # Check the actual mounted orientation, not the pre-offset source angles.
+    # A negative flex adjustment raises the fingertip; visibility/collision
+    # clearance still require a supervised hardware check.
+    tip = np.array([0, -.097, 0, 1])
+    for i in range(26):
+        rise = ((transforms[i] - transforms[i + 26]) @ tip)[2]
+        assert .015 < rise < .040, f'pose {i + 1} must lift the fingertip'
+    transforms = transforms[:26]
+    # Retain multiple rotation axes in the fitting subset, not just positions.
+    rotations = np.array([Rotation.from_matrix(transforms[0][:3, :3].T @ t[:3, :3]).as_rotvec()
+                          for t in transforms[1:20]])
+    assert np.linalg.matrix_rank(rotations, tol=.01) == 3
     for i, pose in enumerate(transforms):
         for previous in transforms[:i]:
             distance = np.linalg.norm(pose[:3, 3] - previous[:3, 3])
