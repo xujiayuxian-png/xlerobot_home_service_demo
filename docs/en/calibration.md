@@ -7,6 +7,11 @@ Start the [unified calibration workspace](calibration-workbench.md) with
 metrology and version management on one page. Standalone commands below remain
 available for diagnosis; they are not required for switching tabs.
 
+The demonstrated grasping arm is the **right arm**. Hand-eye, hover validation
+and ACT collection target it; head-camera calibration is shared sensing for this
+demo. Servo calibration also covers the left arm, but a left-arm or dual-arm
+demo has not been tested. Screenshots are in the [workspace guide](calibration-workbench.md).
+
 ## Prepare and follow the sequence
 
 Keep any working calibration active while collecting new drafts. A saved sample,

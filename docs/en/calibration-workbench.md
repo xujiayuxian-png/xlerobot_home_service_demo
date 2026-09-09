@@ -2,6 +2,25 @@
 
 [Calibration overview](calibration.md) · [中文](../zh-CN/calibration-workbench.md)
 
+This workspace supports the **right-arm demo**: head-camera calibration,
+right-arm hand-eye and right-arm hover validation. Left-arm servo capture is an
+additional tool, not acceptance of a left-arm or dual-arm demo. The Leader is
+the independent right-arm demonstration input.
+
+## Page previews
+
+These are the built frontend with **illustrative data**, not measured accuracy.
+No robot or camera was connected. [Capture source and provenance](../images/README.md).
+
+| Head-camera calibration | Right-arm hand-eye: fitting and held-out validation |
+| --- | --- |
+| ![Head camera](../images/calibration-head_camera.png) | ![Right-arm hand-eye](../images/calibration-right_handeye.png) |
+
+The hover page compares target and observed positions and proposes an unapplied
+offset. The values below are examples, not parameters to copy to your robot.
+
+![Hover result charts and advisory offsets, illustrative data](../images/calibration-hover.png)
+
 ## Start
 
 Finish the Robot source installation and HMI build, and prepare `config/local.yaml`.

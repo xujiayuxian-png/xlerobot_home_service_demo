@@ -57,3 +57,17 @@ python3 docs/artwork/render_robot.py --view zero
 This writes only the 1400 × 850 calibration image, leaving the README hero
 and detail images unchanged. `capture_zero.mjs` verifies that every movable
 joint is set to zero before capture; it never connects to ROS or hardware.
+
+## Calibration workspace screenshots
+
+Build the HMI (`npm run build` in `ros2_ws/src/xlerobot_hmi/web`), install the
+documentation Playwright dependency as above, then run from the repository root:
+
+```bash
+node docs/artwork/capture_calibration.mjs
+```
+
+This captures head-camera, right-arm hand-eye and hover-result panels at 1440 px
+viewport width. All numbers are illustrative, with an explicit banner and no
+camera connection. It uses no `.env`, local configuration, saved unit data or
+ROS service. The fixtures are confined to this documentation script.

@@ -28,6 +28,11 @@
 The same calibrated robot stack handles the full task: find the table, grasp an
 object, find a person and deliver it. Change the grasp backend, not the demo.
 
+The physical demo uses the **right arm**. Hand-eye calibration, hover validation
+and ACT collection target that arm; head-camera calibration supports the same
+demo. Left-arm servo calibration is included as a supporting tool, not a claim
+of a tested left-arm or dual-arm demo.
+
 ![Shared robot stack with hybrid ACT and classical geometry grasp routes](docs/images/grasp-routes.svg)
 
 - **Hybrid ACT — the main demo.** RGB-D target → MoveIt pregrasp → wrist-image
@@ -124,6 +129,13 @@ base (independent measurements) ────┴→ grasp-alignment → activate 
 
 [Apply, replace and restore calibration configurations →](docs/en/calibration-versions.md)
 
+| Head camera | Right-arm hand-eye | Hover results & advisory offsets |
+| --- | --- | --- |
+| [![Head-camera calibration page](docs/images/calibration-head_camera.png)](docs/en/calibration-workbench.md) | [![Right-arm hand-eye calibration page](docs/images/calibration-right_handeye.png)](docs/en/calibration-workbench.md) | [![Hover results page](docs/images/calibration-hover.png)](docs/en/calibration-workbench.md) |
+
+*Actual frontend, offline screenshots with illustrative data—not measured accuracy.
+Click an image for the workflow guide. [Image provenance](docs/images/README.md).*
+
 Then [build a map, save the `table` place and activate the site](docs/en/mapping.md).
 Your build needs its own calibration and map; neither is bundled in the repository.
 
@@ -191,12 +203,22 @@ by default, and End leaves teleoperation active so you can put the object down.
 
 ## Scope, status and licenses
 
-Demo, mapping and collection have been exercised on the reference robot with
-its existing calibration. The follower-arm and head servo calibration workflow
-has also passed on-robot functional acceptance. Automatic head-camera capture
-and solving have been exercised on the robot. **The remaining calibration
-workflows and independent physical accuracy still await acceptance.** Solver
-replay is not a physical accuracy test.
+Functional acceptance on the reference robot:
+
+- Demo, mapping and ACT collection, using the existing active calibration.
+- Follower-arm and head servo calibration.
+- Automatic head-camera and hand-eye capture, solving and return to ready;
+  hand-eye includes 20 fitting poses and 6 held-out validation poses.
+- Automatic three-point hover measurement, return to ready, result visualization
+  and generation of advisory compensation parameters.
+
+**Workflow acceptance is not an accuracy qualification.** Hover compensation
+has not been applied or retested; independent physical accuracy remains unverified.
+New calibration drafts are not automatically applied to the Demo.
+Leader servo calibration is software-tested but has not passed on-robot acceptance.
+New base/lidar and grasp-alignment experiments were deferred; the reference Demo
+retains its existing values. See the [calibration workbench guide](docs/en/calibration-workbench.md)
+for measurement scope and limitations. Solver replay is not a physical accuracy test.
 
 Real motion requires `--hardware`. Local settings, maps, calibration, recordings,
 weights and logs stay out of Git; runtime assets normally live in `.xlerobot/`.

@@ -2,6 +2,22 @@
 
 [标定总览](calibration.md) · [English](../en/calibration-workbench.md)
 
+工作台围绕**右臂 Demo**组织：头部相机标定 → 右臂手眼 → 右臂悬停验证。
+左臂舵机采集是附带工具，不代表左臂或双臂 Demo 已验收；Leader 为右臂数采的独立示教输入。
+
+## 页面预览
+
+以下是构建好的真实前端，使用**示例数据，不代表实测精度**；未连接机器人或相机。
+[截图来源与生成方式](../images/README.md)。
+
+| 头部相机自动标定 | 右臂手眼：拟合与独立留出验证 |
+| --- | --- |
+| ![头部相机页面](../images/calibration-head_camera.png) | ![右臂手眼页面](../images/calibration-right_handeye.png) |
+
+悬停页直接对比目标与实测位置，并生成尚未应用的偏移建议。下图数值仅用于展示，不能抄到机器人配置里。
+
+![悬停结果与建议补偿页面，示例数据](../images/calibration-hover.png)
+
 ## 启动
 
 先完成 Robot 源码安装与 HMI 构建，准备 `config/local.yaml`。停止其他 Demo、
