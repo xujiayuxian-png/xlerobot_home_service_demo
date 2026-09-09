@@ -10,7 +10,7 @@ You do **not** need a Leader, a dataset download or a training run.
 1. [Hardware](hardware.md): reference build, wiring and device names.
 2. [Install and configure](install.md): Robot/GPU environments and local settings.
 3. [Models](assets.md): obtain the inference assets.
-4. [Calibrate](calibration.md): measure and activate your unit.
+4. [Calibrate](calibration.md): measure, validate and manage your unit in the [unified web workspace](calibration-workbench.md).
 5. [Map the site](mapping.md): save the map and `table`, validate, activate.
 6. [Run the demo](demo.md): start services, check readiness, use voice or web.
 7. [Compare grasp backends](grasping.md): ACT, centroid and GPD in the same task.
@@ -25,6 +25,12 @@ For either path, see [troubleshooting](troubleshooting.md).
 The HMI currently uses Chinese labels; English guides include the corresponding
 button text. Browser screenshots are labelled offline layout previews, not robot
 test evidence.
+
+[After calibration](calibration-followup.md): base/lidar measurements, optional grasp
+alignment, tabletop hover checking, and calibration version replacement.
+
+[Calibration replacement manual](calibration-versions.md): first installation,
+selective replacement, switching and restoration.
 
 ## Source layout
 

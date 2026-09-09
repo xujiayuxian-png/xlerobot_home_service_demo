@@ -2,6 +2,11 @@
 
 [Documentation](README.md) · [中文](../zh-CN/calibration.md)
 
+Start the [unified calibration workspace](calibration-workbench.md) with
+`./tools/calibrate web --hardware` for servo, Leader, visual calibration, hover
+metrology and version management on one page. Standalone commands below remain
+available for diagnosis; they are not required for switching tabs.
+
 ## Prepare and follow the sequence
 
 Keep any working calibration active while collecting new drafts. A saved sample,
@@ -62,9 +67,15 @@ instead of deleting it.
 
 Work through **right arm → left arm → head**, without choosing individual
 joints or repeatedly starting/stopping their recordings.
-These are the robot's Follower arms, not the data-collection Leader. A matching
-group-calibration page for the Leader is not available yet; do not copy a
-Follower's measured zeros onto a different Leader arm.
+These are the robot's Follower arms. For the data-collection Leader, use
+`./tools/calibrate capture servo --leader --hardware` (add `--fresh` to recapture).
+It reuses this page with a single six-joint group and opens only the Leader bus.
+This addition is software-tested, **not hardware accepted**. Results are saved
+separately in `capture/calibration_work/leader_servo/result.yaml`; they do not
+replace robot calibration or automatically change collection. Select explicitly
+with `./tools/act collect --hardware --leader-calibration /path/to/result.yaml`.
+Without this option, collection keeps the existing Leader calibration. Never
+copy Follower zeros to a different Leader.
 
 1. Select a group, support it and explicitly release that group's torque.
    Other groups and the wheels are untouched.
@@ -119,9 +130,13 @@ height do not need measuring: the solver estimates the board pose as well.
 The sequence runs on the robot; refreshing the browser never restarts motion.
 Pause cancels the current trajectory and keeps measurements for continuation.
 A process restart also stays paused; use `--resume` for that same session.
-Keep both board and base fixed throughout. After moving either, changing servo
-calibration, or deciding to remeasure from scratch, exit and use `--fresh` to
-archive the previous capture. Never mix measurements from different setups.
+Keep both board and base fixed throughout. After moving either or remeasuring,
+pause and click **Archive and recalibrate** (归档并重新标定) on the page.
+Confirmation archives samples, reports and a draft snapshot in a sibling
+`.archive-<id>` directory. The new session remains idle: no motion, torque change,
+draft deletion or activation. Confirm movement again before starting.
+Changed predecessor calibration or pose configuration still requires restarting
+with `--fresh` to load the new configuration. Never mix different setups.
 
 Automatic solving uses the same strict solver as the CLI. A failed quality gate
 shows its reason and preserves samples, without saving a passing draft or
@@ -141,13 +156,34 @@ black outer-border size of **60 mm**. Do not bend or loosen the board. Its mount
 offset is solved jointly; manual measurement is not required. The table's 4×4
 board is not used here. Keep the base stationary, clear the arm sweep and supervise locally.
 
+The current mounting avoids the wrist camera and uses
+`wrist_roll_offset_rad: -1.5707963267948966`: clockwise 90 degrees from the old
+sampling poses when looking into the fingertips toward the wrist. Use `0.0` for
+the old mounting. Changing this setting requires a fresh capture; never mix
+samples from different mounts. Check visibility at the first pose before starting.
+
+All 26 poses use different wrist-flex lifts of 0.12–0.24 rad (about 7–14°)
+relative to the legacy seeds/midpoints, raising the fingertips about 17–37 mm
+in reference URDF FK. Other joints are unchanged; fitting and held-out poses
+remain distinct. The bounded capture flex envelope now extends to −0.98 rad;
+robot joint limits are unchanged. This sweep completed one reference-robot capture
+and held-out validation; it does not certify visibility or clearance for other installations. After a
+pose-file change, stop the existing capture tool and restart with
+`./tools/calibrate capture right-handeye --hardware --fresh`, which archives
+the previous session. Do not resume samples collected with the old pose set.
+
+Capture keeps receiving observations while loading/saving samples. If the latest
+frame is stale or its TF has not arrived, it waits up to one second for synchronized
+fresh evidence at the stationary pose. The 250 ms age limit is unchanged, both TF
+pairs use the original image timestamp, and sample quality records `observation_age_sec`.
+
 1. Check the D455 overlay and Tag 23 status. After confirming motion, optionally
    preview the first capture pose. This button moves both the right arm and head.
 2. Start automatic calibration: 20 fitting poses, each captured only after arrival
    and fresh stable detections, with TF resolved at the image timestamp.
 3. After coverage and fit-quality checks pass, freeze `fit.yaml` **before** moving
    through six different held-out poses. Validation never refits parameters.
-   These additional validation poses are currently pending hardware acceptance.
+   The revised 26-pose lifted-wrist sweep has completed one reference-robot validation.
 4. Inspect fitting and held-out metrics separately, including per-pose errors.
    Both populations require translation RMS `<10 mm`, p95 `<15 mm`, and rotation
    RMS `<5°`; maximum errors are reported, not gated. Failed validation preserves
@@ -160,8 +196,9 @@ measured positions, without a ready-pose motion. Keep the head at pan=0,
 tilt=0.796136 rad and the gripper opening unchanged throughout capture.
 Browser refresh observes the current run without restarting it. Pause cancels
 the current trajectory and preserves samples; use `--resume` after a process
-restart. Changed mounting, base placement or predecessor calibration requires
-`--fresh`, which archives the old session without deleting it.
+restart. Changed mounting/base placement or remeasurement uses the same web
+**Archive and recalibrate** operation as head-camera calibration. Changed
+predecessor calibration or pose configuration still requires a `--fresh` restart.
 
 Local evidence lives under `.xlerobot/units/<unit>/capture/calibration_work/right_handeye/`:
 
@@ -265,6 +302,11 @@ Passing replay proves the solver and file contract, not the calibration of your
 robot. Do not commit `.xlerobot/`; it identifies one physical unit.
 
 ## Measure base geometry and grasp alignment
+
+See [the follow-up guide](calibration-followup.md) for base measurement, inverted
+lidar yaw and an offline reference tool, optional grasp alignment, a proposed
+Tag 23 hover check, and selective `replace` / `switch` operations. New base and
+alignment hardware acceptance is deferred; the instructions below remain optional.
 
 The [base measurement template](../../examples/calibration/base_measurements.yaml)
 contains example numbers, not calibration for your robot. Replace nominal wheel

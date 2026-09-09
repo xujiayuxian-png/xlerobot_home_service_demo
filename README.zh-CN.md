@@ -114,6 +114,10 @@ base（独立实测）───────────────────�
 
 [标定流程、打印标靶与回放 →](docs/zh-CN/calibration.md)
 
+[统一标定网页：舵机 → 视觉 → 悬停验证 → 应用结果 →](docs/zh-CN/calibration-workbench.md)
+
+[如何应用、替换和恢复标定配置 →](docs/zh-CN/calibration-versions.md)
+
 随后[建图、保存 `table` 地点并激活场地](docs/zh-CN/mapping.md)。
 你的机器人需要自己的标定与地图，仓库不附带其他设备的现场数据。
 

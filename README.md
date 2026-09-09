@@ -120,6 +120,10 @@ base (independent measurements) ────┴→ grasp-alignment → activate 
 
 [Calibration, printable targets and replay →](docs/en/calibration.md)
 
+[One calibration web workspace: servo → vision → hover → apply →](docs/en/calibration-workbench.md)
+
+[Apply, replace and restore calibration configurations →](docs/en/calibration-versions.md)
+
 Then [build a map, save the `table` place and activate the site](docs/en/mapping.md).
 Your build needs its own calibration and map; neither is bundled in the repository.
 

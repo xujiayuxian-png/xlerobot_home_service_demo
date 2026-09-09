@@ -9,7 +9,7 @@
 1. [硬件](hardware.md)：参考改装、接线和设备别名。
 2. [安装与配置](install.md)：Robot/GPU 环境及本机设置。
 3. [模型与数据](assets.md)：取得运行所需模型。
-4. [标定](calibration.md)：测量并激活当前机器的标定。
+4. [标定](calibration.md)：通过 [统一网页工作台](calibration-workbench.md) 测量、验证和管理当前机器的标定。
 5. [建图与地点](mapping.md)：保存地图及 `table`，验证并激活。
 6. [完整 Demo](demo.md)：启动服务、检查就绪、语音或网页发起任务。
 7. [比较抓取后端](grasping.md)：同一任务中切换 ACT、centroid、GPD。
@@ -22,6 +22,10 @@
 两条路径的常见问题都放在[排障](troubleshooting.md)。
 当前网页使用中文界面，英文文档保留对应按钮名称。文档截图标注为离线界面预览，
 不作为机器人运行或验收证据。
+
+[标定后续指南](calibration-followup.md)：底盘/雷达角度测量、可选抓取对齐、桌面悬停验证方案和标定版本替换。
+
+[标定配置替换操作手册](calibration-versions.md)：首次应用、部分替换、版本切换与恢复。
 
 ## 源码布局
 
