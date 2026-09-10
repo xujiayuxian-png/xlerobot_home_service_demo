@@ -15,6 +15,7 @@
 /.env
 /config/local.yaml
 /.xlerobot/
+/docs/artwork/launch-post/
 /services/classical/vendor/
 
 # Runtime and site data

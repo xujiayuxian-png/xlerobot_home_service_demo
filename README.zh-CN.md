@@ -1,4 +1,6 @@
-<h1 align="center">XLeRobot Home Service Demo</h1>
+<h1 align="center">小乐机器人 · XLeRobot 版</h1>
+
+<p align="center"><sub>XLeRobot Home Service Demo</sub></p>
 
 <p align="center">
   对 XLeRobot 稍加改装，听一句指令，把物品送到你手边。<br/>
@@ -216,6 +218,30 @@ Leader 舵机标定已通过软件测试，尚未实机验收。
 项目代码、文档与 ACT 权重：[Apache-2.0](LICENSE)。
 30 条示教数据：[CC BY 4.0](https://huggingface.co/datasets/lissajous/xlerobot-glue-stick-grasp-30)。
 [第三方资产保留各自条款。](THIRD_PARTY_NOTICES.md)
+
+## 下一阶段：从 Demo 到养成系机器人
+
+这个项目已经达到，甚至远超我最初的规划与期待。现在把 Demo、配套工具和示例整理开源，
+希望大家可以参考、复现，也少走一些我走过的弯路。
+
+继续使用这台改装 XLeRobot 时，三个结构上的限制越来越明显：
+
+- **舵机差速轮的耐久性**：在我这台机器的使用中，耐久性不够理想。
+- **作业高度固定**：机械臂安装高度不能升降，难以适应不同高度的作业面。
+- **臂展与自由度有限**：够得到的范围、能采用的抓取姿态都受到限制。
+
+这些是当前参考构型的使用体验，不是对所有 XLeRobot 的统一评测。
+后续新增能力的主要开发将转向新的本体；本仓库保持当前 XLeRobot Demo 与复现工具的定位，
+不把尚未验证的新本体配置混入现有安装流程。
+
+近期计划参考 [AlohaMini](https://github.com/liyiteng/AlohaMini)，
+出于成本考虑，搭建 **AlohaMini 二代底盘，暂时保留一代手臂方案**。
+这是我的分阶段改造计划，不是已经完成或验证兼容的组合；
+保留一代手臂也意味着臂展和自由度限制暂时仍在，底盘耐久性同样需要实际验证。
+
+之后希望把更多精力放在 AI 上：从一件件具体家务开始，让机器人逐步熟悉家里的环境和习惯，
+既能参与家务，也能提供陪伴，做一个和人一起慢慢成长的“养成系机器人”。
+这是下一阶段的愿景，不是当前 Demo 已具备的能力。
 
 <h2 align="center">关注作者</h2>
 

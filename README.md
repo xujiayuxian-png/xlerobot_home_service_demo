@@ -1,4 +1,6 @@
-<h1 align="center">XLeRobot Home Service Demo</h1>
+<h1 align="center">Xiao Le Robot · XLeRobot Edition</h1>
+
+<p align="center"><sub>XLeRobot Home Service Demo</sub></p>
 
 <p align="center">
   A slightly modified XLeRobot. A spoken request. An object delivered.<br/>
@@ -233,6 +235,38 @@ weights and logs stay out of Git; runtime assets normally live in `.xlerobot/`.
 Project code, documentation and ACT weights: [Apache-2.0](LICENSE).
 The 30-demo dataset: [CC BY 4.0](https://huggingface.co/datasets/lissajous/xlerobot-glue-stick-grasp-30).
 [Third-party assets retain their own terms.](THIRD_PARTY_NOTICES.md)
+
+## What's next: a robot that grows with its household
+
+This project has met—and gone well beyond—what I originally hoped to build.
+I am sharing the demo, supporting tools and examples so others can reproduce
+the work and avoid some of the detours I took.
+
+Three physical limits have become clear on my modified XLeRobot:
+
+- **Wheel-drive durability:** the servo-driven differential wheels have not
+  been durable enough in my use.
+- **Fixed working height:** the arm mounts cannot move vertically to suit
+  different work surfaces.
+- **Limited reach and degrees of freedom:** both the reachable workspace and
+  available grasp orientations are constrained.
+
+These are observations from this reference build, not a benchmark of all
+XLeRobot configurations. Development of new capabilities will move to a new
+body. This repository remains focused on the existing XLeRobot demo and its
+reproduction tools; unverified hardware configurations will not be folded
+into the current setup instructions.
+
+My near-term plan is to build on [AlohaMini](https://github.com/liyiteng/AlohaMini),
+using the **second-generation base while initially retaining the first-generation
+arm design** to manage cost. This is a staged modification plan, not a completed
+or compatibility-tested combination. Retaining the earlier arms also retains
+their reach and joint limitations; base durability still needs testing.
+
+The next focus is AI: starting with specific household tasks and gradually
+learning the home's environment and routines. The longer-term hope is a robot
+that can help with chores, offer companionship and grow alongside its household.
+That is a future direction, not a capability claimed for the current demo.
 
 <h2 align="center">Follow the author</h2>
 
