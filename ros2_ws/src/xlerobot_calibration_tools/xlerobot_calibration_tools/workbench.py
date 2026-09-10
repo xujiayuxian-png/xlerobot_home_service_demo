@@ -465,7 +465,11 @@ def application(manager):
         name = request.match_info['name']
         if name not in {'calibration-workbench.md', 'calibration-followup.md', 'calibration-versions.md'}:
             raise web.HTTPNotFound()
-        return web.Response(text=(manager.repo / 'docs/zh-CN' / name).read_text(), content_type='text/plain')
+        language = request.query.get('lang', 'zh')
+        if language not in {'zh', 'en'}:
+            raise web.HTTPBadRequest(text='Unsupported language; use zh or en')
+        directory = 'en' if language == 'en' else 'zh-CN'
+        return web.Response(text=(manager.repo / 'docs' / directory / name).read_text(), content_type='text/plain')
 
     app.cleanup_ctx.append(lifecycle)
     app.router.add_get('/workbench-api/status', status)

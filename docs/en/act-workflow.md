@@ -21,7 +21,11 @@ Startup moves only the head to centered pan and **0.8 rad tilt** over 3 seconds,
 not either arm or gripper. Set another calibrated viewing angle at launch with
 `--head-tilt RAD`; keep it fixed throughout a dataset.
 
-![Collection workspace, offline layout preview](../images/collection-ui.png)
+Select **EN** in the top bar to match the labels below. Language switching does
+not change your object label or training instruction; the English form values
+in this screenshot were entered explicitly as examples.
+
+![Collection workspace in English, offline layout preview](../images/collection-ui-en.png)
 
 *Current frontend with example identifiers; no robot connection or camera data.*
 
@@ -30,13 +34,13 @@ not either arm or gripper. Set another calibrated viewing angle at launch with
 | Action | What happens / what to wait for |
 | --- | --- |
 | Choose dataset, object and template | Changing the object auto-fills the instruction; you can override it. |
-| **开始 / 准备 pregrasp** (Start) | Pick mode detects the object, opens the Follower gripper and prepares both arms concurrently. Wait for `WAITING_HOME`; Leader torque remains on, no recording yet. |
-| **Home / 释放主臂并开始采集** | Support the Leader, then press Home. Wait for `RECORDING` before moving it; following and recording start and Leader torque is released. |
-| **End / 结束并保存到本机** | Stops recording and saves locally. Following continues so you can put down the object and return. Those later movements are not recorded. |
+| **Start / prepare pregrasp** | Pick mode detects the object, opens the Follower gripper and prepares both arms concurrently. Wait for `WAITING_HOME`; Leader torque remains on, no recording yet. |
+| **Home / release Leader and start recording** | Support the Leader, then press Home. Wait for `RECORDING` before moving it; following and recording start and Leader torque is released. |
+| **End / stop and save locally** | Stops recording and saves locally. Following continues so you can put down the object and return. Those later movements are not recorded. |
 | Next **Start** | Stops between-episode following, then prepares a new episode. No existing episode is overwritten. |
 
-**抓取模板** (pick) uses the demo's shared perception/pregrasp path and needs its
-VLM connection. **通用手动** (manual) skips perception and automatic Follower
+**Pick template** uses the demo's shared perception/pregrasp path and needs its
+VLM connection. **Manual mode** skips perception and automatic Follower
 pregrasp, aligning the Leader to the current Follower pose. Manual mode with
 a 10–15 second limit is useful for a first recording.
 
@@ -54,7 +58,7 @@ The UI's state-machine dry-run does not record data or prove hardware readiness.
 ## 3. Keep or reject
 
 A successfully saved, complete recording is **kept by default**. Do nothing to
-use it for training; click **拒绝本条** to exclude it or **恢复保留** to undo rejection.
+use it for training; click **Reject this episode** to exclude it or **Restore keep** in the history to undo rejection.
 The most recent 20 complete episodes remain selectable after the next episode,
 page refresh or restart. Older unreviewed recordings need explicit selection.
 
@@ -92,8 +96,8 @@ Configuration changes do not move old data.
 
 ## If preparation or following stops
 
-Support both arms → **释放主从臂扭矩** → wait for confirmation → reposition →
-**Reset / 重置状态** → Start. Reset clears the session, not recordings; it does
+Support both arms → **Release Leader/Follower torque** → wait for confirmation → reposition →
+**Reset state** → Start. Reset clears the session, not recordings; it does
 not home the arms or turn on their torque. The next Start prepares them.
 The release operation also deactivates the shared right-arm/base bus, but does
 **not** release the head or left arm.

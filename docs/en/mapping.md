@@ -17,13 +17,13 @@ On the Robot computer, with an operator beside the robot:
 Open `http://<robot-host>:8080`. If using `--config PATH`, use that same
 configuration for build, validate and the later demo.
 
-- Click **开启遥控** (enable teleoperation), then hold/drag the joystick.
+- Select **EN** in the top bar, then click **Enable teleoperation** and hold/drag the joystick.
   Up/down drives forward/back; left/right turns. Diagonal input combines both.
 - Release the joystick to stop. Leaving the window ends teleoperation.
   Speed sliders set maximum linear and angular speed.
 - Explore until the map covers the routes needed for the demo.
 
-![Mapping workspace, offline layout preview](../images/mapping-ui.png)
+![Mapping workspace in English, offline layout preview](../images/mapping-ui-en.png)
 
 *Current frontend, offline layout preview. No real map, camera or robot connection.*
 
@@ -40,7 +40,7 @@ configuration for build, validate and the later demo.
 Saving creates a **draft**, not the active demo map. You can continue mapping
 after saving, but must save again to include later scans.
 
-To restart mapping, stop teleoperation and confirm **清除当前地图并重建**.
+To restart mapping, stop teleoperation and confirm **Clear current map and rebuild**.
 Only live SLAM is cleared; saved maps, places and demo configuration remain.
 Unsaved map work is lost. Recheck or re-record place coordinates after rebuilding.
 

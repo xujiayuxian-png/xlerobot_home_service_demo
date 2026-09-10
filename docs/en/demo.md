@@ -39,13 +39,14 @@ startup motions; it does **not** submit a fetch task automatically.
 
 Open `http://<robot-host>:8080` (or `demo.web_port`).
 
-![Demo console, offline layout preview](../images/demo-ui.png)
+![Demo console in English, offline layout preview](../images/demo-ui-en.png)
 
 *Layout only: no connected robot, map or cameras; the blocked status is expected
 in this screenshot, not the required state for a real run.*
 
-- **Web:** enter the object, select ACT / 传统·质心顶抓 / 传统·GPD 顶抓, then click
-  **开始任务** when ready.
+- **Web:** select **EN** in the top bar. Enter the object, select **ACT policy** /
+  **Classical · centroid top grasp** / **Classical · GPD top grasp**, then click
+  **Start task** when ready.
 - **Voice:** say “小乐小乐”, wait for listening, then request the object.
   Voice uses the configured default backend; the web selector applies to web requests.
 - **CLI:** from another Robot terminal, submit one backend-selected task:
@@ -68,9 +69,9 @@ Follow the current stage and final result on the page. A grasp alone is not
 completion of the whole task. Task records retain both requested and actual
 backend. Compare alternatives using [the grasp guide](grasping.md).
 
-The **手动控制** tab offers localization, named-place navigation, base joystick
+The **Manual control** tab offers localization, named-place navigation, base joystick
 and posture presets. These are real motion commands, not required extra steps
-for every automatic task. **锁止底盘** is a software base inhibit, not a physical
+for every automatic task. **Lock base** is a software base inhibit, not a physical
 emergency stop or an arm stop.
 
 ## Stop

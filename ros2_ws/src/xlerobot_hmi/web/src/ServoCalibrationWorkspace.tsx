@@ -1,3 +1,4 @@
+import { useLanguage, msg, type Message } from './i18n'
 import { useEffect, useRef, useState } from 'react'
 import {
   api, type ServoCalibrationCommand, type ServoCalibrationGroup,
@@ -43,15 +44,16 @@ function rangeReady(joint: ServoCalibrationJoint | undefined): boolean {
 }
 
 export function ServoCalibrationWorkspace({ unitId, captureOnly, onError, onRestart, restartBusy = false }: {
-  unitId: string, captureOnly: boolean, onError: (message: string) => void,
+  unitId: string, captureOnly: boolean, onError: (message: Message) => void,
   onRestart?: () => void, restartBusy?: boolean,
 }) {
+  const { t, s } = useLanguage()
   const [state, setState] = useState<ServoCalibrationState | null>(null)
   const [group, setGroup] = useState<ServoCalibrationGroup>('right_arm')
-  const [busy, setBusy] = useState('')
-  const [readError, setReadError] = useState('')
-  const [actionError, setActionError] = useState('')
-  const [notice, setNotice] = useState('')
+  const [busy, setBusy] = useState<Message>('')
+  const [readError, setReadError] = useState<Message>('')
+  const [actionError, setActionError] = useState<Message>('')
+  const [notice, setNotice] = useState<Message>('')
   const [resetConfirm, setResetConfirm] = useState(false)
   const [unchangedHardware, setUnchangedHardware] = useState(false)
   const busyRef = useRef(false)
@@ -97,7 +99,7 @@ export function ServoCalibrationWorkspace({ unitId, captureOnly, onError, onRest
     return () => { disposed = true; mounted.current = false; clearTimeout(timer) }
   }, [unitId])
 
-  const run = async (commands: ServoCalibrationCommand[], label: string) => {
+  const run = async (commands: ServoCalibrationCommand[], label: Message) => {
     if (busyRef.current) return
     busyRef.current = true
     revision.current += 1
@@ -111,10 +113,10 @@ export function ServoCalibrationWorkspace({ unitId, captureOnly, onError, onRest
         acceptStatus(value)
       }
       setReadError('')
-      if (commands.includes('finish_range')) setNotice('本组已完成。选择下一组继续，已有采集数据会保留。')
-      if (commands.includes('pause_range')) setNotice('已暂停范围记录；已采集的零位和范围保留，扭矩状态不变。')
+      if (commands.includes('finish_range')) setNotice(msg("本组已完成。选择下一组继续，已有采集数据会保留。"))
+      if (commands.includes('pause_range')) setNotice(msg("已暂停范围记录；已采集的零位和范围保留，扭矩状态不变。"))
       if (commands.includes('reset_group')) {
-        setNotice('已清空本组的本次采集数据。其他组、已有标定和舵机设置未修改。')
+        setNotice(msg("已清空本组的本次采集数据。其他组、已有标定和舵机设置未修改。"))
         setResetConfirm(false)
         setUnchangedHardware(false)
       }
@@ -152,161 +154,158 @@ export function ServoCalibrationWorkspace({ unitId, captureOnly, onError, onRest
   return <section className="engineering-card servo-workspace">
     <header className="servo-heading">
       <div><p className="section-label">SERVO CALIBRATION · {unitId}</p>
-        <h2>整组标定，一次摆动全部关节</h2>
-        <p className="card-intro">选一组 → 托住并释放 → 确认零位 → 手动活动整组。无需逐关节切换或反复点击。</p>
+        <h2>{t("整组标定，一次摆动全部关节")}</h2>
+        <p className="card-intro">{t("选一组 → 托住并释放 → 确认零位 → 手动活动整组。无需逐关节切换或反复点击。")}</p>
       </div>
       <span className={`servo-phase ${recording ? 'recording' : ''}`}>
-        {finalized ? '已保存' : recording ? '正在采集' : state?.phase === 'PAUSED' ? '已暂停'
-          : state?.phase === 'ZERO_CAPTURED' ? '零位已确认' : state?.phase === 'RANGE_CAPTURED' ? '本组完成'
-            : state ? '待操作' : '连接中'}
+        {finalized ? t("已保存") : recording ? t("正在采集") : state?.phase === 'PAUSED' ? t("已暂停")
+          : state?.phase === 'ZERO_CAPTURED' ? t("零位已确认") : state?.phase === 'RANGE_CAPTURED' ? t("本组完成")
+            : state ? t("待操作") : t("连接中")}
       </span>
     </header>
 
     {onRestart && <div className="servo-reset">
       <button disabled={Boolean(busy) || recording || restartBusy} onClick={onRestart}>
-        {restartBusy ? '正在归档并重新开始…' : leaderOnly ? '重新开始 Leader 标定' : '重新开始从臂 / 头部标定'}
+        {restartBusy ? t("正在归档并重新开始…") : leaderOnly ? t("重新开始 Leader 标定") : t("重新开始从臂 / 头部标定")}
       </button>
-      <p>归档本轮全部记录并开始新一轮，不删除旧结果，不改变生效标定，不自动上力或移动。
-        {recording ? '请先暂停范围采集。' : ''}</p>
+      <p>{t("归档本轮全部记录并开始新一轮，不删除旧结果，不改变生效标定，不自动上力或移动。 ")}{recording ? t("请先暂停范围采集。") : ''}</p>
     </div>}
-    {finalized && <p className="notice">本轮已保存。单组重采仅用于尚未保存的采集；要重新标定，请使用上方“重新开始”按钮。
-      {!onRestart && '独立工具请退出后使用 --fresh 重新启动。'}</p>}
+    {finalized && <p className="notice">{t("本轮已保存。单组重采仅用于尚未保存的采集；要重新标定，请使用上方“重新开始”按钮。 ")}{!onRestart && t("独立工具请退出后使用 --fresh 重新启动。")}</p>}
 
-    <div className="servo-groups" role="group" aria-label="标定分组">
+    <div className="servo-groups" role="group" aria-label={t("标定分组")}>
       {availableGroups.map((item, index) => <button key={item.id}
         className={`servo-group ${group === item.id ? 'selected' : ''}`}
         aria-pressed={group === item.id}
         disabled={Boolean(busy) || (recording && group !== item.id)}
         onClick={() => { setGroup(item.id); setResetConfirm(false); setUnchangedHardware(false); setActionError(''); setNotice('') }}>
         <span className="servo-group-number">{state?.completed_groups.includes(item.id) ? '✓' : `0${index + 1}`}</span>
-        <span><strong>{item.title}</strong><small>{item.subtitle}</small></span>
-        <em>{state?.completed_groups.includes(item.id) ? '已完成' : recording && state.active_group === item.id ? '采集中' : '待完成'}</em>
+        <span><strong>{t(item.title)}</strong><small>{t(item.subtitle)}</small></span>
+        <em>{state?.completed_groups.includes(item.id) ? t("已完成") : recording && state.active_group === item.id ? t("采集中") : t("待完成")}</em>
       </button>)}
     </div>
 
-    {leaderOnly && <p className="card-intro">Leader 独立标定 · 尚未实机验收。仅连接示教臂，不使用从臂零位；结果单独保存，不替换机器人标定。</p>}
+    {leaderOnly && <p className="card-intro">{t("Leader 独立标定 · 尚未实机验收。仅连接示教臂，不使用从臂零位；结果单独保存，不替换机器人标定。")}</p>}
     {readError && <div className="servo-error" role="alert">
-      <strong>暂时无法读取舵机状态</strong><p>显示的是最后一次读数，操作按钮暂不可用。正在自动重试，不会清空已采集数据。</p><code>{readError}</code>
+      <strong>{t("暂时无法读取舵机状态")}</strong><p>{t("显示的是最后一次读数，操作按钮暂不可用。正在自动重试，不会清空已采集数据。")}</p><code>{s(readError)}</code>
     </div>}
     {actionError && <div className="servo-error" role="alert">
-      <strong>这一步未完成</strong><p>{recording ? '范围仍在记录，请按提示补充活动后再次完成；不要重置已有数据。' : '已有数据保留，请检查下面的原因再重试。'}</p><code>{actionError}</code>
+      <strong>{t("这一步未完成")}</strong><p>{recording ? t("范围仍在记录，请按提示补充活动后再次完成；不要重置已有数据。") : t("已有数据保留，请检查下面的原因再重试。")}</p><code>{s(actionError)}</code>
     </div>}
 
     <div className="servo-main-grid">
       <div className="servo-steps">
         <div className={`servo-step ${step === 0 ? 'current' : ''}`}>
           <span className="servo-step-index">1</span><div>
-            <h3>托住{selected.title}，释放本组扭矩</h3>
-            <p>{group === 'head' ? '扶住头部，避免失去支撑后下垂。' : '先托稳机械臂、清空夹爪，让机械臂可以由手轻轻带动。'}仅影响所选组，不操作轮子。</p>
+            <h3>{t("托住")}{t(selected.title)}{t("，释放本组扭矩")}</h3>
+            <p>{group === 'head' ? t("扶住头部，避免失去支撑后下垂。") : t("先托稳机械臂、清空夹爪，让机械臂可以由手轻轻带动。")}{t("仅影响所选组，不操作轮子。")}</p>
             <button disabled={disabled || recording || completed}
-              onClick={() => run(['release_torque'], '正在释放本组扭矩…')}>
-              {released ? '已释放 · 再次释放本组' : '已托住，释放本组扭矩'}
+              onClick={() => run(['release_torque'], msg("正在释放本组扭矩…"))}>
+              {released ? t("已释放 · 再次释放本组") : t("已托住，释放本组扭矩")}
             </button>
           </div>
         </div>
         <div className={`servo-step ${step === 1 ? 'current' : ''}`}>
           <span className="servo-step-index">2</span><div>
-            <h3>确认整组零位，开始记录</h3>
+            <h3>{t("确认整组零位，开始记录")}</h3>
             {!hasZero && <>
-              <p>整组摆到 <strong>URDF 对应的机械零位</strong>，保持静止再记录。不是 ready 姿态，也不是任意中间姿态。</p>
+              <p>{t("整组摆到 ")}<strong>{t("URDF 对应的机械零位")}</strong>{t("，保持静止再记录。不是 ready 姿态，也不是任意中间姿态。")}</p>
               <details className="servo-zero-reference">
-                <summary>查看机械零位参考（不是 ready）</summary>
+                <summary>{t("查看机械零位参考（不是 ready）")}</summary>
                 <a href="/calibration-zero.png" target="_blank" rel="noreferrer">
-                  <img src="/calibration-zero.png" alt="URDF 机械零位参考：正面与右侧视图，所有关节 q=0，不是 ready 姿态" />
-                </a><p>按真实 URDF 渲染，点击可放大。仅作摆位参考，不会驱动机器人。</p>
+                  <img src="/calibration-zero.png" alt={t("URDF 机械零位参考：正面与右侧视图，所有关节 q=0，不是 ready 姿态")} />
+                </a><p>{t("按真实 URDF 渲染，点击可放大。仅作摆位参考，不会驱动机器人。")}</p>
               </details>
               <button className={released ? 'primary' : ''}
                 disabled={disabled || !released || !online || recording || completed}
-                onClick={() => run(['capture_zero', 'start_range'], '正在记录零位并启动整组采集…')}>
-                记录零位并开始整组采集
-              </button>
+                onClick={() => run(['capture_zero', 'start_range'], msg("正在记录零位并启动整组采集…"))}>
+                {t("记录零位并开始整组采集 ")}</button>
               {hasReference && <details className="servo-existing-zero">
-                <summary>未拆装过？也可以保留已有标定零位</summary>
-                <p>沿用已有有效标定的零位，仅重新采集活动范围。它不是本次重新测得的零位。</p>
+                <summary>{t("未拆装过？也可以保留已有标定零位")}</summary>
+                <p>{t("沿用已有有效标定的零位，仅重新采集活动范围。它不是本次重新测得的零位。")}</p>
                 <label><input type="checkbox" checked={unchangedHardware}
                   disabled={disabled || recording || completed}
-                  onChange={event => setUnchangedHardware(event.target.checked)} />未拆装舵机 / 未更改硬件零偏</label>
+                  onChange={event => setUnchangedHardware(event.target.checked)} />{t("未拆装舵机 / 未更改硬件零偏")}</label>
                 <button disabled={disabled || !released || !online || !unchangedHardware || recording || completed}
-                  onClick={() => run(['use_existing_zero', 'start_range'], '正在保留已有零位并启动整组采集…')}>
-                  保留已有零位并开始采集
-                </button>
+                  onClick={() => run(['use_existing_zero', 'start_range'], msg("正在保留已有零位并启动整组采集…"))}>
+                  {t("保留已有零位并开始采集 ")}</button>
               </details>}
             </>}
-            {hasZero && <p className="servo-check">✓ 本组零位已记录，不必再摆一次。{rows.some(({ joint }) => joint?.zero_source?.startsWith('existing:')) ? '来源：沿用已有有效标定。' : '来源：本次记录。'}</p>}
+            {hasZero && <p className="servo-check">{t("✓ 本组零位已记录，不必再摆一次。")}{rows.some(({ joint }) => joint?.zero_source?.startsWith('existing:')) ? t("来源：沿用已有有效标定。") : t("来源：本次记录。")}</p>}
           </div>
         </div>
         <div className={`servo-step ${step === 2 ? 'current' : ''}`}>
           <span className="servo-step-index">3</span><div>
-            <h3>手动活动整组，然后完成</h3>
-            <p>按方便的顺序活动每个关节{group !== 'head' ? '，包括打开、合拢夹爪' : ''}。所有关节同时记录；覆盖条达到 60% 即达标，不要用力顶机械限位。</p>
+            <h3>{t("手动活动整组，然后完成")}</h3>
+            <p>{t("按方便的顺序活动每个关节")}{group !== 'head' ? t("，包括打开、合拢夹爪") : ''}{t("。所有关节同时记录；覆盖条达到 60% 即达标，不要用力顶机械限位。")}</p>
             {recording ? <div className="servo-actions">
               <button className="primary" disabled={disabled}
-                onClick={() => run(['finish_range'], '正在检查本组范围…')}>完成本组</button>
+                onClick={() => run(['finish_range'], msg("正在检查本组范围…"))}>{t("完成本组")}</button>
               <button disabled={Boolean(busy)}
-                onClick={() => run(['pause_range'], '正在暂停范围记录…')}>暂停采集</button>
+                onClick={() => run(['pause_range'], msg("正在暂停范围记录…"))}>{t("暂停采集")}</button>
             </div> : hasZero && !completed && !finalized ?
               <button className="primary" disabled={disabled || !released || !online}
-                onClick={() => run(['start_range'], '正在继续整组采集…')}>继续采集（保留已有范围）</button>
-              : <p className="servo-check">{completed ? '✓ 本组已完成，请选择下一组。' : '确认零位后会自动开始记录。'}</p>}
-            {recording && <p className="servo-range-hint">{enoughRange ? '所有关节范围已达标，可以完成本组。' : '查看实时读数中的提示：补足活动范围并覆盖零位；出现编码器异常先暂停处理。'}</p>}
-            {hasZero && !released && !recording && !completed && !finalized && <p className="servo-range-hint">工具重启后，请先重新托住并释放本组扭矩，再继续采集。</p>}
+                onClick={() => run(['start_range'], msg("正在继续整组采集…"))}>{t("继续采集（保留已有范围）")}</button>
+              : <p className="servo-check">{completed ? t("✓ 本组已完成，请选择下一组。") : t("确认零位后会自动开始记录。")}</p>}
+            {recording && <p className="servo-range-hint">{enoughRange ? t("所有关节范围已达标，可以完成本组。") : t("查看实时读数中的提示：补足活动范围并覆盖零位；出现编码器异常先暂停处理。")}</p>}
+            {hasZero && !released && !recording && !completed && !finalized && <p className="servo-range-hint">{t("工具重启后，请先重新托住并释放本组扭矩，再继续采集。")}</p>}
           </div>
         </div>
       </div>
 
       <div className="servo-readings">
-        <div className="servo-readings-heading"><div><h3>{selected.title} · 实时读数</h3><p>RAW TICKS · 500 ms 刷新</p></div>
+        <div className="servo-readings-heading"><div><h3>{t(selected.title)} {t(" · 实时读数")}</h3><p>{t("RAW TICKS · 500 ms 刷新")}</p></div>
           <button disabled={disabled || recording}
-            onClick={() => run(['scan'], '正在扫描舵机…')}>重新读取</button></div>
+            onClick={() => run(['scan'], msg("正在扫描舵机…"))}>{t("重新读取")}</button></div>
         <div className="servo-table-scroll"><table className="servo-table">
-          <thead><tr><th>关节 / ID</th><th>当前位置</th><th>零位</th><th>已采集范围</th><th>覆盖</th></tr></thead>
+          <thead><tr><th>{t("关节 / ID")}</th><th>{t("当前位置")}</th><th>{t("零位")}</th><th>{t("已采集范围")}</th><th>{t("覆盖")}</th></tr></thead>
           <tbody>{rows.map(({ name, joint }) => <JointRow key={`${group}.${name}`} name={name} joint={joint} />)}</tbody>
         </table></div>
-        <p className="hint">“—” 表示尚未获得读数。读数失败或跨越编码器边界会在对应行提示；请先处理提示，再完成本组。</p>
+        <p className="hint">{t("“—” 表示尚未获得读数。读数失败或跨越编码器边界会在对应行提示；请先处理提示，再完成本组。")}</p>
         <div className="servo-reset">
-          {resetConfirm ? <div role="alertdialog" aria-label={`重置${selected.title}本次采集`}>
-            <strong>只清空{selected.title}的本次采集？</strong>
-            <p>本组本次记录的零位、范围和完成状态将清空；其他组、已激活标定和舵机设置不变，不会驱动机械臂。</p>
+          {resetConfirm ? <div role="alertdialog" aria-label={t("重置{0}本次采集", t(selected.title))}>
+            <strong>{t("只清空")}{t(selected.title)}{t("的本次采集？")}</strong>
+            <p>{t("本组本次记录的零位、范围和完成状态将清空；其他组、已激活标定和舵机设置不变，不会驱动机械臂。")}</p>
             <div className="servo-actions"><button className="danger" disabled={disabled || recording}
-              onClick={() => run(['reset_group'], '正在重置本组采集…')}>确认重置本组</button>
-              <button disabled={Boolean(busy)} onClick={() => setResetConfirm(false)}>取消</button></div>
+              onClick={() => run(['reset_group'], msg("正在重置本组采集…"))}>{t("确认重置本组")}</button>
+              <button disabled={Boolean(busy)} onClick={() => setResetConfirm(false)}>{t("取消")}</button></div>
           </div> : <button className="text-action" disabled={disabled || recording}
-            onClick={() => setResetConfirm(true)}>重新采集这一组…</button>}
+            onClick={() => setResetConfirm(true)}>{t("重新采集这一组…")}</button>}
         </div>
       </div>
     </div>
 
     <footer className="servo-footer">
-      <div><strong>{state?.completed_groups.length ?? 0} / {availableGroups.length} 组完成</strong>
-        <p>采集进度自动保存在机器人上，刷新页面不丢失；重启工具后可继续。完成采集只保存本机结果，不自动上力，不替换 active 标定。</p>
+      <div><strong>{state?.completed_groups.length ?? 0} / {availableGroups.length} {t(" 组完成")}</strong>
+        <p>{t("采集进度自动保存在机器人上，刷新页面不丢失；重启工具后可继续。完成采集只保存本机结果，不自动上力，不替换 active 标定。")}</p>
       </div>
       <button className="primary" disabled={disabled || recording || !allComplete}
-        onClick={() => run(['finalize'], '正在保存舵机标定结果…')}>
-        {finalized ? '标定结果已保存' : captureOnly ? '完成采集并保存结果' : '验收全部并写入 draft'}
+        onClick={() => run(['finalize'], msg("正在保存舵机标定结果…"))}>
+        {finalized ? t("标定结果已保存") : captureOnly ? t("完成采集并保存结果") : t("验收全部并写入 draft")}
       </button>
     </footer>
-    <p className="servo-operation" role="status">{busy || notice}</p>
-    {state?.session_uri && <p className="servo-file">进度文件 <code>{state.session_uri}</code></p>}
-    {state?.result_uri && <p className="saved">标定结果 <code>{state.result_uri}</code></p>}
+    <p className="servo-operation" role="status">{t(busy || notice)}</p>
+    {state?.session_uri && <p className="servo-file">{t("进度文件 ")}<code>{state.session_uri}</code></p>}
+    {state?.result_uri && <p className="saved">{t("标定结果 ")}<code>{state.result_uri}</code></p>}
   </section>
 }
 
 function JointRow({ name, joint }: { name: string, joint?: ServoCalibrationJoint }) {
+  const { t, s } = useLanguage()
   const coverage = joint && Number.isFinite(joint.coverage) ? Math.max(0, joint.coverage) : 0
   const warning = joint && ((!joint.online && joint.message !== 'not read since startup')
     || (joint.message && !healthyMessages[joint.message]))
-  const status = !joint ? '等待数据' : joint.message
+  const status = !joint ? t("等待数据") : joint.message
     ? healthyMessages[joint.message] || warningMessages[joint.message] || joint.message
-    : !joint.online ? '读取失败' : joint.range_captured ? '已完成' : joint.zero_captured ? '零位已记录' : '在线 · 待零位'
+    : !joint.online ? t("读取失败") : joint.range_captured ? t("已完成") : joint.zero_captured ? t("零位已记录") : t("在线 · 待零位")
   return <tr className={warning ? 'servo-joint-warning' : ''}>
-    <th scope="row"><strong>{jointNames[name]}</strong><small>{name} · ID {joint?.servo_id ?? '—'}</small>
-      <span title={joint?.message}>{status}</span></th>
+    <th scope="row"><strong>{t(jointNames[name])}</strong><small>{name} · ID {joint?.servo_id ?? '—'}</small>
+      <span title={s(joint?.message)}>{s(status)}</span></th>
     <td>{rawValue(joint?.position)}</td>
-    <td>{rawValue(joint?.zero)}<small>{joint?.zero_source?.startsWith('existing:') ? '沿用已有' : joint?.zero_captured ? '本次记录' : ''}</small>
-      {!joint?.zero_captured && joint && joint.reference_zero >= 0 && <small>已有 {joint.reference_zero}</small>}</td>
+    <td>{rawValue(joint?.zero)}<small>{joint?.zero_source?.startsWith('existing:') ? t("沿用已有") : joint?.zero_captured ? t("本次记录") : ''}</small>
+      {!joint?.zero_captured && joint && joint.reference_zero >= 0 && <small>{t("已有 ")}{joint.reference_zero}</small>}</td>
     <td>{rawValue(joint?.raw_min)} → {rawValue(joint?.raw_max)}</td>
     <td><div className={`servo-coverage ${rangeReady(joint) ? 'enough' : ''}`} role="progressbar"
-      aria-label={`${jointNames[name]}范围覆盖`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.min(1, coverage) * 100)}>
+      aria-label={t("{0}范围覆盖", t(jointNames[name]))} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.min(1, coverage) * 100)}>
       <span style={{ width: `${Math.min(1, coverage) * 100}%` }} /><i /></div><small>{Math.round(coverage * 100)}% / 60%</small></td>
   </tr>
 }

@@ -1,3 +1,4 @@
+import { useLanguage } from './i18n'
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
 
 // Screen right means clockwise (negative ROS angular Z); screen up is forward.
@@ -14,6 +15,7 @@ export function JoystickPad({ disabled, onMove, onRelease, size = 212 }: {
   onRelease: () => void,
   size?: number,
 }) {
+  const { t } = useLanguage()
   const knobSize = size < 180 ? 34 : 56
   const travel = (size - knobSize) / 2
   const [position, setPosition] = useState({ x: 0, y: 0 })
@@ -54,7 +56,7 @@ export function JoystickPad({ disabled, onMove, onRelease, size = 212 }: {
   return <div className="joystick-pad-wrap">
     <div ref={surface} className={`joystick-pad ${disabled ? 'disabled' : ''}`}
       style={{ width: size, height: size }}
-      role="group" aria-label="底盘摇杆" aria-disabled={disabled}
+      role="group" aria-label={t("底盘摇杆")} aria-disabled={disabled}
       onContextMenu={event => event.preventDefault()}
       onDragStart={event => event.preventDefault()}
       onPointerDown={event => {
@@ -73,14 +75,14 @@ export function JoystickPad({ disabled, onMove, onRelease, size = 212 }: {
       onPointerUp={event => { if (pointer.current === event.pointerId) release() }}
       onPointerCancel={event => { if (pointer.current === event.pointerId) release() }}
       onLostPointerCapture={event => { if (pointer.current === event.pointerId) release() }}>
-      <span className="joystick-forward">前进</span><span className="joystick-back">后退</span>
-      <span className="joystick-left">左转</span><span className="joystick-right">右转</span>
+      <span className="joystick-forward">{t("前进")}</span><span className="joystick-back">{t("后退")}</span>
+      <span className="joystick-left">{t("左转")}</span><span className="joystick-right">{t("右转")}</span>
       <span className="joystick-knob" style={{
         width: knobSize, height: knobSize,
         top: `calc(50% - ${knobSize / 2}px)`, left: `calc(50% - ${knobSize / 2}px)`,
         transform: `translate(${position.x * travel}px, ${position.y * travel}px)`,
       }} />
     </div>
-    <p className="hint">按住拖动，松手停车；上/下前后行驶，左/右转向，可同时转弯。</p>
+    <p className="hint">{t("按住拖动，松手停车；上/下前后行驶，左/右转向，可同时转弯。")}</p>
   </div>
 }

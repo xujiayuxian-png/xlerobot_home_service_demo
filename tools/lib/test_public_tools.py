@@ -1,12 +1,14 @@
-"""Small software-only regressions for the public setup/doctor entry points."""
+"""Small software-only regressions for public tools and documentation."""
 
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+from urllib.parse import unquote, urlsplit
 
 from python_versions import check_versions
 
@@ -15,6 +17,54 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class PublicToolsTest(unittest.TestCase):
+    def test_documentation_image_links_and_languages(self):
+        # Include package READMEs, examples and assets, not just docs/en.
+        files = subprocess.check_output(
+            ['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+            cwd=ROOT, text=True,
+        ).split('\0')
+        screenshots = {
+            'demo-ui', 'mapping-ui', 'collection-ui',
+            'calibration-head_camera', 'calibration-right_handeye',
+            'calibration-hover',
+        }
+        for name in screenshots:
+            for suffix in ('', '-en'):
+                self.assertTrue((ROOT / f'docs/images/{name}{suffix}.png').is_file())
+        for name in sorted(set(files)):
+            path = ROOT / name
+            if (path.suffix not in {'.md', '.mdx', '.html', '.rst'}
+                    or name.startswith('third_party/') or not path.is_file()):
+                continue
+            text = path.read_text(encoding='utf-8')
+            # Covers inline images, HTML images and linked image resources.
+            references = re.findall(
+                r'''(?:\]\(<?([^\s)>]+)|(?:src|href)=["']([^"']+)'''
+                r'|^\s*\[[^\]]+\]:\s*<?([^\s>]+)'
+                r'|^\s*\.\.\s+(?:image|figure)::\s+(\S+))',
+                text, re.MULTILINE,
+            )
+            for match in references:
+                url = urlsplit(next(value for value in match if value))
+                if url.scheme or url.netloc:
+                    continue
+                target = (path.parent / unquote(url.path)).resolve()
+                if target.suffix.lower() not in {
+                    '.png', '.jpg', '.jpeg', '.svg', '.webp', '.gif', '.pdf',
+                }:
+                    continue
+                with self.subTest(document=name, image=url.path):
+                    self.assertTrue(target.is_file(), f'Missing image: {url.path}')
+                    # The image catalog intentionally links both languages.
+                    if name.startswith(('docs/images/', 'docs/artwork/')):
+                        continue
+                    stem = target.stem.removesuffix('-en')
+                    if stem in screenshots:
+                        chinese = name == 'README.zh-CN.md' or name.startswith('docs/zh-CN/')
+                        expected = stem if chinese else f'{stem}-en'
+                        self.assertEqual(target.stem, expected,
+                                         f'Wrong screenshot language in {name}: {url.path}')
+
     def test_person_extra_keeps_base_constraints(self):
         extra = ROOT / 'requirements/robot-person-agpl.txt'
         self.assertIn('-c robot.txt', extra.read_text().splitlines())

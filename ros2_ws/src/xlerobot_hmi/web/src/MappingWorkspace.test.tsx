@@ -4,6 +4,7 @@ import { JoystickPad as BaseJoystick, joystickVector } from './JoystickPad'
 import { BaseJoystick as OperatorJoystick, MappingWorkspace } from './App'
 import { api, type SiteSummary } from './api'
 import type { MappingState } from './types'
+import { LanguageProvider, LanguageToggle } from './i18n'
 
 class TestPointerEvent extends MouseEvent {
   pointerId: number
@@ -213,6 +214,27 @@ describe('mapping workflow', () => {
     fireEvent.blur(window)
     expect(socket.sent.at(-1)).toEqual({ armed: false, linear: 0, angular: 0 })
     expect(screen.getByText('开启遥控')).toBeTruthy()
+  })
+  it('keeps the held joystick and its socket alive through language switches and status refreshes', async () => {
+    vi.useFakeTimers()
+    localStorage.clear()
+    render(<LanguageProvider><LanguageToggle /><MappingWorkspace state={state} phase="build" initialSiteId="home" onError={vi.fn()} /></LanguageProvider>)
+    await act(async () => {})
+    fireEvent.click(screen.getByText('开启遥控'))
+    const pad = screen.getByRole('group', { name: '底盘摇杆' })
+    press(pad)
+    const socket = TestSocket.instances[0]
+    act(() => socket.open())
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to English' }))
+    expect(screen.getByRole('group', { name: 'Base joystick' })).toBe(pad)
+    await act(async () => { await vi.advanceTimersByTimeAsync(5500) })
+    expect(TestSocket.instances).toHaveLength(1)
+    expect(socket.readyState).toBe(TestSocket.OPEN)
+    expect(socket.sent.at(-1)).toEqual({ armed: true, linear: .08, angular: 0 })
+    fireEvent.click(screen.getByRole('button', { name: '切换为中文' }))
+    expect(screen.getByRole('group', { name: '底盘摇杆' })).toBe(pad)
+    fireEvent.pointerUp(pad, { pointerId: 1 })
+    expect(socket.sent.at(-1)).toEqual({ armed: true, linear: 0, angular: 0 })
   })
   it('does not send delayed motion if the stick is released before connection opens', async () => {
     render(<MappingWorkspace state={state} phase="build" initialSiteId="home" onError={vi.fn()} />)

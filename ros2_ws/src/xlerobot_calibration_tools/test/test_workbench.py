@@ -61,6 +61,23 @@ def test_restart_archives_via_existing_fresh_capture_and_preserves_stage(tmp_pat
 REPO = Path(__file__).resolve().parents[4]
 
 
+def test_local_documents_follow_selected_language_without_device_start(tmp_path):
+    async def check():
+        value = manager(tmp_path)
+        value.start = AsyncMock()
+        async with TestClient(TestServer(application(value))) as client:
+            for language, directory in [('zh', 'zh-CN'), ('en', 'en')]:
+                response = await client.get(f'/workbench-docs/calibration-versions.md?lang={language}')
+                assert response.status == 200
+                assert await response.text() == (REPO / 'docs' / directory / 'calibration-versions.md').read_text()
+            response = await client.get('/workbench-docs/calibration-versions.md?lang=../../')
+            assert response.status == 400
+            response = await client.get('/workbench-docs/not-allowed.md?lang=en')
+            assert response.status == 404
+        value.start.assert_not_called()
+    asyncio.run(check())
+
+
 def manager(tmp_path, hardware=False):
     config = tmp_path / 'local.yaml'
     config.write_text(yaml.safe_dump({'robot': {'devices': {}}, 'schema': 'xlerobot_demo/v1'}))

@@ -8,6 +8,10 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const dist = resolve(root, 'ros2_ws/src/xlerobot_hmi/web/dist');
 const output = resolve(root, 'docs/images');
+const language = process.argv[2] || 'zh';
+if (!['zh', 'en'].includes(language)) throw new Error('Usage: node docs/artwork/capture_calibration.mjs [zh|en]');
+const english = language === 'en';
+const suffix = english ? '-en' : '';
 // Display the public head sweep, not repeated zero poses that would be unobservable.
 const headPoseYaml = await readFile(resolve(root,
   'ros2_ws/src/xlerobot_calibration_tools/config/head_camera_poses.yaml'), 'utf8');
@@ -29,7 +33,7 @@ function visual() {
     rotation_rmse_deg: 1, reprojection_rmse_px: .3 };
   return { available: true, state_fresh: true, state_age_s: .1, action_ready: true,
     request_inflight: false, unit_id: 'docs-demo', running: false, phase: 'COMPLETED',
-    message: '文档示例：展示采样完成后的界面，不代表实测精度。', pose_index: count - 1,
+    message: english ? 'Documentation preview; not measured accuracy.' : '文档示例：展示采样完成后的界面，不代表实测精度。', pose_index: count - 1,
     pose_count: count, sample_count: count, target_sample_count: handeye ? 26 : 12,
     pose_states: Array(count).fill('captured'), pose_pan: handeye ? Array(count).fill(0) : headPoses.map(p => p[0]),
     pose_tilt: handeye ? Array(count).fill(.8) : headPoses.map(p => p[1]),
@@ -37,7 +41,8 @@ function visual() {
     result_uri: '', quality_passed: true,
     metrics: handeye ? Object.fromEntries(['fit', 'validation'].flatMap(group =>
       Object.entries(metrics).map(([key, value]) => [`${group}.${key}`, value]))) : metrics,
-    target: { accepted: false, fresh: false, tag_count: 0, detail: '离线截图，无相机连接。' } };
+    target: { accepted: false, fresh: false, tag_count: 0,
+      detail: english ? 'Offline screenshot; no camera connected.' : '离线截图，无相机连接。' } };
 }
 const arrivals = ['center', 'right', 'left'].map((target, i) => {
   const x = [0, 30, -30][i], dx = [2, 4, 3][i], dy = [-3, -4, -5][i];
@@ -46,13 +51,14 @@ const arrivals = ['center', 'right', 'left'].map((target, i) => {
     height_mm: 180, height_shortfall_mm: 20, max_joint_error_deg: 1 };
 });
 const hover = { stale: false, report: { id: 'documentation-example', status: 'COMPLETED',
-  message: '示例数据 · 仅展示结果布局，不代表机器人实测精度。', source: 'documentation_fixture',
+  message: english ? 'Illustrative data only; not measured robot accuracy.' : '示例数据 · 仅展示结果布局，不代表机器人实测精度。', source: 'documentation_fixture',
   updated_at: 'documentation preview', independent_arrivals: 3, frames: 60, arrivals,
   summary: { mean_planar_error_mm: arrivals.reduce((sum, row) => sum + row.planar_error_mm, 0) / 3,
     mean_height_shortfall_mm: 20 },
   suggestion: { frame: 'calibration_board', add_to_target_xyz_m: [-.003, .004, -.02],
     raise_target_mm: 20, between_pose_error_std_mm: [.816, .816, 0],
-    advice: '示例参数不可用于机器人；实际建议由本机测量生成，应用前必须重新规划和验证。' } } };
+    advice: english ? 'Do not use these example values on hardware. Actual advice comes from local measurements; replan and validate before applying it.'
+      : '示例参数不可用于机器人；实际建议由本机测量生成，应用前必须重新规划和验证。' } } };
 const server = createServer(async (req, res) => {
   try {
     if (req.method !== 'GET') { res.writeHead(405).end(); return; }
@@ -80,29 +86,39 @@ let browser;
 try {
   browser = await chromium.launch({ executablePath: process.env.CHROME_BIN || '/usr/bin/google-chrome', headless: true });
   await mkdir(output, { recursive: true });
-  for (const [name, label] of [['head_camera', '头部相机'], ['right_handeye', '手眼标定'], ['hover', '悬停精度']]) {
+  for (const [name, zh, en] of [['head_camera', '头部相机', 'Head camera'], ['right_handeye', '手眼标定', 'Hand-eye calibration'], ['hover', '悬停精度', 'Hover accuracy']]) {
     stage = name;
     const page = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
     const errors = [];
     page.on('pageerror', error => errors.push(String(error)));
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
-    await page.getByRole('button', { name: label, exact: true }).click();
+    if (english) await page.getByRole('button', { name: 'Switch to English', exact: true }).click();
+    await page.getByRole('button', { name: english ? en : zh, exact: true }).click();
     const panel = page.locator(name === 'hover' ? '.hover-report' : '.head-calibration');
     await panel.waitFor();
-    await page.getByText(name === 'hover' ? '建议补偿 · 仅作为下一轮验证初值' : '重新标定', { exact: true }).waitFor();
-    await panel.evaluate(element => {
+    await page.getByText(name === 'hover'
+      ? english ? 'Advisory offset · initial value for next validation' : '建议补偿 · 仅作为下一轮验证初值'
+      : english ? 'Recalibrate' : '重新标定', { exact: true }).waitFor();
+    await panel.evaluate((element, english) => {
       const banner = document.createElement('p');
-      banner.textContent = '文档预览 / DOCUMENTATION PREVIEW · 示例数据 · 未连接机器人 · 非实测精度';
+      banner.textContent = english ? 'DOCUMENTATION PREVIEW · ILLUSTRATIVE DATA · NO ROBOT CONNECTED · NOT MEASURED ACCURACY'
+        : '文档预览 / DOCUMENTATION PREVIEW · 示例数据 · 未连接机器人 · 非实测精度';
       banner.style.cssText = 'padding:16px;background:#26434c;border:1px solid #63aef7;border-radius:8px;color:#fff;font-weight:700';
       element.prepend(banner);
       const camera = element.querySelector('.head-camera-preview');
-      if (camera) camera.innerHTML = '<div style="height:260px;display:grid;place-items:center;background:#08171e;color:#9cb2b7">相机画面区域 · 离线预览不连接相机</div>';
-    });
+      if (camera) {
+        const placeholder = document.createElement('div');
+        placeholder.style.cssText = 'height:260px;display:grid;place-items:center;background:#08171e;color:#9cb2b7';
+        placeholder.textContent = english ? 'CAMERA PREVIEW · NO CAMERA CONNECTED' : '相机画面区域 · 离线预览不连接相机';
+        camera.replaceChildren(placeholder);
+      }
+    }, english);
     await page.evaluate(() => document.fonts.ready);
     if (errors.length) throw new Error(errors.join('\n'));
-    await panel.screenshot({ path: resolve(output, `calibration-${name}.png`) });
+    if (english && /\p{Script=Han}/u.test(await panel.innerText())) throw new Error(`Untranslated screenshot: ${name}`);
+    await panel.screenshot({ path: resolve(output, `calibration-${name}${suffix}.png`) });
     await page.close();
-    console.log(`Captured ${name}`);
+    console.log(`Captured ${name} (${language})`);
   }
 } finally {
   await browser?.close();

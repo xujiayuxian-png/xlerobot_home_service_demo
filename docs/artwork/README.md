@@ -58,16 +58,32 @@ This writes only the 1400 × 850 calibration image, leaving the README hero
 and detail images unchanged. `capture_zero.mjs` verifies that every movable
 joint is set to zero before capture; it never connects to ROS or hardware.
 
-## Calibration workspace screenshots
+## UI and calibration screenshots
 
 Build the HMI (`npm run build` in `ros2_ws/src/xlerobot_hmi/web`), install the
 documentation Playwright dependency as above, then run from the repository root:
 
 ```bash
-node docs/artwork/capture_calibration.mjs
+node docs/artwork/capture_ui.mjs en
+node docs/artwork/capture_calibration.mjs en
+# Refresh both languages from the same frontend build.
+node docs/artwork/capture_ui.mjs zh
+node docs/artwork/capture_calibration.mjs zh
 ```
 
-This captures head-camera, right-arm hand-eye and hover-result panels at 1440 px
-viewport width. All numbers are illustrative, with an explicit banner and no
-camera connection. It uses no `.env`, local configuration, saved unit data or
-ROS service. The fixtures are confined to this documentation script.
+These capture the Demo, mapping and collection pages, plus head-camera,
+right-arm hand-eye and hover-result panels at 1440 px viewport width. English
+files have an `-en.png` suffix and do not overwrite the Chinese captures. The
+scripts select the actual frontend language; they do not paint translated text
+over screenshots. English collection form values are explicitly entered examples.
+
+All numbers are illustrative, with an explicit banner and no camera connection.
+No `.env`, local configuration, saved unit data or ROS service is used. The
+servers bind to loopback, reject non-GET requests and close after capture.
+Fixtures are confined to these documentation scripts. English captures are
+checked for untranslated Chinese text (the **中文** language-switch label is
+intentionally retained). Keep README and language-specific image references in sync.
+Refresh both languages whenever the UI changes, including screenshots used by
+the Chinese guides; do not leave those on an older UI build. Run
+`python3 tools/lib/test_public_tools.py` to check local image links throughout
+the repository's own documentation and the language of UI image references.

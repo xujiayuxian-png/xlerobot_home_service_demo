@@ -14,12 +14,12 @@ No robot or camera was connected. [Capture source and provenance](../images/READ
 
 | Head-camera calibration | Right-arm hand-eye: fitting and held-out validation |
 | --- | --- |
-| ![Head camera](../images/calibration-head_camera.png) | ![Right-arm hand-eye](../images/calibration-right_handeye.png) |
+| ![Head camera](../images/calibration-head_camera-en.png) | ![Right-arm hand-eye](../images/calibration-right_handeye-en.png) |
 
 The hover page compares target and observed positions and proposes an unapplied
 offset. The values below are examples, not parameters to copy to your robot.
 
-![Hover result charts and advisory offsets, illustrative data](../images/calibration-hover.png)
+![Hover result charts and advisory offsets, illustrative data](../images/calibration-hover-en.png)
 
 ## Start
 
@@ -41,6 +41,24 @@ Use `--config PATH` or `--web-port 8083` to select another configuration or port
 Starting the web workspace does not open devices. The explicit session button
 launches the existing ROS capture tool. Automatic motion requires a separate
 confirmation in that tool. Use this page on a trusted LAN, not the public internet.
+
+Use the **EN / 中文** button in the top-right corner to switch workspace labels
+and status guidance. The preference is stored in the browser. Calibration paths,
+version IDs, measurements and device names remain unchanged.
+The switch also covers confirmation dialogs, chart labels and local documentation
+links. It does not remount controls, restart streams, or initiate device commands.
+Known service messages are translated; unexpected diagnostics and session logs
+retain the original text for troubleshooting (labeled “Original service detail”
+when needed).
+
+For contributors: UI copy is rendered explicitly with `useLanguage().t()` and
+the exact-message catalog in `web/src/translations.ts` under `xlerobot_hmi`.
+Store asynchronous UI notices with `msg(source, ...values)`; pass user data as
+arguments, never translate it. `serviceTranslations.ts` handles known complete
+service messages, without altering ROS protocols. Run `npm test` and
+`npm run build` in `ros2_ws/src/xlerobot_hmi/web` after changing UI copy. Tests
+check translation coverage, English pages, round-trip switching, unchanged
+collection payloads, and uninterrupted teleoperation connections.
 
 ## Workflow
 

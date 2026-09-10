@@ -1,3 +1,4 @@
+import { useLanguage, msg, type Message, LanguageToggle } from './i18n'
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type CalibrationCoverage, type SiteSummary } from './api'
 import { JoystickPad } from './JoystickPad'
@@ -63,6 +64,7 @@ export function preferNewestTask(
 }
 
 export function App() {
+  const { t, s } = useLanguage()
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null)
   const [health, setHealth] = useState<Health | null>(null)
   const [task, setTask] = useState<Task | null>(null)
@@ -75,7 +77,7 @@ export function App() {
   const [operatorView, setOperatorView] = useState<'demo' | 'manual'>('demo')
   const [driveStopLatched, setDriveStopLatched] = useState<boolean | null>(null)
   const [stopBusy, setStopBusy] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<Message>('')
 
   const refresh = async () => {
     const [boot, healthState, tasks] = await Promise.all([
@@ -137,13 +139,13 @@ export function App() {
         setDriveStopLatched(update.data.latched)
       }
     }
-    events.onerror = () => setError('状态流正在重连…')
+    events.onerror = () => setError(msg("状态流正在重连…"))
     events.onopen = () => setError('')
     return () => events.close()
   }, [])
 
   if (!bootstrap || !health) {
-    return <main className="loading">正在连接机器人…<small>{error}</small></main>
+    return <main className="loading"><LanguageToggle /><p>{t("正在连接机器人…")}</p><small>{s(error)}</small></main>
   }
 
   const toggleBaseStop = async () => {
@@ -164,36 +166,37 @@ export function App() {
         <span className="brand-mark">XL</span>
         <div><p className="eyebrow">XLEROBOT OPERATOR CONSOLE</p>
           <h1>{workspace === 'operator'
-            ? operatorView === 'demo' ? 'Demo 演示' : '手动控制'
-            : workspaceNames[workspace] || '运行界面'}</h1></div>
+            ? operatorView === 'demo' ? t("Demo 演示") : t("手动控制")
+            : t(workspaceNames[workspace]) || t("运行界面")}</h1></div>
       </div>
       <div className="header-status">
+        <LanguageToggle />
         <div className="identity">
-          <span>版本<strong>{bootstrap.release}</strong></span>
-          <span>机器人<strong>{bootstrap.unit}</strong></span>
-          <span>场地<strong>{bootstrap.site || '未激活'}</strong></span>
+          <span>{t("版本")}<strong>{bootstrap.release}</strong></span>
+          <span>{t("机器人")}<strong>{bootstrap.unit}</strong></span>
+          <span>{t("场地")}<strong>{bootstrap.site || t("未激活")}</strong></span>
         </div>
         <div className={`readiness ${health.readiness.toLowerCase()}`}>
-          <span />{health.readiness === 'READY' ? '系统就绪'
-            : health.readiness === 'DEGRADED' ? '需要关注' : '系统阻塞'}
+          <span />{health.readiness === 'READY' ? t("系统就绪")
+            : health.readiness === 'DEGRADED' ? t("需要关注") : t("系统阻塞")}
         </div>
         {workspace === 'operator' && <button
           className={`header-base-stop ${driveStopLatched ? 'latched' : ''}`}
           onClick={toggleBaseStop} disabled={stopBusy}>
-          <strong>{stopBusy ? '正在处理…'
-            : driveStopLatched ? '解除底盘锁止' : '锁止底盘'}</strong>
-          <small>底盘软件锁止 · 不是急停</small>
+          <strong>{stopBusy ? t("正在处理…")
+            : driveStopLatched ? t("解除底盘锁止") : t("锁止底盘")}</strong>
+          <small>{t("底盘软件锁止 · 不是急停")}</small>
         </button>}
       </div>
     </header>
     {workspace === 'operator' && <nav className="operator-view-tabs"
-      aria-label="Operator 视图">
+      aria-label={t("Operator 视图")}>
       <button className={operatorView === 'demo' ? 'active' : ''}
-        onClick={() => setOperatorView('demo')}>Demo 演示</button>
+        onClick={() => setOperatorView('demo')}>{t("Demo 演示")}</button>
       <button className={operatorView === 'manual' ? 'active' : ''}
-        onClick={() => setOperatorView('manual')}>手动控制</button>
+        onClick={() => setOperatorView('manual')}>{t("手动控制")}</button>
     </nav>}
-    {error && <div className="notice">{error}</div>}
+    {error && <div className="notice">{s(error)}</div>}
     {workspace === 'operator' && <OperatorWorkspace
       health={health} task={task} history={history} mapping={mapping}
       places={bootstrap.named_places || []} perception={perception}
@@ -220,8 +223,9 @@ export function CollectionWorkspace({ state, initialDatasetId, storage, health, 
   storage?: { root: string, config_file: string } | null
   health?: Health | null
   onState: (state: CollectionState | null) => void
-  onError: (message: string) => void
+  onError: (message: Message) => void
 }) {
+  const { t, s } = useLanguage()
   const [template, setTemplate] = useState<'pick' | 'manual'>('pick')
   const [datasetId, setDatasetId] = useState(
     initialDatasetId || 'xlerobot-glue-stick-grasp-30',
@@ -232,12 +236,12 @@ export function CollectionWorkspace({ state, initialDatasetId, storage, health, 
   const [homePending, setHomePending] = useState(false)
   const [startPending, setStartPending] = useState(false)
   const [recoveryPending, setRecoveryPending] = useState(false)
-  const [recoveryMessage, setRecoveryMessage] = useState('')
+  const [recoveryMessage, setRecoveryMessage] = useState<Message>('')
   const [needsReset, setNeedsReset] = useState(false)
   const [reviewPending, setReviewPending] = useState(false)
-  const [reviewMessage, setReviewMessage] = useState('')
+  const [reviewMessage, setReviewMessage] = useState<Message>('')
   const [episodes, setEpisodes] = useState<CollectionEpisode[]>([])
-  const [historyError, setHistoryError] = useState('')
+  const [historyError, setHistoryError] = useState<Message>('')
   const [historyRevision, setHistoryRevision] = useState(0)
   const collectionStateRef = useRef(state)
   collectionStateRef.current = state
@@ -248,7 +252,7 @@ export function CollectionWorkspace({ state, initialDatasetId, storage, health, 
     setHistoryError('')
     api.collectionEpisodes(datasetId).then(result => {
       if (!canceled) setEpisodes(result.episodes)
-    }).catch(reason => { if (!canceled) setHistoryError(`最近记录加载失败：${String(reason)}`) })
+    }).catch(reason => { if (!canceled) setHistoryError(msg("最近记录加载失败：{0}", String(reason))) })
     return () => { canceled = true }
   }, [datasetId, state?.episode_id, state?.status, historyRevision])
   const recover = async (operation: 'release' | 'reset') => {
@@ -335,108 +339,107 @@ export function CollectionWorkspace({ state, initialDatasetId, storage, health, 
         onState({ ...current, review_status: status })
       }
       setHistoryRevision(value => value + 1)
-      setReviewMessage(`${episode.episode_id}：${status === 'accepted' ? '已保留，将用于后续转换。' : '已拒绝，后续转换将跳过，原始文件仍保留。'}`)
+      setReviewMessage(msg("{0}：{1}", episode.episode_id, status === 'accepted' ? msg("已保留，将用于后续转换。") : msg("已拒绝，后续转换将跳过，原始文件仍保留。")))
       onError('')
-    } catch (reason) { setReviewMessage(`保留状态保存失败：${String(reason)}`) }
+    } catch (reason) { setReviewMessage(msg("保留状态保存失败：{0}", String(reason))) }
     finally { setReviewPending(false) }
   }
   return <section className="engineering-card collection-card">
     <p className="section-label">FOLLOWER NEXT-STATE · NPZ + DUAL MP4</p>
-    <h2>ACT 数据采集</h2>
+    <h2>{t("ACT 数据采集")}</h2>
     {!running && poseWarning && poseWarning.level > 0 && <div className="collection-warning" role="alert">
-      <h3>{poseWarning.level >= 2 ? '初始姿态不合适，暂不能开始准备' : '正在等待主从臂反馈'}</h3>
-      <p>{poseWarning.message}</p>
-      <p>不要强行掰动上力的关节。先托住主从臂 → 释放主从臂扭矩 → 将提示的关节摆回允许范围 → Reset → 开始。</p>
-      <p>若提示头部或左臂，请先停止运行并释放对应扭矩；“释放主从臂”按钮不会释放头部和左臂。</p>
+      <h3>{poseWarning.level >= 2 ? t("初始姿态不合适，暂不能开始准备") : t("正在等待主从臂反馈")}</h3>
+      <p>{s(poseWarning.message)}</p>
+      <p>{t("不要强行掰动上力的关节。先托住主从臂 → 释放主从臂扭矩 → 将提示的关节摆回允许范围 → Reset → 开始。")}</p>
+      <p>{t("若提示头部或左臂，请先停止运行并释放对应扭矩；“释放主从臂”按钮不会释放头部和左臂。")}</p>
     </div>}
     {state?.status === 'FAILED' && <div className="collection-warning" role="alert">
-      <h3>本次采集未能完成 · {state.phase}</h3><p>{state.message}</p>
-      <p>若涉及姿态或控制器：先托住主从臂，释放扭矩，调整姿态后 Reset，再点击开始。完整错误信息保留在这里。</p>
+      <h3>{t("本次采集未能完成 · ")}{state.phase}</h3><p>{s(state.message)}</p>
+      <p>{t("若涉及姿态或控制器：先托住主从臂，释放扭矩，调整姿态后 Reset，再点击开始。完整错误信息保留在这里。")}</p>
     </div>}
     <div className="workflow-tabs">
-      <button disabled={running || startPending} className={template === 'pick' ? 'active' : ''} onClick={() => setTemplate('pick')}>抓取模板</button>
-      <button disabled={running || startPending} className={template === 'manual' ? 'active' : ''} onClick={() => setTemplate('manual')}>通用手动</button>
+      <button disabled={running || startPending} className={template === 'pick' ? 'active' : ''} onClick={() => setTemplate('pick')}>{t("抓取模板")}</button>
+      <button disabled={running || startPending} className={template === 'manual' ? 'active' : ''} onClick={() => setTemplate('manual')}>{t("通用手动")}</button>
     </div>
     <div className="camera-previews">
-      <figure><img src="/api/v1/cameras/head/stream" alt="头部 D455 实时预览" />
+      <figure><img src="/api/v1/cameras/head/stream" alt={t("头部 D455 实时预览")} />
         <figcaption>HEAD · D455</figcaption></figure>
-      <figure><img src="/api/v1/cameras/wrist/stream" alt="右腕相机实时预览" />
+      <figure><img src="/api/v1/cameras/wrist/stream" alt={t("右腕相机实时预览")} />
         <figcaption>WRIST · RIGHT ARM</figcaption></figure>
     </div>
-    <p className="hint">数据集名称：多条采样共用一个名称。每次开始会自动生成独立的采样编号。</p>
+    <p className="hint">{t("数据集名称：多条采样共用一个名称。每次开始会自动生成独立的采样编号。")}</p>
     {storage && <div className="collection-storage">
-      <strong>保存在机器人主机，不是浏览器所在电脑</strong>
-      <p>当前数据集目录：<code>{storage.root}/datasets/{datasetId}</code></p>
-      <p>原始数据：<code>raw/&lt;采样编号&gt;/</code>；保留 / 拒绝记录：<code>reviews/</code></p>
-      <p>配置文件：<code>{storage.config_file || '当前通过 ROS launch 启动，未指定配置文件'}</code></p>
-      <p>修改根目录：配置中的 <code>data.collection_root</code>；修改后重新启动数采。转换时将 <code>data.dataset_root</code> 指向上面的完整数据集目录。修改位置不会搬迁旧数据。</p>
+      <strong>{t("保存在机器人主机，不是浏览器所在电脑")}</strong>
+      <p>{t("当前数据集目录：")}<code>{storage.root}/datasets/{datasetId}</code></p>
+      <p>{t("原始数据：")}<code>{t("raw/<采样编号>/")}</code>{t("；保留 / 拒绝记录：")}<code>reviews/</code></p>
+      <p>{t("配置文件：")}<code>{storage.config_file || t("当前通过 ROS launch 启动，未指定配置文件")}</code></p>
+      <p>{t("修改根目录：配置中的 ")}<code>data.collection_root</code>{t("；修改后重新启动数采。转换时将 ")}<code>data.dataset_root</code> {t(" 指向上面的完整数据集目录。修改位置不会搬迁旧数据。")}</p>
     </div>}
-    <div className="field-row"><input aria-label="数据集名称" value={datasetId} disabled={running || startPending || reviewPending} onChange={event => setDatasetId(event.target.value)} placeholder="Dataset ID" />
+    <div className="field-row"><input aria-label={t("数据集名称")} value={datasetId} disabled={running || startPending || reviewPending} onChange={event => setDatasetId(event.target.value)} placeholder="Dataset ID" />
       <input value={objectId} disabled={running || startPending} onChange={event => {
         setObjectId(event.target.value)
         setInstruction(`抓住${event.target.value}`)
-      }} placeholder="物体标签" /></div>
-    <label>语言指令<input value={instruction} disabled={running || startPending} onChange={event => setInstruction(event.target.value)} /></label>
-    <label>最长时长 {duration}s<input disabled={running || startPending} type="range" min="5" max="120" value={duration}
+      }} placeholder={t("物体标签")} /></div>
+    <label>{t("语言指令")}<input value={instruction} disabled={running || startPending} onChange={event => setInstruction(event.target.value)} /></label>
+    <p className="hint">{t('界面语言不修改物体标签和训练指令；如需英文训练指令，请手动编辑。')}</p>
+    <label>{t("最长时长 ")}{duration}s<input disabled={running || startPending} type="range" min="5" max="120" value={duration}
       onChange={event => setDuration(Number(event.target.value))} /></label>
-    {!running && <div className="field-row"><button disabled={startPending || recoveryPending || needsReset || reviewPending} onClick={() => start(true)}>状态机 dry-run</button>
-      <button disabled={startPending || recoveryPending || needsReset || reviewPending} className="primary" onClick={() => start(false)}>开始 / 准备 pregrasp</button></div>}
+    {!running && <div className="field-row"><button disabled={startPending || recoveryPending || needsReset || reviewPending} onClick={() => start(true)}>{t("状态机 dry-run")}</button>
+      <button disabled={startPending || recoveryPending || needsReset || reviewPending} className="primary" onClick={() => start(false)}>{t("开始 / 准备 pregrasp")}</button></div>}
     <div className="field-row">
       <button className="danger" disabled={startPending || recoveryPending}
-        onClick={() => recover('release')}>释放主从臂扭矩</button>
+        onClick={() => recover('release')}>{t("释放主从臂扭矩")}</button>
       <button disabled={running || startPending || recoveryPending || reviewPending}
-        onClick={() => recover('reset')}>Reset / 重置状态</button>
+        onClick={() => recover('reset')}>{t("Reset / 重置状态")}</button>
     </div>
-    <p className="hint">异常恢复：先托住主从臂 → 释放扭矩（中止当前条，保留 incomplete）→ 手动摆好 → Reset → 开始。Reset 不上力、不回位、不删除数据；释放时底盘一并停用，头部保持。</p>
-    {recoveryPending && <p role="status">正在停止采集或处理恢复，请稍候…</p>}
-    {recoveryMessage && <p role="status">{recoveryMessage}</p>}
+    <p className="hint">{t("异常恢复：先托住主从臂 → 释放扭矩（中止当前条，保留 incomplete）→ 手动摆好 → Reset → 开始。Reset 不上力、不回位、不删除数据；释放时底盘一并停用，头部保持。")}</p>
+    {recoveryPending && <p role="status">{t("正在停止采集或处理恢复，请稍候…")}</p>}
+    {recoveryMessage && <p role="status">{s(recoveryMessage)}</p>}
     {running && <div className="field-row">
       <button className="primary" onClick={home}
         disabled={state.phase !== 'WAITING_HOME' || homePending || recoveryPending}>
-        Home / 释放主臂并开始采集
-      </button>
+        {t("Home / 释放主臂并开始采集 ")}</button>
       <button className="primary" onClick={finish}
         disabled={state.phase !== 'RECORDING' || recoveryPending}>
-        End / 结束并保存到本机
-      </button>
+        {t("End / 结束并保存到本机 ")}</button>
       <button className="danger" onClick={abort} disabled={!abortable || recoveryPending}>
-        Abort / 中止并保留 incomplete
-      </button>
+        {t("Abort / 中止并保留 incomplete ")}</button>
     </div>}
-    {state && <p>本条采样：{state.episode_id}</p>}
+    {state && <p>{t("本条采样：")}{state.episode_id}</p>}
     {state && <div className="collection-progress"><strong>{state.phase}</strong>
-      <progress max="1" value={state.progress} /><span>{state.frame_count} frames · {state.elapsed_s.toFixed(1)}s · {state.message}</span></div>}
+      <progress max="1" value={state.progress} /><span>{state.frame_count} frames · {state.elapsed_s.toFixed(1)}s · {s(state.message)}</span></div>}
     {state?.status === 'SUCCEEDED' && !state.dry_run && state.episode_uri &&
       <div className="field-row">
-      <span>本条：{state.review_status === 'accepted' ? '已保留' : state.review_status === 'rejected' ? '已拒绝' : '未选择（不进入训练）'}</span>
+      <span>{t("本条：")}{state.review_status === 'accepted' ? t("已保留") : state.review_status === 'rejected' ? t("已拒绝") : t("未选择（不进入训练）")}</span>
       {state.review_status !== 'accepted' && <button disabled={reviewPending || recoveryPending} onClick={() => review(state, 'accepted')}>
-        {state.review_status === 'rejected' ? '恢复保留本条' : '保留本条'}</button>}
-      {state.review_status !== 'rejected' && <button disabled={reviewPending || recoveryPending} onClick={() => review(state, 'rejected')}>拒绝本条</button>}</div>}
-    {reviewPending && <p role="status">正在保存保留状态…</p>}
-    {reviewMessage && <p role="status">{reviewMessage}</p>}
-    <p className="hint">新采样正常保存并通过完整性检查后默认保留，无需点击通过。只需拒绝不想用于训练的数据；拒绝可恢复，不删除文件。旧数据不自动改选。</p>
-    <h3>最近采样（当前数据集，最多 20 条）</h3>
-    <button onClick={() => setHistoryRevision(value => value + 1)}>刷新记录</button>
-    {historyError && <p role="alert">{historyError}</p>}
+        {state.review_status === 'rejected' ? t("恢复保留本条") : t("保留本条")}</button>}
+      {state.review_status !== 'rejected' && <button disabled={reviewPending || recoveryPending} onClick={() => review(state, 'rejected')}>{t("拒绝本条")}</button>}</div>}
+    {reviewPending && <p role="status">{t("正在保存保留状态…")}</p>}
+    {reviewMessage && <p role="status">{t(reviewMessage)}</p>}
+    <p className="hint">{t("新采样正常保存并通过完整性检查后默认保留，无需点击通过。只需拒绝不想用于训练的数据；拒绝可恢复，不删除文件。旧数据不自动改选。")}</p>
+    <h3>{t("最近采样（当前数据集，最多 20 条）")}</h3>
+    <button onClick={() => setHistoryRevision(value => value + 1)}>{t("刷新记录")}</button>
+    {historyError && <p role="alert">{s(historyError)}</p>}
     {episodes.map(episode => <div className="field-row" key={episode.episode_id}>
-      <span>{episode.episode_id} · {episode.frame_count} 帧 · {episode.duration_s.toFixed(1)}s · {episode.review_status === 'accepted' ? '已保留' : episode.review_status === 'rejected' ? '已拒绝' : '未选择（旧数据）'}</span>
-      <button disabled={reviewPending || recoveryPending} aria-label={`${episode.episode_id} ${episode.review_status === 'rejected' ? '恢复保留' : '拒绝'}`}
+      <span>{episode.episode_id} · {episode.frame_count} {t(" 帧 · ")}{episode.duration_s.toFixed(1)}s · {episode.review_status === 'accepted' ? t("已保留") : episode.review_status === 'rejected' ? t("已拒绝") : t("未选择（旧数据）")}</span>
+      <button disabled={reviewPending || recoveryPending} aria-label={t("{0} {1}", episode.episode_id, episode.review_status === 'rejected' ? t("恢复保留") : t("拒绝"))}
         onClick={() => review(episode, episode.review_status === 'rejected' ? 'accepted' : 'rejected')}>
-        {episode.review_status === 'rejected' ? '恢复保留' : '拒绝'}</button>
-      {!episode.review_status && <button disabled={reviewPending || recoveryPending} aria-label={`${episode.episode_id} 保留`}
-        onClick={() => review(episode, 'accepted')}>保留旧数据</button>}
+        {episode.review_status === 'rejected' ? t("恢复保留") : t("拒绝")}</button>
+      {!episode.review_status && <button disabled={reviewPending || recoveryPending} aria-label={t("{0} 保留", episode.episode_id)}
+        onClick={() => review(episode, 'accepted')}>{t("保留旧数据")}</button>}
     </div>)}
-    <p className="hint">End 只结束录制，遥操继续，可放下物品并手动归位；这些动作不进入已保存数据。下一次开始会结束当前遥操并准备新的 pregrasp。释放扭矩按钮会停止遥操。</p>
-    <p className="hint">开始：主从臂准备到 pregrasp 后保持上力（通用手动仅主臂对齐从臂）。等待 Home：托住主臂后点击或按键盘 Home；数据就绪后交接到遥操，显示 RECORDING 再示教。End 结束并保存到本机，不会上传。输入框内不响应快捷键。等待超过 60 秒将中止本条。</p>
+    <p className="hint">{t("End 只结束录制，遥操继续，可放下物品并手动归位；这些动作不进入已保存数据。下一次开始会结束当前遥操并准备新的 pregrasp。释放扭矩按钮会停止遥操。")}</p>
+    <p className="hint">{t("开始：主从臂准备到 pregrasp 后保持上力（通用手动仅主臂对齐从臂）。等待 Home：托住主臂后点击或按键盘 Home；数据就绪后交接到遥操，显示 RECORDING 再示教。End 结束并保存到本机，不会上传。输入框内不响应快捷键。等待超过 60 秒将中止本条。")}</p>
   </section>
 }
 
 function CalibrationWorkspace({ unitId, workflow, captureOnly, onError }: {
   unitId: string, workflow: string, captureOnly: boolean,
-  onError: (message: string) => void
+  onError: (message: Message) => void
 }) {
+  const { t } = useLanguage()
   const [sourceUri, setSourceUri] = useState('')
-  const [result, setResult] = useState('')
+  const [result, setResult] = useState<Message>('')
   const [nominalRadius, setNominalRadius] = useState('0.0635')
   const [nominalSeparation, setNominalSeparation] = useState('0.52')
   const [straightCommanded, setStraightCommanded] = useState('1.0,1.0')
@@ -445,25 +448,25 @@ function CalibrationWorkspace({ unitId, workflow, captureOnly, onError }: {
   const [rotationActual, setRotationActual] = useState('6.283185,6.283185')
   const [coverage, setCoverage] = useState<CalibrationCoverage | null>(null)
   const workflows: Record<string, string> = {
-    servo: '舵机标定', base_geometry: '底盘几何',
-    head_camera: '头部 D455 外参', right_handeye: '右臂手眼',
+    servo: t("舵机标定"), base_geometry: t("底盘几何"),
+    head_camera: t("头部 D455 外参"), right_handeye: t("右臂手眼"),
   }
   const preflight = async () => {
     try {
       const value = await api.calibrationPreflight(unitId, workflow)
-      setResult(`${value.message} · ${value.artifact_uri}`)
+      setResult(msg("{0} · {1}", msg(value.message), value.artifact_uri))
     } catch (reason) { onError(String(reason)) }
   }
   const importResult = async () => {
     try {
       const value = await api.importCalibration(unitId, workflow, sourceUri)
-      setResult(`${value.quality_passed ? '质量通过' : '质量未通过'} · ${JSON.stringify(value.metrics)}`)
+      setResult(msg("{0} · {1}", value.quality_passed ? msg("质量通过") : msg("质量未通过"), JSON.stringify(value.metrics)))
     } catch (reason) { onError(String(reason)) }
   }
   const activate = async () => {
     try {
       const value = await api.activateCalibration(unitId)
-      setResult(`已原子激活，可回滚：${value.artifact_uri}`)
+      setResult(msg("已原子激活，可回滚：{0}", value.artifact_uri))
     } catch (reason) { onError(String(reason)) }
   }
   const values = (text: string) => text.split(',').map(value => Number(value.trim()))
@@ -478,7 +481,7 @@ function CalibrationWorkspace({ unitId, workflow, captureOnly, onError }: {
         rotation_commanded_rad: values(rotationCommanded),
         rotation_actual_rad: values(rotationActual),
       })
-      setResult(`${value.quality_passed ? '质量通过' : '质量未通过'} · ${JSON.stringify(value.metrics)}`)
+      setResult(msg("{0} · {1}", value.quality_passed ? msg("质量通过") : msg("质量未通过"), JSON.stringify(value.metrics)))
     } catch (reason) { onError(String(reason)) }
   }
   const visual = workflow === 'right_handeye'
@@ -509,37 +512,38 @@ function CalibrationWorkspace({ unitId, workflow, captureOnly, onError }: {
   </>
   return <section className="engineering-card calibration-card">
     <p className="section-label">UNIT CALIBRATION · {unitId}</p>
-    <h2>{workflows[workflow] || '标定工具'}</h2>
+    <h2>{workflows[workflow] || t("标定工具")}</h2>
     {captureOnly
-      ? <p>此页面只采集原始标定结果；请回到命令行用 tools/calibrate 严格求解、导入并激活。</p>
-      : <><p>所有结果先进入 draft；四项质量门槛全部通过后才能激活。激活不会修改仓库配置。</p>
-        <button onClick={preflight}>检查当前工作流</button></>}
+      ? <p>{t("此页面只采集原始标定结果；请回到命令行用 tools/calibrate 严格求解、导入并激活。")}</p>
+      : <><p>{t("所有结果先进入 draft；四项质量门槛全部通过后才能激活。激活不会修改仓库配置。")}</p>
+        <button onClick={preflight}>{t("检查当前工作流")}</button></>}
     {workflow === 'base_geometry' ? <>
       <div className="field-row">
-        <label>当前轮径 m<input value={nominalRadius} onChange={event => setNominalRadius(event.target.value)} /></label>
-        <label>当前轮距 m<input value={nominalSeparation} onChange={event => setNominalSeparation(event.target.value)} /></label>
+        <label>{t("当前轮径 m")}<input value={nominalRadius} onChange={event => setNominalRadius(event.target.value)} /></label>
+        <label>{t("当前轮距 m")}<input value={nominalSeparation} onChange={event => setNominalSeparation(event.target.value)} /></label>
       </div>
-      <label>两次直行命令距离 m（逗号分隔）<input value={straightCommanded} onChange={event => setStraightCommanded(event.target.value)} /></label>
-      <label>两次直行实测距离 m<input value={straightActual} onChange={event => setStraightActual(event.target.value)} /></label>
-      <label>两次旋转命令角度 rad<input value={rotationCommanded} onChange={event => setRotationCommanded(event.target.value)} /></label>
-      <label>两次旋转实测角度 rad<input value={rotationActual} onChange={event => setRotationActual(event.target.value)} /></label>
+      <label>{t("两次直行命令距离 m（逗号分隔）")}<input value={straightCommanded} onChange={event => setStraightCommanded(event.target.value)} /></label>
+      <label>{t("两次直行实测距离 m")}<input value={straightActual} onChange={event => setStraightActual(event.target.value)} /></label>
+      <label>{t("两次旋转命令角度 rad")}<input value={rotationCommanded} onChange={event => setRotationCommanded(event.target.value)} /></label>
+      <label>{t("两次旋转实测角度 rad")}<input value={rotationActual} onChange={event => setRotationActual(event.target.value)} /></label>
       <button className="primary" onClick={saveBaseGeometry}>{captureOnly
-        ? '保存底盘测量结果' : '计算、验收并保存 draft'}</button>
-      <p className="hint">至少两次直行和两次旋转；运动试验由当前独立 profile 执行，填写现场实测值后拟合。</p>
+        ? t("保存底盘测量结果") : t("计算、验收并保存 draft")}</button>
+      <p className="hint">{t("至少两次直行和两次旋转；运动试验由当前独立 profile 执行，填写现场实测值后拟合。")}</p>
     </> : !captureOnly ? <>
-      <label>本地结果 URI<input value={sourceUri}
+      <label>{t("本地结果 URI")}<input value={sourceUri}
         onChange={event => setSourceUri(event.target.value)}
         placeholder=".xlerobot/staging/result.yaml" /></label>
-      <button className="primary" onClick={importResult} disabled={!sourceUri}>导入并验收</button>
+      <button className="primary" onClick={importResult} disabled={!sourceUri}>{t("导入并验收")}</button>
     </> : null}
-    {!captureOnly && <button onClick={activate}>激活完整 calibration bundle</button>}
-    {result && <p className="saved">{result}</p>}
+    {!captureOnly && <button onClick={activate}>{t("激活完整 calibration bundle")}</button>}
+    {result && <p className="saved">{t(result)}</p>}
   </section>
 }
 
 export function HandeyeCoveragePanel({ coverage }: {
   coverage: CalibrationCoverage
 }) {
+  const { t } = useLanguage()
   const width = 360
   const height = 230
   const padding = 30
@@ -567,12 +571,12 @@ export function HandeyeCoveragePanel({ coverage }: {
   const millimeters = (value: number) => `${(value * 1000).toFixed(1)} mm`
   return <section className="handeye-coverage">
     <div className="coverage-heading">
-      <div><strong>姿态覆盖事实</strong><small>XY 俯视 · 点色表示 Z 高度</small></div>
+      <div><strong>{t("姿态覆盖事实")}</strong><small>{t("XY 俯视 · 点色表示 Z 高度")}</small></div>
       <span>{coverage.sample_count} samples</span>
     </div>
     <div className="coverage-grid">
       <svg viewBox={`0 0 ${width} ${height}`}
-        aria-label="右手眼 XY 姿态覆盖" role="img">
+        aria-label={t("右手眼 XY 姿态覆盖")} role="img">
         <rect x={padding} y={padding} width={plotWidth} height={plotHeight}
           className="coverage-frame" />
         <line x1={padding} y1={height - padding}
@@ -594,34 +598,34 @@ export function HandeyeCoveragePanel({ coverage }: {
         })}
         {!points.length &&
           <text className="coverage-empty" x={width / 2} y={height / 2}>
-            暂无已恢复样本
-          </text>}
+            {t("暂无已恢复样本 ")}</text>}
       </svg>
       <dl className="coverage-metrics">
         <div><dt>X span</dt><dd>{millimeters(coverage.spans_m.x)}</dd></div>
         <div><dt>Y span</dt><dd>{millimeters(coverage.spans_m.y)}</dd></div>
         <div><dt>Z span</dt><dd>{millimeters(coverage.spans_m.z)}</dd></div>
-        <div><dt>最大两两姿态角</dt>
+        <div><dt>{t("最大两两姿态角")}</dt>
           <dd>{coverage.max_pairwise_pose_angle_deg.toFixed(1)}°</dd></div>
       </dl>
     </div>
-    <p>仅显示已保存样本的几何覆盖，不据此增加或推断质量通过阈值。</p>
+    <p>{t("仅显示已保存样本的几何覆盖，不据此增加或推断质量通过阈值。")}</p>
   </section>
 }
 
 export function MappingWorkspace({ state, phase, initialSiteId, onError }: {
   state: MappingState | null, phase: string, initialSiteId: string,
-  onError: (message: string) => void
+  onError: (message: Message) => void
 }) {
+  const { t, s } = useLanguage()
   const [linearSpeed, setLinearSpeed] = useState(0.08)
   const [angularSpeed, setAngularSpeed] = useState(0.35)
   const siteId = initialSiteId || 'home'
   const [mapName, setMapName] = useState('ground-floor')
   const [placeId, setPlaceId] = useState('table')
-  const [saved, setSaved] = useState('')
+  const [saved, setSaved] = useState<Message>('')
   const [site, setSite] = useState<SiteSummary | null>(null)
-  const [siteError, setSiteError] = useState('')
-  const [pending, setPending] = useState('')
+  const [siteError, setSiteError] = useState<Message>('')
+  const [pending, setPending] = useState<Message>('')
   const busy = useRef(false)
   const [localized, setLocalized] = useState(false)
   const { armed, setArmed, connected, move: drive, stop } = useBaseTeleop(
@@ -638,13 +642,13 @@ export function MappingWorkspace({ state, phase, initialSiteId, onError }: {
       try {
         const result = await api.site(siteId)
         if (!disposed) { setSite(result); setSiteError('') }
-      } catch (reason) { if (!disposed) setSiteError(`无法读取保存状态：${String(reason)}`) }
+      } catch (reason) { if (!disposed) setSiteError(msg("无法读取保存状态：{0}", String(reason))) }
     }
     void refresh()
     const timer = window.setInterval(refresh, 5000)
     return () => { disposed = true; window.clearInterval(timer) }
   }, [siteId])
-  const perform = async (label: string, action: () => Promise<void>) => {
+  const perform = async (label: Message, action: () => Promise<void>) => {
     if (busy.current) return
     busy.current = true
     stop()
@@ -654,58 +658,58 @@ export function MappingWorkspace({ state, phase, initialSiteId, onError }: {
     try {
       await action()
       try { await refreshSite() }
-      catch (reason) { setSiteError(`操作已完成，但刷新保存状态失败：${String(reason)}`) }
+      catch (reason) { setSiteError(msg("操作已完成，但刷新保存状态失败：{0}", String(reason))) }
     } catch (reason) { onError(String(reason)) }
     finally { busy.current = false; setPending('') }
   }
   const save = async () => {
-    await perform('保存地图中…', async () => {
+    await perform(msg("保存地图中…"), async () => {
       await api.saveMap(siteId, mapName.trim())
-      setSaved('地图已保存为草稿，尚未替换 Demo 地图。继续建图后请再次保存。')
+      setSaved(msg("地图已保存为草稿，尚未替换 Demo 地图。继续建图后请再次保存。"))
     })
   }
   const resetMap = async () => {
-    if (!window.confirm('清除当前正在构建的地图并重新建图？未保存的建图结果无法恢复。'
-      + '已保存的地图、地点和 Demo 配置不会删除；重建后请重新确认或记录地点。')) return
-    await perform('清除当前地图中…', async () => {
+    if (!window.confirm(t("清除当前正在构建的地图并重新建图？未保存的建图结果无法恢复。")
+      + t("已保存的地图、地点和 Demo 配置不会删除；重建后请重新确认或记录地点。"))) return
+    await perform(msg("清除当前地图中…"), async () => {
       await api.resetMap()
-      setSaved('当前地图已清除，等待新扫描重新生成。已保存的地图和地点保持不变。')
+      setSaved(msg("当前地图已清除，等待新扫描重新生成。已保存的地图和地点保持不变。"))
     })
   }
   const savePlace = async () => {
     const id = placeId.trim()
     if (site?.draft.places.some(place => place.id === id)
-      && !window.confirm(`用机器人当前的位置和朝向覆盖 ${id}？`)) return
-    await perform('记录地点中…', async () => {
+      && !window.confirm(t("用机器人当前的位置和朝向覆盖 {0}？", id))) return
+    await perform(msg("记录地点中…"), async () => {
       await api.setPlace(siteId, id, id === 'table', id === 'table' ? 0.25 : 0)
-      setSaved(`已记录 ${id} 的位置和朝向。`)
+      setSaved(msg("已记录 {0} 的位置和朝向。", id))
     })
   }
   const removePlace = async () => {
-    if (!window.confirm(`删除地点 ${placeId.trim()}？`)) return
-    await perform('删除地点中…', async () => {
+    if (!window.confirm(t("删除地点 {0}？", placeId.trim()))) return
+    await perform(msg("删除地点中…"), async () => {
       await api.removePlace(siteId, placeId.trim())
-      setSaved(`已删除 ${placeId.trim()}。`)
+      setSaved(msg("已删除 {0}。", placeId.trim()))
     })
   }
   const validateLocalization = async () => {
     setLocalized(false)
-    await perform('自动定位中，机器人会转动…', async () => {
+    await perform(msg("自动定位中，机器人会转动…"), async () => {
       const result = await api.validateLocalization(siteId)
       setLocalized(true)
-      setSaved(`定位通过：σxy ${result.position_stddev_m.toFixed(3)} m，σyaw ${result.yaw_stddev_rad.toFixed(3)} rad`)
+      setSaved(msg("定位通过：σxy {0} m，σyaw {1} rad", result.position_stddev_m.toFixed(3), result.yaw_stddev_rad.toFixed(3)))
     })
   }
   const validatePlace = async () => {
-    await perform('导航验证中，机器人会移动…', async () => {
+    await perform(msg("导航验证中，机器人会移动…"), async () => {
       const result = await api.validatePlace(siteId, placeId)
-      setSaved(`${placeId} 通过：位置误差 ${result.position_error_m.toFixed(3)} m，角度误差 ${result.yaw_error_rad.toFixed(3)} rad${result.site_ready ? '；site 已可激活' : ''}`)
+      setSaved(msg("{0} 通过：位置误差 {1} m，角度误差 {2} rad{3}", placeId, result.position_error_m.toFixed(3), result.yaw_error_rad.toFixed(3), result.site_ready ? msg("；site 已可激活") : ''))
     })
   }
   const activate = async () => {
-    await perform('激活场地中…', async () => {
+    await perform(msg("激活场地中…"), async () => {
       const result = await api.activateSite(siteId)
-      setSaved(`场地已激活：${result.artifact_uri}。下次 Demo 使用的 site.map / site.places 仍由本机配置指定，请指向该场地 current/ 中的文件。`)
+      setSaved(msg("场地已激活：{0}。下次 Demo 使用的 site.map / site.places 仍由本机配置指定，请指向该场地 current/ 中的文件。", result.artifact_uri))
     })
   }
   const validId = (value: string) => /^[A-Za-z0-9][A-Za-z0-9_.-]{0,95}$/.test(value.trim())
@@ -715,73 +719,73 @@ export function MappingWorkspace({ state, phase, initialSiteId, onError }: {
   return <section className="mapping-grid">
     <article className="map-card">
       <div className="map-heading"><div><p className="section-label">LIVE SLAM</p>
-        <h2>场地地图</h2></div><strong>{state?.slam || 'WAITING'}</strong></div>
+        <h2>{t("场地地图")}</h2></div><strong>{state?.slam || 'WAITING'}</strong></div>
       <MapCanvas state={state} places={places} />
-      {state?.reset_notice && <p className="hint">{state.reset_notice}</p>}
+      {state?.reset_notice && <p className="hint">{s(state.reset_notice)}</p>}
       <div className="map-stats">
-        <span>分辨率 <b>{state?.map?.resolution.toFixed(3) || '—'} m</b></span>
-        <span>尺寸 <b>{state?.map ? `${state.map.width} × ${state.map.height}` : '—'}</b></span>
+        <span>{t("分辨率 ")}<b>{state?.map?.resolution.toFixed(3) || '—'} m</b></span>
+        <span>{t("尺寸 ")}<b>{state?.map ? `${state.map.width} × ${state.map.height}` : '—'}</b></span>
         <span>Pose <b>{state?.pose ? `${state.pose.x.toFixed(2)}, ${state.pose.y.toFixed(2)}` : '—'}</b></span>
       </div>
     </article>
     <div className="mapping-side">
       {phase === 'build' && <article className="drive-card">
-        <div className="drive-title"><div><p className="section-label">DEAD-MAN TELEOP</p><h2>覆盖场地</h2></div>
+        <div className="drive-title"><div><p className="section-label">DEAD-MAN TELEOP</p><h2>{t("覆盖场地")}</h2></div>
           <button disabled={!!pending} className={armed ? 'armed' : ''} onClick={() => { stop(); setArmed(!armed) }}>
-            {armed ? '结束遥控' : '开启遥控'}
+            {armed ? t("结束遥控") : t("开启遥控")}
           </button></div>
         <JoystickPad disabled={!armed || !!pending}
           onMove={(linear, angular) => drive(linear * linearSpeed, angular * angularSpeed)}
           onRelease={() => drive(0, 0)} />
-        <p className="hint">{!armed ? '遥控已关闭' : connected ? '已连接 · 松手零速保持' : '已开启 · 拖动摇杆连接'}</p>
-        <button className="block stop-drive" onClick={() => { stop(); setArmed(false) }}>停车并结束遥控</button>
-        <label>最大线速度 {linearSpeed.toFixed(2)} m/s<input type="range" min="0.03" max="0.12" step="0.01"
+        <p className="hint">{!armed ? t("遥控已关闭") : connected ? t("已连接 · 松手零速保持") : t("已开启 · 拖动摇杆连接")}</p>
+        <button className="block stop-drive" onClick={() => { stop(); setArmed(false) }}>{t("停车并结束遥控")}</button>
+        <label>{t("最大线速度 ")}{linearSpeed.toFixed(2)} m/s<input type="range" min="0.03" max="0.12" step="0.01"
           value={linearSpeed} onChange={event => setLinearSpeed(Number(event.target.value))} /></label>
-        <label>最大角速度 {angularSpeed.toFixed(2)} rad/s<input type="range" min="0.15" max="0.50" step="0.05"
+        <label>{t("最大角速度 ")}{angularSpeed.toFixed(2)} rad/s<input type="range" min="0.15" max="0.50" step="0.05"
           value={angularSpeed} onChange={event => setAngularSpeed(Number(event.target.value))} /></label>
       </article>}
       <article className="site-card">
         <p className="section-label">SITE · {phase.toUpperCase()}</p>
-        <h2>{phase === 'validate' ? '验证并激活' : '保存地图与地点'}</h2>
-        <p className="hint">场地：{siteId} · {!site ? '正在读取保存状态…'
-          : site.active_version ? `已激活版本 ${site.active_version}` : '本次场地未激活'}</p>
+        <h2>{phase === 'validate' ? t("验证并激活") : t("保存地图与地点")}</h2>
+        <p className="hint">{t("场地：")}{siteId} · {!site ? t("正在读取保存状态…")
+          : site.active_version ? t("已激活版本 {0}", site.active_version) : t("本次场地未激活")}</p>
         {site && <p className="hint">{site.draft?.map_saved
-          ? `已保存地图：${site.draft.map_name} · ${new Date(site.draft.map_saved_at).toLocaleString()}`
-          : '尚无地图草稿'} · 已记录 {places.length} 个地点</p>}
-        {siteError && <p role="alert">{siteError}</p>}
+          ? t("已保存地图：{0} · {1}", site.draft.map_name, new Date(site.draft.map_saved_at).toLocaleString())
+          : t("尚无地图草稿")} {t(" · 已记录 ")}{places.length} {t(" 个地点")}</p>}
+        {siteError && <p role="alert">{s(siteError)}</p>}
         {phase === 'build' && <>
-          <label className="site-field">地图名<input aria-label="地图名" disabled={!!pending} value={mapName}
+          <label className="site-field">{t("地图名")}<input aria-label={t("地图名")} disabled={!!pending} value={mapName}
             onChange={event => setMapName(event.target.value)} /></label>
-          <button className="primary block" disabled={armed || !!pending || !state?.map || !validId(mapName)} onClick={save}>保存当前地图</button>
-          <button className="danger block" disabled={armed || !!pending} onClick={resetMap}>清除当前地图并重建</button>
-          <p className="hint">先停车并结束遥控，等机器人停稳再保存。保存不会结束建图；结束前再保存一次。</p>
+          <button className="primary block" disabled={armed || !!pending || !state?.map || !validId(mapName)} onClick={save}>{t("保存当前地图")}</button>
+          <button className="danger block" disabled={armed || !!pending} onClick={resetMap}>{t("清除当前地图并重建")}</button>
+          <p className="hint">{t("先停车并结束遥控，等机器人停稳再保存。保存不会结束建图；结束前再保存一次。")}</p>
         </>}
-        <label className="site-field">地点 ID<input aria-label="地点 ID" disabled={!!pending} value={placeId}
+        <label className="site-field">{t("地点 ID")}<input aria-label={t("地点 ID")} disabled={!!pending} value={placeId}
           onChange={event => setPlaceId(event.target.value)} placeholder="table / home" /></label>
         <p className="hint">{placeId.trim() === 'table'
-          ? 'table：记录最终桌边停车位和面向桌面的朝向；导航先在后方 0.25 m 停靠，再精确贴桌。'
-          : '记录机器人当前位置和朝向，不进行贴桌。'} ID 使用英文字母、数字、下划线或连字符。</p>
+          ? t("table：记录最终桌边停车位和面向桌面的朝向；导航先在后方 0.25 m 停靠，再精确贴桌。")
+          : t("记录机器人当前位置和朝向，不进行贴桌。")} {t(" ID 使用英文字母、数字、下划线或连字符。")}</p>
         {phase === 'build' && <div className="validation-actions">
           <button disabled={armed || !!pending || !state?.pose || !validId(placeId)} onClick={savePlace}>
-            {selectedPlace ? '用当前位置更新地点' : '记录当前位置为地点'}</button>
-          <button className="quiet block" disabled={armed || !!pending || !selectedPlace} onClick={removePlace}>删除所选地点</button>
+            {selectedPlace ? t("用当前位置更新地点") : t("记录当前位置为地点")}</button>
+          <button className="quiet block" disabled={armed || !!pending || !selectedPlace} onClick={removePlace}>{t("删除所选地点")}</button>
         </div>}
-        <ul className="saved-places" aria-label="已保存地点">
+        <ul className="saved-places" aria-label={t("已保存地点")}>
           {places.map(place => <li key={place.id}><button disabled={!!pending}
             aria-pressed={place.id === placeId.trim()} onClick={() => setPlaceId(place.id)}>
             <strong>{place.id}</strong> {place.x.toFixed(2)}, {place.y.toFixed(2)} m · {(place.yaw * 180 / Math.PI).toFixed(0)}°
-            <small>{place.dock ? '精确贴桌' : '普通导航'} · {place.validated ? '验证通过' : '待验证'}</small>
+            <small>{place.dock ? t("精确贴桌") : t("普通导航")} · {place.validated ? t("验证通过") : t("待验证")}</small>
           </button></li>)}
         </ul>
         {phase === 'validate' && <div className="validation-actions">
-          <button disabled={!!pending || !site?.draft?.map_saved} onClick={validateLocalization}>1. 自动定位验证</button>
-          <button disabled={!!pending || !localized || !selectedPlace} onClick={validatePlace}>2. 导航并验证地点</button>
-          <button disabled={!!pending || !site?.draft?.ready} className="primary block" onClick={activate}>3. 激活场地草稿</button>
+          <button disabled={!!pending || !site?.draft?.map_saved} onClick={validateLocalization}>{t("1. 自动定位验证")}</button>
+          <button disabled={!!pending || !localized || !selectedPlace} onClick={validatePlace}>{t("2. 导航并验证地点")}</button>
+          <button disabled={!!pending || !site?.draft?.ready} className="primary block" onClick={activate}>{t("3. 激活场地草稿")}</button>
         </div>}
-        <p role="status" className="saved">{pending || saved}</p>
+        <p role="status" className="saved">{t(pending || saved)}</p>
         <p className="hint">{phase === 'validate'
-          ? '先完成 AutoLocalize，再逐地点导航；table 会执行 position-only、Spin 和精确 dock。所有地点通过后才允许激活。'
-          : '顺序：遥控覆盖场地 → 停稳并记录地点 → 最后保存地图 → 停止 build，使用同一配置启动 validate。草稿不会自动替换正在使用的 Demo 地图。'}</p>
+          ? t("先完成 AutoLocalize，再逐地点导航；table 会执行 position-only、Spin 和精确 dock。所有地点通过后才允许激活。")
+          : t("顺序：遥控覆盖场地 → 停稳并记录地点 → 最后保存地图 → 停止 build，使用同一配置启动 validate。草稿不会自动替换正在使用的 Demo 地图。")}</p>
       </article>
     </div>
   </section>
@@ -791,6 +795,7 @@ function MapCanvas({ state, places = [], showPath = false, personTarget = null }
   state: MappingState | null, places?: NamedPlace[], showPath?: boolean,
   personTarget?: PerceptionState['target'] | null,
 }) {
+  const { t } = useLanguage()
   const canvas = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     const element = canvas.current
@@ -886,7 +891,7 @@ function MapCanvas({ state, places = [], showPath = false, personTarget = null }
       context.fill()
       context.stroke()
       context.fillStyle = '#ffd6da'
-      context.fillText('人员', person.x + radius + 4, person.y + 4)
+      context.fillText(t("人员"), person.x + radius + 4, person.y + 4)
     }
     if (state.scan) {
       context.fillStyle = 'rgba(84, 237, 173, .7)'
@@ -905,24 +910,23 @@ function MapCanvas({ state, places = [], showPath = false, personTarget = null }
       state.pose.x, state.pose.y, state.pose.yaw,
       '#63aef7', 'rgba(99, 174, 247, .34)',
     )
-  }, [state, places, showPath, personTarget])
+  }, [state, places, showPath, personTarget, t])
   if (!state?.map) return <div className="map-empty">
     <span className="map-loader" />
-    <strong>正在读取导航地图</strong>
-    <small>等待 /map 的已激活场地资产</small>
+    <strong>{t("正在读取导航地图")}</strong>
+    <small>{t("等待 /map 的已激活场地资产")}</small>
   </div>
   return <div className="map-stage">
     <canvas ref={canvas} className="map-canvas" />
-    <div className="map-legend"><span className="robot-frame" />机器人当前位姿
-      {places.map((place, index) => {
+    <div className="map-legend"><span className="robot-frame" />{t("机器人当前位姿 ")}{places.map((place, index) => {
         const color = placePalette[index % placePalette.length]
         return <span className="legend-place" key={place.id}>
           <i style={{ borderColor: color.stroke, background: color.fill }} />
-          {placeNames[place.id] || place.id}
+          {t(placeNames[place.id]) || place.id}
         </span>
       })}
-      {showPath && <><span className="path-line" />当前路径</>}
-      {personTarget && <><span className="person-point" />人员目标</>}</div>
+      {showPath && <><span className="path-line" />{t("当前路径")}</>}
+      {personTarget && <><span className="person-point" />{t("人员目标")}</>}</div>
   </div>
 }
 
@@ -940,8 +944,9 @@ function OperatorWorkspace({
   view: 'demo' | 'manual'
   driveStopLatched: boolean | null
   onTask: (task: Task | null) => void
-  onError: (message: string) => void
+  onError: (message: Message) => void
 }) {
+  const { t } = useLanguage()
   const [objectId, setObjectId] = useState('')
   const [graspBackend, setGraspBackend] = useState<'act' | 'centroid' | 'gpd'>('act')
   const [placeId, setPlaceId] = useState(
@@ -949,7 +954,7 @@ function OperatorWorkspace({
   )
   const [manualBusy, setManualBusy] = useState(false)
   const [manualOperation, setManualOperation] = useState('')
-  const [manualResult, setManualResult] = useState('')
+  const [manualResult, setManualResult] = useState<Message>('')
   const [personBoxVisible, setPersonBoxVisible] = useState(false)
   const running = task && !['SUCCEEDED', 'FAILED', 'CANCELED', 'REJECTED'].includes(task.status)
   const demoReady = health.execute_task_available
@@ -962,9 +967,9 @@ function OperatorWorkspace({
   const showNavigationPath = taskShowsNavigationPath(task)
     || manualOperation === 'navigate'
   const operationLabel: Record<string, string> = {
-    localize: '正在重新定位', navigate: '正在导航',
-    arm_ready: '右臂正在回 Ready', head_ready: '头部正在回正',
-    gripper_open: '正在打开右夹爪',
+    localize: t("正在重新定位"), navigate: t("正在导航"),
+    arm_ready: t("右臂正在回 Ready"), head_ready: t("头部正在回正"),
+    gripper_open: t("正在打开右夹爪"),
   }
   useEffect(() => {
     if (cameraPerception?.kind !== 'person') {
@@ -1000,84 +1005,83 @@ function OperatorWorkspace({
     try {
       if (operation === 'localize') {
         const value = await api.operatorLocalize()
-        setManualResult(`定位完成：σxy ${value.position_stddev_m.toFixed(3)} m`)
+        setManualResult(msg("定位完成：σxy {0} m", value.position_stddev_m.toFixed(3)))
       } else if (operation === 'navigate') {
         const value = await api.operatorNavigate(placeId)
-        setManualResult(`已到达 ${value.place_id}`)
+        setManualResult(msg("已到达 {0}", value.place_id))
       } else {
         const value = await api.operatorPreset(operation)
-        setManualResult(`Preset 完成：${value.preset}`)
+        setManualResult(msg("Preset 完成：{0}", value.preset))
       }
     } catch (reason) { onError(String(reason)) }
     finally { setManualBusy(false); setManualOperation('') }
   }
   return <div className="operator-workspace">
-    <section className="status-strip" aria-label="关键运行状态">
-      <StatusMetric label="主 Demo" value={demoReady ? '就绪'
-        : health.execute_task_available ? '等待依赖' : '服务不可用'}
+    <section className="status-strip" aria-label={t("关键运行状态")}>
+      <StatusMetric label={t("主 Demo")} value={demoReady ? t("就绪")
+        : health.execute_task_available ? t("等待依赖") : t("服务不可用")}
         state={demoReady ? 'ok' : 'bad'} />
-      <StatusMetric label="语音" value={voiceNames[health.voice_state] || health.voice_state}
+      <StatusMetric label={t("语音")} value={t(voiceNames[health.voice_state]) || health.voice_state}
         state={health.voice_state === 'DISABLED' ? 'muted' : 'ok'} />
-      <StatusMetric label="导航地图" value={mapping?.map ? '已加载' : '等待地图'}
+      <StatusMetric label={t("导航地图")} value={mapping?.map ? t("已加载") : t("等待地图")}
         state={mapping?.map ? 'ok' : 'bad'} />
-      <StatusMetric label="机器人位置" value={mapping?.pose ? '正在跟踪' : '等待定位'}
+      <StatusMetric label={t("机器人位置")} value={mapping?.pose ? t("正在跟踪") : t("等待定位")}
         state={mapping?.pose ? 'ok' : 'warn'} />
-      <StatusMetric label="双路相机" value={health.requirements.head_camera && health.requirements.wrist_camera
-        ? '画面正常' : '等待画面'}
+      <StatusMetric label={t("双路相机")} value={health.requirements.head_camera && health.requirements.wrist_camera
+        ? t("画面正常") : t("等待画面")}
         state={health.requirements.head_camera && health.requirements.wrist_camera ? 'ok' : 'warn'} />
     </section>
     {view === 'demo' && <section className="hero-grid">
       <article className="task-card">
         <div className="card-heading"><div><p className="section-label">FETCH · DELIVER</p>
-          <h2>{running ? `正在取 ${task.object_id}` : '发起取物递送'}</h2></div>
-          <span className="context-chip">来源 · 桌边</span></div>
-        {!running && <p className="card-intro">输入物体名称，机器人将自动定位、前往桌边、抓取并递送给最近的人。</p>}
+          <h2>{running ? t("正在取 {0}", task.object_id) : t("发起取物递送")}</h2></div>
+          <span className="context-chip">{t("来源 · 桌边")}</span></div>
+        {!running && <p className="card-intro">{t("输入物体名称，机器人将自动定位、前往桌边、抓取并递送给最近的人。")}</p>}
         {!running && <form onSubmit={submit}>
           <input value={objectId} onChange={event => setObjectId(event.target.value)}
-            placeholder="输入物体名称，例如：羽毛球" aria-label="物体名" required />
-          <select value={graspBackend} aria-label="抓取路线"
+            placeholder={t("输入物体名称，例如：羽毛球")} aria-label={t("物体名")} required />
+          <select value={graspBackend} aria-label={t("抓取路线")}
             onChange={event => setGraspBackend(
               event.target.value as 'act' | 'centroid' | 'gpd',
             )}>
-            <option value="act">ACT 学习策略</option>
-            <option value="centroid">传统 · 质心顶抓</option>
-            <option value="gpd">传统 · GPD 顶抓</option>
+            <option value="act">{t("ACT 学习策略")}</option>
+            <option value="centroid">{t("传统 · 质心顶抓")}</option>
+            <option value="gpd">{t("传统 · GPD 顶抓")}</option>
           </select>
           <button className="primary" disabled={!demoReady}>
-            开始任务
-          </button>
+            {t("开始任务 ")}</button>
         </form>}
         {task && <TaskProgress task={task} />}
         {running && task.cancelable !== false
-          && <button className="stop" onClick={cancel}>停止当前任务</button>}
+          && <button className="stop" onClick={cancel}>{t("停止当前任务")}</button>}
       </article>
       <article className="voice-card">
         <div className="card-heading"><div><p className="section-label">VOICE</p>
-          <h2>语音入口</h2></div><span className="live-badge">LIVE</span></div>
+          <h2>{t("语音入口")}</h2></div><span className="live-badge">LIVE</span></div>
         <div className="voice-summary"><div className="voice-orb"><span /></div>
-          <div><h3>{voiceNames[health.voice_state] || health.voice_state}</h3>
-            <p>{voiceTranscript ? `识别结果：${voiceTranscript}`
-              : '说“小乐小乐”发起任务；状态会实时更新。'}</p></div></div>
+          <div><h3>{t(voiceNames[health.voice_state]) || health.voice_state}</h3>
+            <p>{voiceTranscript ? t("识别结果：{0}", voiceTranscript)
+              : t("说“小乐小乐”发起任务；状态会实时更新。")}</p></div></div>
       </article>
     </section>}
     <section className="operator-observation">
       <article className="map-card">
         <div className="map-heading"><div><p className="section-label">LIVE NAVIGATION</p>
-          <h2>地图与机器人位置</h2></div>
-          <strong>{mapping?.pose ? '正在跟踪' : '等待定位'}</strong></div>
+          <h2>{t("地图与机器人位置")}</h2></div>
+          <strong>{mapping?.pose ? t("正在跟踪") : t("等待定位")}</strong></div>
         <MapCanvas state={mapping} places={places}
           showPath={showNavigationPath}
           personTarget={personTarget} />
         <div className="map-stats compact">
-          <span>位置 <b>{mapping?.pose
+          <span>{t("位置 ")}<b>{mapping?.pose
             ? `${mapping.pose.x.toFixed(2)}, ${mapping.pose.y.toFixed(2)} m` : '—'}</b></span>
-          <span>方向 <b>{mapping?.pose ? `${(mapping.pose.yaw * 180 / Math.PI).toFixed(0)}°` : '—'}</b></span>
-          <span>预设地点 <b>{places.length}</b></span>
+          <span>{t("方向 ")}<b>{mapping?.pose ? `${(mapping.pose.yaw * 180 / Math.PI).toFixed(0)}°` : '—'}</b></span>
+          <span>{t("预设地点 ")}<b>{places.length}</b></span>
         </div>
       </article>
       <article className="camera-card">
         <div className="card-heading"><div><p className="section-label">LIVE CAMERAS</p>
-          <h2>机器人视角</h2></div><span className="live-badge">LIVE</span></div>
+          <h2>{t("机器人视角")}</h2></div><span className="live-badge">LIVE</span></div>
         <div className="camera-previews">
           <CameraPreview camera="head" perception={shownPerception} />
           <CameraPreview camera="wrist" perception={null} />
@@ -1088,68 +1092,66 @@ function OperatorWorkspace({
       <article className="operator-console">
         <div className="console-heading">
           <div><p className="section-label">OPERATOR CONTROL</p>
-            <h2>观测与手动操作</h2>
-            <p>结合上方地图与相机画面进行定位、导航和姿态调整。任务执行时，手动命令自动锁定。</p>
+            <h2>{t("观测与手动操作")}</h2>
+            <p>{t("结合上方地图与相机画面进行定位、导航和姿态调整。任务执行时，手动命令自动锁定。")}</p>
           </div>
           <div className="console-status-actions">
             <span className={`console-mode ${running || driveStopLatched !== false ? 'busy' : 'idle'}`}>
               <i />{manualBusy ? operationLabel[manualOperation]
-                : driveStopLatched ? '底盘已软件锁止'
-                  : driveStopLatched === null ? '等待底盘锁止状态'
-                    : running ? '任务接管中' : '系统空闲 · 可手动操作'}
+                : driveStopLatched ? t("底盘已软件锁止")
+                  : driveStopLatched === null ? t("等待底盘锁止状态")
+                    : running ? t("任务接管中") : t("系统空闲 · 可手动操作")}
             </span>
           </div>
         </div>
         <div className="console-grid">
           <section className="console-panel navigation-panel">
-            <div className="panel-heading"><span>01</span><div><strong>定位与导航</strong>
-              <small>从已验证的场地地点中选择目标</small></div></div>
+            <div className="panel-heading"><span>01</span><div><strong>{t("定位与导航")}</strong>
+              <small>{t("从已验证的场地地点中选择目标")}</small></div></div>
             <div className="destination-row">
-              <label><span>目标地点</span><select value={placeId}
+              <label><span>{t("目标地点")}</span><select value={placeId}
                 onChange={event => setPlaceId(event.target.value)} disabled={!places.length}>
                 {places.map(place => <option key={place.id} value={place.id}>
-                  {placeNames[place.id] || place.id} · {place.id}
+                  {t(placeNames[place.id]) || place.id} · {place.id}
                 </option>)}
               </select></label>
               <button className="primary destination-action" onClick={() => manual('navigate')}
                 disabled={manualBusy || !!running || driveStopLatched !== false || !placeId}>
-                开始导航
-              </button>
+                {t("开始导航 ")}</button>
             </div>
             <div className="panel-foot">
-              <span>{mapping?.pose ? `当前位置 ${mapping.pose.x.toFixed(2)}, ${mapping.pose.y.toFixed(2)} m`
-                : '当前位置尚未建立'}</span>
+              <span>{mapping?.pose ? t("当前位置 {0}, {1} m", mapping.pose.x.toFixed(2), mapping.pose.y.toFixed(2))
+                : t("当前位置尚未建立")}</span>
               <button className="text-action" onClick={() => manual('localize')}
                 disabled={manualBusy || !!running || driveStopLatched !== false}>
-                重新定位
-              </button>
+                {t("重新定位 ")}</button>
             </div>
           </section>
           <section className="console-panel joystick-panel">
-            <div className="panel-heading"><span>02</span><div><strong>底盘微调</strong>
-              <small>近距离观察下的低速点动</small></div></div>
+            <div className="panel-heading"><span>02</span><div><strong>{t("底盘微调")}</strong>
+              <small>{t("近距离观察下的低速点动")}</small></div></div>
             <BaseJoystick
               disabled={manualBusy || !!running || driveStopLatched !== false}
               onError={onError}
             />
           </section>
           <section className="console-panel posture-panel">
-            <div className="panel-heading"><span>03</span><div><strong>机器人姿态</strong>
-              <small>调用已验证的固定姿态</small></div></div>
+            <div className="panel-heading"><span>03</span><div><strong>{t("机器人姿态")}</strong>
+              <small>{t("调用已验证的固定姿态")}</small></div></div>
             <div className="preset-list">
               <button onClick={() => manual('arm_ready')}
                 disabled={manualBusy || !!running || driveStopLatched !== false}>
-                <span>右臂回 Ready</span><small>恢复携带姿态</small></button>
+                <span>{t("右臂回 Ready")}</span><small>{t("恢复携带姿态")}</small></button>
               <button onClick={() => manual('head_ready')}
                 disabled={manualBusy || !!running || driveStopLatched !== false}>
-                <span>头部向前</span><small>回到水平正前方</small></button>
+                <span>{t("头部向前")}</span><small>{t("回到水平正前方")}</small></button>
               <button onClick={() => manual('gripper_open')}
                 disabled={manualBusy || !!running || driveStopLatched !== false}>
-                <span>打开右夹爪</span><small>释放当前夹持</small></button>
+                <span>{t("打开右夹爪")}</span><small>{t("释放当前夹持")}</small></button>
             </div>
           </section>
         </div>
-        {manualResult && <div className="operation-result" role="status"><span>操作完成</span>{manualResult}</div>}
+        {manualResult && <div className="operation-result" role="status"><span>{t("操作完成")}</span>{t(manualResult)}</div>}
       </article>
     </section>}
     <section className="lower-grid">
@@ -1162,11 +1164,12 @@ function OperatorWorkspace({
 function CameraPreview({ camera, perception }: {
   camera: 'head' | 'wrist', perception: PerceptionState | null,
 }) {
+  const { t } = useLanguage()
   const detected = camera === 'head' && perception !== null
   const source = `/api/v1/cameras/${camera}/stream`
-  const label = camera === 'head' ? '头部相机' : '右腕相机'
+  const label = camera === 'head' ? t("头部相机") : t("右腕相机")
   return <figure className={detected ? 'detection-active' : ''}>
-    <img src={source} alt={`${label}${detected ? '识别帧' : '实时预览'}`} />
+    <img src={source} alt={t("{0}{1}", label, detected ? t("识别帧") : t("实时预览"))} />
     {detected && <>
       <svg className={`bbox-overlay ${perception.kind}`}
         viewBox={`0 0 ${perception.image_width} ${perception.image_height}`}
@@ -1176,25 +1179,26 @@ function CameraPreview({ camera, perception }: {
           height={Math.max(1, perception.bbox[3] - perception.bbox[1])} />
       </svg>
       <div className="detection-result">
-        {perception.kind === 'person' ? '人员' : perception.label}
+        {perception.kind === 'person' ? t("人员") : perception.label}
         <span>{Math.round(perception.confidence * 100)}%</span>
       </div>
     </>}
-    <figcaption><strong>{detected ? '头部识别帧' : label}</strong>
+    <figcaption><strong>{detected ? t("头部识别帧") : label}</strong>
       <span>{camera === 'head'
-        ? detected ? '与当前三维目标对应' : 'D455 · 场景与人员'
-        : '抓取近景 · MJPG'}</span></figcaption>
+        ? detected ? t("与当前三维目标对应") : t("D455 · 场景与人员")
+        : t("抓取近景 · MJPG")}</span></figcaption>
   </figure>
 }
 
 export function BaseJoystick({ disabled, onError }: {
-  disabled: boolean, onError: (message: string) => void,
+  disabled: boolean, onError: (message: Message) => void,
 }) {
+  const { t } = useLanguage()
   const { armed, setArmed, move } = useBaseTeleop(disabled, onError)
   return <div className="joystick-control">
     <button className={armed ? 'joystick-lock unlocked' : 'joystick-lock'}
       aria-pressed={armed} disabled={disabled} onClick={() => setArmed(!armed)}>
-      <i />{armed ? '结束遥控' : disabled ? '任务中已锁定' : '解锁遥控'}
+      <i />{armed ? t("结束遥控") : disabled ? t("任务中已锁定") : t("解锁遥控")}
     </button>
     <JoystickPad size={142} disabled={!armed || disabled}
       onMove={(linear, angular) => move(linear * .10, angular * .40)}
@@ -1210,46 +1214,48 @@ function StatusMetric({ label, value, state }: {
 }
 
 function TaskProgress({ task }: { task: Task }) {
+  const { t, s } = useLanguage()
   const percentage = Math.round(Math.max(0, Math.min(1, task.progress)) * 100)
   return <div className="task-progress">
-    <div className="task-meta"><span>{capabilityNames[task.current_capability]
+    <div className="task-meta"><span>{t(capabilityNames[task.current_capability])
       || task.current_capability || task.status}</span><strong>{percentage}%</strong></div>
     <div className="bar"><span style={{ width: `${percentage}%` }} /></div>
-    <p>{task.phase}{task.message ? ` · ${task.message}` : ''}
-      {` · ${task.grasp_backend_used || task.grasp_backend} · 本阶段 ${task.stage_elapsed_s.toFixed(1)} s`}</p>
-    {task.error_code !== 0 && <p className="error-detail">错误 {task.error_code}：{task.message}</p>}
+    <p>{task.phase}{task.message ? ` · ${s(task.message)}` : ''}
+      {t(" · {0} · 本阶段 {1} s", task.grasp_backend_used || task.grasp_backend, task.stage_elapsed_s.toFixed(1))}</p>
+    {task.error_code !== 0 && <p className="error-detail">{t("错误 ")}{task.error_code}: {s(task.message)}</p>}
   </div>
 }
 
 function HealthPanel({ health }: { health: Health }) {
+  const { t, s } = useLanguage()
   const diagnostics = useMemo(() => Object.entries(health.diagnostics)
     .sort((left, right) => right[1].level - left[1].level), [health])
   const warnings = diagnostics.filter(([, item]) => item.level === 1).length
   const errors = diagnostics.filter(([, item]) => item.level >= 2).length
   return <article>
     <div className="card-heading"><div><p className="section-label">SYSTEM HEALTH</p>
-      <h2>系统诊断</h2></div>
+      <h2>{t("系统诊断")}</h2></div>
       <span className={`health-count ${errors ? 'bad' : warnings ? 'warn' : 'ok'}`}>
-        {errors ? `${errors} 项故障` : warnings ? `${warnings} 项关注` : '全部正常'}
+        {errors ? t("{0} 项故障", errors) : warnings ? t("{0} 项关注", warnings) : t("全部正常")}
       </span></div>
     <div className="diagnostic-overview">
-      <StatusMetric label="任务执行" value={health.execute_task_available ? '服务可用' : '服务不可用'}
+      <StatusMetric label={t("任务执行")} value={health.execute_task_available ? t("服务可用") : t("服务不可用")}
         state={health.execute_task_available ? 'ok' : 'bad'} />
-      <StatusMetric label="导航传感" value="激光雷达 + 轮速里程计" state="ok" />
+      <StatusMetric label={t("导航传感")} value={t("激光雷达 + 轮速里程计")} state="ok" />
     </div>
     <div className="diagnostic-list">
       {diagnostics.map(([name, item]) => <details className={`diagnostic level-${item.level}`} key={name}>
         <summary><span className={`status-dot ${item.level >= 2 ? 'bad' : item.level === 1 ? 'warn' : 'ok'}`} />
-          <div><strong>{diagnosticName(name)}</strong><small>{diagnosticMessage(item.message)}</small></div>
-          <em>{item.level >= 2 ? '故障' : item.level === 1 ? '关注' : '正常'}</em></summary>
+          <div><strong>{t(diagnosticName(name))}</strong><small>{s(diagnosticMessage(item.message))}</small></div>
+          <em>{item.level >= 2 ? t("故障") : item.level === 1 ? t("关注") : t("正常")}</em></summary>
         <div className="diagnostic-detail">
-          <p>{item.message || '该组件未提供补充说明'}</p>
-          {item.hardware_id && <p><b>硬件标识</b>{item.hardware_id}</p>}
+          <p>{s(item.message) || t("该组件未提供补充说明")}</p>
+          {item.hardware_id && <p><b>{t("硬件标识")}</b>{item.hardware_id}</p>}
           {Object.keys(item.values).length > 0 && <dl>{Object.entries(item.values).map(([key, value]) =>
             <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl>}
         </div>
       </details>)}
-      {diagnostics.length === 0 && <p className="empty-state">尚未收到系统诊断消息</p>}
+      {diagnostics.length === 0 && <p className="empty-state">{t("尚未收到系统诊断消息")}</p>}
     </div>
   </article>
 }
@@ -1268,7 +1274,7 @@ function diagnosticName(name: string) {
 
 function diagnosticMessage(message: string) {
   const scanMap = message.match(/^scan-map score=([0-9.]+) \(minimum=([0-9.]+)\)$/)
-  if (scanMap) return `当前匹配分 ${scanMap[1]}，最低要求 ${scanMap[2]}`
+  if (scanMap) return msg('当前匹配分 {0}，最低要求 {1}', scanMap[1], scanMap[2])
   if (message === 'warming scan-map score window') return '正在累积激光-地图匹配样本'
   if (message.startsWith('too few usable map endpoints')) return '可用激光地图端点不足'
   if (message.startsWith('missing timestamped laser-to-map TF')) return '缺少扫描时刻的激光到地图 TF'
@@ -1282,15 +1288,16 @@ function diagnosticMessage(message: string) {
 }
 
 function HistoryPanel({ tasks }: { tasks: Task[] }) {
+  const { t } = useLanguage()
   return <article>
     <p className="section-label">RECENT RUNS</p>
-    <h2>最近任务</h2>
+    <h2>{t("最近任务")}</h2>
     <div className="history">
-      {tasks.length === 0 && <p>尚无任务记录</p>}
+      {tasks.length === 0 && <p>{t("尚无任务记录")}</p>}
       {tasks.slice(0, 6).map(task => <div key={task.task_id}>
-        <span>{task.object_id} · {task.grasp_backend_used || task.grasp_backend}</span><span>{capabilityNames[task.current_capability] || task.current_capability || '—'}</span>
-        <strong className={task.status.toLowerCase()}>{task.status === 'SUCCEEDED' ? '完成'
-          : task.status === 'FAILED' ? '失败' : task.status === 'CANCELED' ? '已取消' : task.status}</strong>
+        <span>{task.object_id} · {task.grasp_backend_used || task.grasp_backend}</span><span>{t(capabilityNames[task.current_capability]) || task.current_capability || '—'}</span>
+        <strong className={task.status.toLowerCase()}>{task.status === 'SUCCEEDED' ? t("完成")
+          : task.status === 'FAILED' ? t("失败") : task.status === 'CANCELED' ? t("已取消") : task.status}</strong>
       </div>)}
     </div>
   </article>

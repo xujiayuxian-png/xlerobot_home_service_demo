@@ -49,6 +49,13 @@ measured success-rate or general-purpose grasping claim.
 
 ## Reproduce the demo
 
+The Demo console and operator tools include an **EN / 中文** switch in the top
+bar. Chinese remains the default for the reference workflow; the selected
+language is remembered in the browser. Runtime identifiers, object names,
+paths, measurements and collection instructions are intentionally left unchanged.
+Switching does not restart device sessions or change the voice pipeline's language.
+Unknown service diagnostics and raw logs retain their original text.
+
 ### 1 · Match the reference build
 
 | Part | Reference configuration |
@@ -131,7 +138,7 @@ base (independent measurements) ────┴→ grasp-alignment → activate 
 
 | Head camera | Right-arm hand-eye | Hover results & advisory offsets |
 | --- | --- | --- |
-| [![Head-camera calibration page](docs/images/calibration-head_camera.png)](docs/en/calibration-workbench.md) | [![Right-arm hand-eye calibration page](docs/images/calibration-right_handeye.png)](docs/en/calibration-workbench.md) | [![Hover results page](docs/images/calibration-hover.png)](docs/en/calibration-workbench.md) |
+| [![Head-camera calibration page](docs/images/calibration-head_camera-en.png)](docs/en/calibration-workbench.md) | [![Right-arm hand-eye calibration page](docs/images/calibration-right_handeye-en.png)](docs/en/calibration-workbench.md) | [![Hover results page](docs/images/calibration-hover-en.png)](docs/en/calibration-workbench.md) |
 
 *Actual frontend, offline screenshots with illustrative data—not measured accuracy.
 Click an image for the workflow guide. [Image provenance](docs/images/README.md).*
@@ -179,13 +186,13 @@ localize → navigate/dock → perceive → grasp and verify
     <th>ACT collection</th>
   </tr>
   <tr>
-    <td width="33%"><a href="docs/en/demo.md"><img src="docs/images/demo-ui.png" alt="Offline preview of the demo web console"/></a></td>
-    <td width="33%"><a href="docs/en/mapping.md"><img src="docs/images/mapping-ui.png" alt="Offline preview of the mapping and places tool"/></a></td>
-    <td width="33%"><a href="docs/en/act-workflow.md"><img src="docs/images/collection-ui.png" alt="Offline preview of the ACT collection tool"/></a></td>
+    <td width="33%"><a href="docs/en/demo.md"><img src="docs/images/demo-ui-en.png" alt="Offline preview of the English demo web console"/></a></td>
+    <td width="33%"><a href="docs/en/mapping.md"><img src="docs/images/mapping-ui-en.png" alt="Offline preview of the English mapping and places tool"/></a></td>
+    <td width="33%"><a href="docs/en/act-workflow.md"><img src="docs/images/collection-ui-en.png" alt="Offline preview of the English ACT collection tool"/></a></td>
   </tr>
 </table>
 
-<p align="center"><sub>Actual frontend, offline layout previews; empty sensors are intentional. The current UI uses Chinese labels.</sub></p>
+<p align="center"><sub>Actual frontend in English, offline layout previews; empty sensors are intentional. Switch between EN / 中文 in the top bar.</sub></p>
 
 Five entry points cover the project:
 

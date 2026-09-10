@@ -22,9 +22,10 @@ Once the robot is calibrated, connect the right Leader and follow
 not require navigating around a mapped site.
 
 For either path, see [troubleshooting](troubleshooting.md).
-The HMI currently uses Chinese labels; English guides include the corresponding
-button text. Browser screenshots are labelled offline layout previews, not robot
-test evidence.
+Select **EN** in the top bar to match the English screenshots and button names
+in these guides. The Demo and tool pages have an **EN / 中文** switch and the
+browser remembers the selection. Screenshots are labelled offline layout
+previews, not robot test evidence.
 
 [After calibration](calibration-followup.md): base/lidar measurements, optional grasp
 alignment, tabletop hover checking, and calibration version replacement.
