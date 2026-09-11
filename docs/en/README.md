@@ -35,6 +35,10 @@ selective replacement, switching and restoration.
 
 ## Source layout
 
+[Rhino Pi X1 controller migration plan](x1-controller-migration.md): replace the
+laptop controller first, keep GPU inference. SSH/inventory only so far;
+**not yet a supported installation**.
+
 | Location | What to look for |
 | --- | --- |
 | `tools/` | Five public command entry points |
