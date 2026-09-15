@@ -8,7 +8,10 @@
 
 #include <hardware_interface/hardware_info.hpp>
 #include <hardware_interface/system_interface.hpp>
+#if __has_include(<hardware_interface/types/hardware_component_interface_params.hpp>)
 #include <hardware_interface/types/hardware_component_interface_params.hpp>
+#define XLEROBOT_MODERN_HARDWARE
+#endif
 #include <hardware_interface/types/hardware_interface_return_values.hpp>
 #include <rclcpp/macros.hpp>
 #include <rclcpp_lifecycle/state.hpp>
@@ -20,11 +23,17 @@
 namespace xlerobot_hardware
 {
 
+#ifdef XLEROBOT_MODERN_HARDWARE
+using BusInitParams = hardware_interface::HardwareComponentInterfaceParams;
+#else
+using BusInitParams = hardware_interface::HardwareInfo;
+#endif
+
 class BusSystemBase : public hardware_interface::SystemInterface
 {
 public:
   hardware_interface::CallbackReturn on_init(
-    const hardware_interface::HardwareComponentInterfaceParams & params) override;
+    const BusInitParams & params) override;
   hardware_interface::CallbackReturn on_configure(
     const rclcpp_lifecycle::State & previous_state) override;
   hardware_interface::CallbackReturn on_activate(

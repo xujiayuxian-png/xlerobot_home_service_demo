@@ -15,6 +15,7 @@ from launch.events.process import ProcessExited
 from launch.substitutions import LaunchConfiguration
 from launch.utilities import normalize_to_list_of_substitutions, perform_substitutions
 from launch_ros.actions import Node
+from launch_ros.utilities import evaluate_parameters, normalize_parameters
 import pytest
 import yaml
 
@@ -128,6 +129,56 @@ def test_complete_demo_fails_closed_without_explicit_hardware_consent():
         _load_launch(launch_path)._runtime(context)
 
 
+def test_x1_profile_propagates_typed_parameters_and_selects_fixed_audio(monkeypatch, tmp_path):
+    module = _load_launch(Path(__file__).resolve().parents[1] / 'launch/fetch_deliver_demo.launch.py')
+    context = LaunchContext()
+    context.launch_configurations.update({
+        'hardware_enabled': 'true', 'x1_low_load': 'true', 'x1_act_wrist_only': 'true',
+        'x1_asr_threads': '2', 'map': '/tmp/map.yaml', 'places_file': '/tmp/places.yaml',
+        'enable_voice': 'true', 'enable_web': 'false',
+    })
+    for action in module.generate_launch_description().entities:
+        if isinstance(action, DeclareLaunchArgument):
+            action.execute(context)
+    nodes = []
+    def capture_node(**kwargs):
+        nodes.append(kwargs)
+        return Node(**kwargs)
+    monkeypatch.setattr(module, 'Node', capture_node)
+    actions = module._runtime(context)  # Construct only: never execute motor actions.
+    assert not context.launch_configurations.get('global_params')
+    voice = next(node for node in nodes if node['executable'] == 'voice_assistant')
+    parameters = evaluate_parameters(context, normalize_parameters(voice['parameters']))
+    args = ['--ros-args', '-r', '__node:=voice_assistant']
+    for index, item in enumerate(parameters):
+        if isinstance(item, dict):
+            path = tmp_path / f'params-{index}.yaml'
+            path.write_text(yaml.safe_dump({'/**': {'ros__parameters': item}}))
+        else:
+            path = item
+        args.extend(['--params-file', str(path)])
+    # Exercise the real ROS argument parser, but only create a generic node:
+    # no audio, model, controller or motor device is opened.
+    import rclpy
+    from rclpy.node import Node as RosNode
+    ros_context = rclpy.context.Context()
+    rclpy.init(args=args, context=ros_context)
+    node = RosNode('voice_assistant', context=ros_context,
+                   automatically_declare_parameters_from_overrides=True)
+    try:
+        for name, value in {'audio_enabled': True, 'intent_backend_enabled': True,
+                            'task_dry_run': False, 'speech_enabled': True,
+                            'x1_low_load': True, 'x1_asr_threads': 2}.items():
+            assert node.get_parameter(name).value == value
+    finally:
+        node.destroy_node()
+        ros_context.shutdown()
+    speech = _include_arguments(actions, 'speak_text.launch.py')
+    assert speech['config_file'].perform(context).endswith('/config/speak_fixed.yaml')
+    assert speech['audio_predecode_pcm'] == 'false'
+    assert speech['audio_player_device'] == ''
+
+
 def test_operator_console_is_registered_as_a_fail_closed_critical_process():
     launch_path = (
         Path(__file__).resolve().parents[1]
@@ -206,6 +257,29 @@ def test_critical_process_exit_fails_launch_and_stops_sibling_processes():
 
     assert return_code == 1
     assert time.monotonic() - started_at < 5.0
+
+
+def test_humble_base_spawner_uses_manager_odom_remap(monkeypatch):
+    module = _load_launch(Path(__file__).resolve().parents[1] /
+                         'launch' / 'platform_runtime.launch.py')
+    monkeypatch.setenv('ROS_DISTRO', 'humble')
+    created = []
+    original = module.Node
+
+    def record_node(**kwargs):
+        created.append(kwargs)
+        return original(**kwargs)
+
+    monkeypatch.setattr(module, 'Node', record_node)
+    context = LaunchContext()
+    context.launch_configurations['hardware_enabled'] = 'true'
+    module._runtime_nodes(context)
+    base = next(item for item in created
+                if item.get('arguments', [None])[0] == 'base_controller')
+    assert '--controller-ros-args' not in base['arguments']
+    manager = next(item for item in created
+                   if item['executable'] == 'ros2_control_node')
+    assert ('/base_controller/odom', '/odom') in manager['remappings']
 
 
 def test_leaf_hardware_launches_consume_profile_device_arguments():

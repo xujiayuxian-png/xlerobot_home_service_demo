@@ -24,6 +24,7 @@ setup(
         (f'share/{package_name}/config', package_files('config/*.yaml')),
         (f'share/{package_name}/config', package_files('config/*.txt')),
         (f'share/{package_name}/audio', package_files('audio/*.mp3')),
+        (f'share/{package_name}/audio', package_files('audio/*.wav')),
         (f'share/{package_name}/launch', package_files('launch/*.launch.py')),
     ],
     install_requires=['setuptools'],

@@ -63,6 +63,25 @@ def test_http_client_rejects_bad_state_before_network(monkeypatch):
     assert not called
 
 
+def test_wrist_only_omits_unused_head_without_changing_image_or_state(monkeypatch):
+    requests = []
+    response = {'action': [[0.1, 0.2, 0.3, 0.4, 0.5, 1.0]]}
+
+    def urlopen(request, timeout):
+        requests.append(json.loads(request.data))
+        return FakeResponse(json.dumps(response).encode())
+
+    monkeypatch.setattr('urllib.request.urlopen', urlopen)
+    client = ActHttpClient(predict_url='http://127.0.0.1:8766/predict')
+    image = np.full((20, 30, 3), 100, dtype=np.uint8)
+    full = client.predict(head_bgr=image, wrist_bgr=image, state=[0.0] * 6)
+    wrist = client.predict(head_bgr=None, wrist_bgr=image, state=[0.0] * 6)
+    assert full == wrist == response['action']
+    assert 'head_image_base64' not in requests[1]
+    assert requests[0]['wrist_image_base64'] == requests[1]['wrist_image_base64']
+    assert requests[0]['state'] == requests[1]['state']
+
+
 @pytest.mark.parametrize(
     'response',
     [b'not-json', json.dumps({}).encode(), json.dumps({'action': [[0.0] * 5]}).encode()],

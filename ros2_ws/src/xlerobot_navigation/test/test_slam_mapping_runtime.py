@@ -10,6 +10,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 import launch_testing.actions
 from lifecycle_msgs.srv import GetState
 import rclpy
+from slam_toolbox.srv import SaveMap
 
 
 def generate_test_description():
@@ -35,6 +36,12 @@ class TestSlamMappingRuntime(unittest.TestCase):
         rclpy.shutdown()
 
     def test_slam_toolbox_reaches_active_lifecycle_state(self):
+        if os.environ.get('ROS_DISTRO') == 'humble':
+            # Humble's mapper is a regular rclcpp node, not a lifecycle node.
+            client = self.node.create_client(SaveMap, '/slam_toolbox/save_map')
+            self.assertTrue(client.wait_for_service(timeout_sec=15.0))
+            self.node.destroy_client(client)
+            return
         client = self.node.create_client(GetState, '/slam_toolbox/get_state')
         self.assertTrue(client.wait_for_service(timeout_sec=15.0))
         # The service appears before the lifecycle configure transition finishes.

@@ -115,21 +115,23 @@ class FakeNavigationBackend(rclpy.node.Node):
             self.pose[0] = request.position.x
             self.pose[1] = request.position.y
         goal_handle.succeed()
-        return NavigateToPose.Result(error_code=NavigateToPose.Result.NONE)
+        return NavigateToPose.Result()
 
     def _execute_backup(self, goal_handle):
         with self._lock:
             self.events.append('backup')
             if self.backup_collision:
-                result = BackUp.Result(error_code=BackUp.Result.COLLISION_AHEAD)
-                result.error_msg = 'fake obstacle behind robot'
+                result = BackUp.Result()
+                if hasattr(result, 'error_code'):
+                    result.error_code = BackUp.Result.COLLISION_AHEAD
+                    result.error_msg = 'fake obstacle behind robot'
                 goal_handle.abort()
                 return result
             distance = float(goal_handle.request.target.x)
             self.pose[0] -= abs(distance) * math.cos(self.pose[2])
             self.pose[1] -= abs(distance) * math.sin(self.pose[2])
         goal_handle.succeed()
-        return BackUp.Result(error_code=BackUp.Result.NONE)
+        return BackUp.Result()
 
     def _execute_spin(self, goal_handle):
         with self._lock:
@@ -144,7 +146,7 @@ class FakeNavigationBackend(rclpy.node.Node):
             self.pose[0] += lateral_offset * math.sin(self.pose[2])
             self.pose[1] -= lateral_offset * math.cos(self.pose[2])
         goal_handle.succeed()
-        return Spin.Result(error_code=Spin.Result.NONE)
+        return Spin.Result()
 
     def _on_dock_command(self, command):
         if abs(command.linear.x) <= 1.0e-12 and abs(command.angular.z) <= 1.0e-12:
@@ -321,7 +323,10 @@ class TestNamedNavigationRuntime(unittest.TestCase):
         self.assertTrue(wait_done(result_future, 10.0))
         wrapped = result_future.result()
         self.assertEqual(wrapped.status, GoalStatus.STATUS_ABORTED)
-        self.assertEqual(wrapped.result.error.code, CapabilityError.SAFETY_REJECTED)
+        expected_error = (CapabilityError.SAFETY_REJECTED
+                          if hasattr(BackUp.Result, 'COLLISION_AHEAD')
+                          else CapabilityError.BACKEND_FAILURE)
+        self.assertEqual(wrapped.result.error.code, expected_error)
         self.assertEqual(
             self.backend.event_snapshot(),
             ['navigate', 'backup'],

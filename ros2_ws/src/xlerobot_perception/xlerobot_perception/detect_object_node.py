@@ -15,9 +15,9 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.duration import Duration
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
 from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, Image
+from xlerobot_perception.demand_images import DemandImages
 from tf2_ros import Buffer, TransformException, TransformListener
 from xlerobot_interfaces.action import DetectObject
 from xlerobot_interfaces.msg import (
@@ -216,18 +216,11 @@ class DetectObjectNode(Node):
         self.observation_publisher = self.create_publisher(
             PerceptionObservation, '/perception/observations', 10
         )
-        self.create_subscription(
-            Image, self.color_topic, self._on_color, qos_profile_sensor_data,
-            callback_group=self.group,
-        )
-        self.create_subscription(
-            Image, self.depth_topic, self._on_depth, qos_profile_sensor_data,
-            callback_group=self.group,
-        )
-        self.create_subscription(
-            CameraInfo, self.camera_info_topic, self._on_info, qos_profile_sensor_data,
-            callback_group=self.group,
-        )
+        self.images = DemandImages(self, [
+            (Image, self.color_topic, self._on_color),
+            (Image, self.depth_topic, self._on_depth),
+            (CameraInfo, self.camera_info_topic, self._on_info),
+        ], self.frames.clear, enabled=bool(self.declare_parameter('x1_low_load', False).value))
         self.server = ActionServer(
             self,
             DetectObject,
@@ -346,6 +339,7 @@ class DetectObjectNode(Node):
                     'VLM backend is disabled; set backend_enabled=true explicitly',
                 )
 
+            self.images.start()
             self._feedback(
                 goal_handle, 'waiting_fresh_frame', 0.20,
                 'waiting for post-head-arrival RGBD frame',
@@ -453,6 +447,7 @@ class DetectObjectNode(Node):
             self._feedback(goal_handle, 'failed', 1.0, str(exc))
             return result
         finally:
+            self.images.stop()
             with self._goal_lock:
                 self._goal_active = False
 

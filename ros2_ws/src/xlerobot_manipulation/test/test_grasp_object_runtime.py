@@ -46,6 +46,7 @@ def generate_test_description():
                 'joint_state_timeout_s': 1.0,
                 'head_move_duration_s': 0.1,
                 'pregrasp_gripper_duration_s': 0.1,
+                'grasp_gripper_duration_s': 0.1,
                 'return_ready_duration_s': 0.1,
                 'pregrasp_settle_timeout_s': 0.4,
                 'pregrasp_settle_hold_s': 0.05,
@@ -69,6 +70,8 @@ class FakeGraspBackends(RclpyNode):
         self.policy_gripper_positions = []
         self.arm_updates_state = True
         self.gripper_updates_state = True
+        self.ignore_closure = False
+        self.open_during_lift = False
         self.policy_canceled = threading.Event()
         self.positions = [0.0] * 5 + [1.0]
         self.policy_contexts = []
@@ -165,6 +168,8 @@ class FakeGraspBackends(RclpyNode):
         trajectory = goal_handle.request.trajectory
         if label == 'arm':
             self.arm_trajectories.append(trajectory)
+            if self.open_during_lift and 'policy' in self.events:
+                self.positions[-1] = 1.02
         if (
             label in ('arm', 'gripper')
             and (
@@ -179,7 +184,8 @@ class FakeGraspBackends(RclpyNode):
                 if name in positions:
                     self.positions[index] = positions[name]
             if 'right_arm_gripper' in positions:
-                self.positions[-1] = positions['right_arm_gripper']
+                if not (positions['right_arm_gripper'] == 0.0 and self.ignore_closure):
+                    self.positions[-1] = positions['right_arm_gripper']
                 self.uncorrectable_goal_tolerance_once = False
             # A successful controller result must follow, not race ahead of,
             # the joint-state evidence consumed by GraspObject.
@@ -214,7 +220,7 @@ class FakeGraspBackends(RclpyNode):
         if not goal_handle.request.dry_run:
             self.positions[-1] = (
                 self.policy_gripper_positions.pop(0)
-                if self.policy_gripper_positions else 0.20
+                if self.policy_gripper_positions else 0.10
             )
         result.error.code = CapabilityError.NONE
         result.error.message = 'fake policy complete'
@@ -453,9 +459,9 @@ class GraspObjectRuntimeTest(unittest.TestCase):
     def test_02a_failed_verification_retries_the_complete_grasp_once(self):
         self.fake.events.clear()
         self.fake.verification_results = [False, True]
-        self.fake.policy_gripper_positions = [0.0, 0.20]
+        self.fake.policy_gripper_positions = [0.0, 0.10]
         wrapped = self._run(self._goal(dry_run=False))
-        self.assertEqual(wrapped.status, GoalStatus.STATUS_SUCCEEDED)
+        self.assertEqual(wrapped.status, GoalStatus.STATUS_SUCCEEDED, wrapped.result.error.message)
         self.assertEqual(wrapped.result.error.code, CapabilityError.NONE)
         self.assertEqual(
             self.fake.events,
@@ -471,7 +477,9 @@ class GraspObjectRuntimeTest(unittest.TestCase):
         self.fake.policy_gripper_positions = [0.0, 0.0]
         wrapped = self._run(self._goal(dry_run=False))
         self.assertEqual(wrapped.status, GoalStatus.STATUS_ABORTED)
-        self.assertEqual(wrapped.result.error.code, CapabilityError.NOT_FOUND)
+        self.assertEqual(
+            wrapped.result.error.code, CapabilityError.NOT_FOUND, wrapped.result.error.message
+        )
         self.assertEqual(self.fake.events.count('policy'), 2)
         self.assertEqual(self.fake.events.count('verify'), 2)
         self.assertEqual(self.fake.events[-1], 'head')
@@ -479,9 +487,11 @@ class GraspObjectRuntimeTest(unittest.TestCase):
     def test_02c_vlm_false_negative_does_not_retry_a_blocked_gripper(self):
         self.fake.events.clear()
         self.fake.verification_results = [False]
-        self.fake.policy_gripper_positions = [0.20]
+        self.fake.policy_gripper_positions = [0.10]
         wrapped = self._run(self._goal(dry_run=False))
-        self.assertEqual(wrapped.status, GoalStatus.STATUS_SUCCEEDED)
+        self.assertEqual(
+            wrapped.status, GoalStatus.STATUS_SUCCEEDED, wrapped.result.error.message
+        )
         self.assertEqual(wrapped.result.error.code, CapabilityError.NONE)
         self.assertEqual(self.fake.events.count('policy'), 1)
         self.assertEqual(self.fake.events.count('verify'), 1)
@@ -496,6 +506,47 @@ class GraspObjectRuntimeTest(unittest.TestCase):
         self.assertEqual(wrapped.result.error.code, CapabilityError.NONE)
         self.assertEqual(self.fake.events.count('policy'), 1)
         self.assertEqual(self.fake.events.count('verify'), 1)
+
+    def test_02e_open_policy_gripper_is_closed_before_lifting(self):
+        self.fake.events.clear()
+        self.fake.policy_gripper_positions = [1.02]
+        wrapped = self._run(self._goal(dry_run=False))
+        self.assertEqual(wrapped.status, GoalStatus.STATUS_SUCCEEDED)
+        self.assertEqual(self.fake.events, [
+            'ik', 'plan', 'gripper', 'arm', 'policy', 'gripper', 'arm', 'verify', 'head',
+        ])
+        self.assertEqual(self.fake.positions[-1], 0.0)
+
+    def test_02f_controller_success_without_closure_stops_before_lifting(self):
+        self.fake.events.clear()
+        self.fake.policy_gripper_positions = [1.02]
+        self.fake.ignore_closure = True
+        try:
+            wrapped = self._run(self._goal(dry_run=False))
+            self.assertEqual(wrapped.status, GoalStatus.STATUS_ABORTED)
+            self.assertEqual(wrapped.result.error.code, CapabilityError.SAFETY_REJECTED)
+            self.assertIn('remained open', wrapped.result.error.message)
+            self.assertEqual(self.fake.events, [
+                'ik', 'plan', 'gripper', 'arm', 'policy', 'gripper',
+            ])
+        finally:
+            self.fake.ignore_closure = False
+
+    def test_02g_open_gripper_never_passes_visual_verification(self):
+        self.fake.open_during_lift = True
+        try:
+            for visual_positive in (False, True):
+                with self.subTest(visual_positive=visual_positive):
+                    self.fake.events.clear()
+                    self.fake.verification_results = [visual_positive]
+                    wrapped = self._run(self._goal(dry_run=False))
+                    self.assertEqual(wrapped.status, GoalStatus.STATUS_ABORTED)
+                    self.assertEqual(wrapped.result.error.code, CapabilityError.SAFETY_REJECTED)
+                    self.assertIn('too open', wrapped.result.error.message)
+                    self.assertEqual(self.fake.events.count('policy'), 1)
+        finally:
+            self.fake.open_during_lift = False
+            self.fake.verification_results.clear()
 
     def test_03_outer_cancel_propagates_to_policy(self):
         self.fake.events.clear()

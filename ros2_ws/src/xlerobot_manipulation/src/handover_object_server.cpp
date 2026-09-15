@@ -48,8 +48,9 @@ struct HandoverFailure : public std::runtime_error
 bool valid_identifier(const std::string & value)
 {
   return !value.empty() && value.size() <= 128U &&
-         std::none_of(value.begin(), value.end(), [](unsigned char character) {
-             return character < 32U;
+         std::none_of(
+    value.begin(), value.end(), [](unsigned char character) {
+      return character < 32U;
     });
 }
 
@@ -112,7 +113,8 @@ public:
       });
     action_server_ = rclcpp_action::create_server<HandoverObject>(
       this, "handover_object",
-      std::bind(&HandoverObjectServer::handle_goal, this, std::placeholders::_1,
+      std::bind(
+        &HandoverObjectServer::handle_goal, this, std::placeholders::_1,
         std::placeholders::_2),
       std::bind(&HandoverObjectServer::handle_cancel, this, std::placeholders::_1),
       std::bind(&HandoverObjectServer::handle_accepted, this, std::placeholders::_1));
@@ -156,9 +158,10 @@ private:
     std::vector<std::string> unique_names = joint_names_;
     std::sort(unique_names.begin(), unique_names.end());
     if (std::adjacent_find(unique_names.begin(), unique_names.end()) != unique_names.end() ||
-      std::any_of(unique_names.begin(), unique_names.end(), [](const auto & name) {
-        return name.empty();
-      }))
+      std::any_of(
+        unique_names.begin(), unique_names.end(), [](const auto & name) {
+          return name.empty();
+        }))
     {
       throw std::invalid_argument("handover joint names must be unique and nonempty");
     }

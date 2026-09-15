@@ -26,6 +26,7 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_localization_quality test/test_localization_quality.py)
   ament_add_pytest_test(test_person_search test/test_person_search.py)
   ament_add_pytest_test(test_task_readiness test/test_task_readiness.py)
+  ament_add_pytest_test(test_fixed_terminal_speech test/test_fixed_terminal_speech.py)
   ament_add_pytest_test(test_timeout_contract test/test_timeout_contract.py)
 endif()
 

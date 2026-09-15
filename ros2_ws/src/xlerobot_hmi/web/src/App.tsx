@@ -956,6 +956,7 @@ function OperatorWorkspace({
   const [manualOperation, setManualOperation] = useState('')
   const [manualResult, setManualResult] = useState<Message>('')
   const [personBoxVisible, setPersonBoxVisible] = useState(false)
+  const [previewEnabled, setPreviewEnabled] = useState(false)
   const running = task && !['SUCCEEDED', 'FAILED', 'CANCELED', 'REJECTED'].includes(task.status)
   const demoReady = health.execute_task_available
     && health.requirements.execute_task_live_ready === true
@@ -1081,11 +1082,14 @@ function OperatorWorkspace({
       </article>
       <article className="camera-card">
         <div className="card-heading"><div><p className="section-label">LIVE CAMERAS</p>
-          <h2>{t("机器人视角")}</h2></div><span className="live-badge">LIVE</span></div>
-        <div className="camera-previews">
+          <h2>{t("机器人视角")}</h2></div>
+          <button type="button" onClick={() => setPreviewEnabled(value => !value)}>
+            {previewEnabled ? t("关闭视频") : t("打开视频")}
+          </button></div>
+        {previewEnabled && <div className="camera-previews">
           <CameraPreview camera="head" perception={shownPerception} />
           <CameraPreview camera="wrist" perception={null} />
-        </div>
+        </div>}
       </article>
     </section>
     {view === 'manual' && <section className="operator-controls">

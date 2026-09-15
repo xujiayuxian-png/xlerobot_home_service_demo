@@ -56,12 +56,14 @@ ValidationResult StreamingValidator::begin(
     const auto & joint = config_.joints[index];
     const double position = measured_positions[index];
     if (!std::isfinite(position)) {
-      return reject(StreamFault::kNonFinite,
-          joint_error("non-finite measured position", joint.name));
+      return reject(
+        StreamFault::kNonFinite,
+        joint_error("non-finite measured position", joint.name));
     }
     if (!std::isfinite(measured_velocities[index])) {
-      return reject(StreamFault::kNonFinite,
-          joint_error("non-finite measured velocity", joint.name));
+      return reject(
+        StreamFault::kNonFinite,
+        joint_error("non-finite measured velocity", joint.name));
     }
     if (position < joint.lower_position - kTolerance ||
       position > joint.upper_position + kTolerance)

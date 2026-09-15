@@ -69,6 +69,22 @@ def test_rejected_full_board_keeps_reprojection_diagnostic():
     assert 'reprojection' in detector.diagnostic['detail']
 
 
+def test_handeye_pose_without_legacy_contrib_helper(monkeypatch):
+    monkeypatch.delattr(cv2.aruco, 'estimatePoseSingleMarkers', raising=False)
+    detector = FixedTargetDetector('right_handeye')
+    half = 0.030
+    points = np.asarray([
+        [-half, half, 0.0], [half, half, 0.0],
+        [half, -half, 0.0], [-half, -half, 0.0],
+    ], dtype=np.float32)
+    estimate = detector.estimate(
+        [projected(points)], np.asarray([[23]], dtype=np.int32), CAMERA, DISTORTION)
+    assert estimate is not None
+    assert np.allclose(estimate.target_in_camera[:3, 3], TVEC.ravel(), atol=1e-5)
+    rotation, _ = cv2.Rodrigues(RVEC)
+    assert np.allclose(estimate.target_in_camera[:3, :3], rotation, atol=1e-4)
+
+
 def test_missing_board_still_produces_debug_image():
     detector = FixedTargetDetector('head_camera')
     source = np.zeros((480, 640, 3), dtype=np.uint8)

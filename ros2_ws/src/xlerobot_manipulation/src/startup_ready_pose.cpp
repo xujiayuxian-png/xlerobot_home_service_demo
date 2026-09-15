@@ -162,9 +162,10 @@ private:
       controller_wait_s_,
       result_margin_s_, arrival_tolerance_rad_};
     if (!std::isfinite(gripper_ready_position_) ||
-      std::any_of(positive.begin(), positive.end(), [](double value) {
-        return !std::isfinite(value) || value <= 0.0;
-      }))
+      std::any_of(
+        positive.begin(), positive.end(), [](double value) {
+          return !std::isfinite(value) || value <= 0.0;
+        }))
     {
       throw std::invalid_argument("startup ready numeric parameters must be finite and positive");
     }

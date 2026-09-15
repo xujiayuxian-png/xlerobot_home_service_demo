@@ -1,6 +1,8 @@
 """Launch the gated local SpeakText adapter."""
 
 from pathlib import Path
+import os
+import platform
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -22,6 +24,10 @@ def generate_launch_description():
     edge_cache_dir = LaunchConfiguration('edge_cache_dir')
     return LaunchDescription(
         [
+            DeclareLaunchArgument('config_file', default_value=config),
+            DeclareLaunchArgument('audio_predecode_pcm', default_value=(
+                'true' if os.environ.get('ROS_DISTRO') == 'humble'
+                and platform.machine() == 'aarch64' else 'false')),
             DeclareLaunchArgument(
                 'backend_enabled',
                 default_value='false',
@@ -44,13 +50,15 @@ def generate_launch_description():
                 name='speak_text_server',
                 output='screen',
                 parameters=[
-                    config,
+                    LaunchConfiguration('config_file'),
                     {
                         'backend_enabled': ParameterValue(
                             backend_enabled, value_type=bool
                         ),
                         'audio_player_device': audio_player_device,
                         'edge_cache_dir': edge_cache_dir,
+                        'audio_predecode_pcm': ParameterValue(
+                            LaunchConfiguration('audio_predecode_pcm'), value_type=bool),
                     },
                 ],
             ),

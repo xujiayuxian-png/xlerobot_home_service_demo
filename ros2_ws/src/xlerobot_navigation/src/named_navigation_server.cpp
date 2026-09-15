@@ -30,6 +30,7 @@
 #include <xlerobot_interfaces/action/navigate_to_named_place.hpp>
 #include <xlerobot_interfaces/msg/capability_error.hpp>
 
+#include "xlerobot_navigation/nav2_result.hpp"
 #include "xlerobot_navigation/navigation_core.hpp"
 
 namespace xlerobot_navigation
@@ -42,6 +43,7 @@ using namespace std::chrono_literals;
 using CapabilityError = xlerobot_interfaces::msg::CapabilityError;
 using NavigateNamed = xlerobot_interfaces::action::NavigateToNamedPlace;
 using BackUp = nav2_msgs::action::BackUp;
+using BackUpResult = Nav2Result<BackUp::Result>;
 using NavigatePose = nav2_msgs::action::NavigateToPose;
 using Spin = nav2_msgs::action::Spin;
 
@@ -130,7 +132,8 @@ public:
     action_server_ = rclcpp_action::create_server<NavigateNamed>(
       this,
       "navigate_to_named_place",
-      std::bind(&NamedNavigationServer::handle_goal, this, std::placeholders::_1,
+      std::bind(
+        &NamedNavigationServer::handle_goal, this, std::placeholders::_1,
         std::placeholders::_2),
       std::bind(&NamedNavigationServer::handle_cancel, this, std::placeholders::_1),
       std::bind(&NamedNavigationServer::handle_accepted, this, std::placeholders::_1));
@@ -229,7 +232,8 @@ private:
     const std::string place_id = goal_handle->get_goal()->place_id;
     const auto place_item = places_.find(place_id);
     if (place_id.empty() || place_item == places_.end()) {
-      abort(goal_handle, result, CapabilityError::INVALID_GOAL, "resolve",
+      abort(
+        goal_handle, result, CapabilityError::INVALID_GOAL, "resolve",
         "unknown named place: " + place_id);
       return;
     }
@@ -249,7 +253,8 @@ private:
       return;
     }
     if (!execution_enabled_) {
-      abort(goal_handle, result, CapabilityError::SAFETY_REJECTED, "safety_gate",
+      abort(
+        goal_handle, result, CapabilityError::SAFETY_REJECTED, "safety_gate",
         "non-dry-run navigation rejected because execution_enabled is false");
       return;
     }
@@ -398,7 +403,7 @@ private:
     }
     const auto wrapped = result_future.get();
     if (wrapped.code != rclcpp_action::ResultCode::SUCCEEDED || !wrapped.result ||
-      wrapped.result->error_code != NavigatePose::Result::NONE)
+      Nav2Result<NavigatePose::Result>::error_code(*wrapped.result) != 0)
     {
       return {false, false, CapabilityError::BACKEND_FAILURE, "Nav2 predock failed", true};
     }
@@ -460,17 +465,19 @@ private:
     }
     const auto wrapped = result_future.get();
     if (wrapped.code != rclcpp_action::ResultCode::SUCCEEDED || !wrapped.result ||
-      wrapped.result->error_code != BackUp::Result::NONE)
+      BackUpResult::error_code(*wrapped.result) != 0)
     {
-      const uint16_t nav2_code = wrapped.result ? wrapped.result->error_code : 0U;
-      const std::string detail = wrapped.result && !wrapped.result->error_msg.empty() ?
-        ": " + wrapped.result->error_msg : "";
+      const uint16_t nav2_code = wrapped.result ?
+        BackUpResult::error_code(*wrapped.result) : 0U;
+      const std::string detail =
+        wrapped.result && !BackUpResult::detail(*wrapped.result).empty() ?
+        ": " + BackUpResult::detail(*wrapped.result) : "";
       return {
         false, false,
-        nav2_code == BackUp::Result::COLLISION_AHEAD ?
+        (wrapped.result && BackUpResult::collision(*wrapped.result)) ?
         CapabilityError::SAFETY_REJECTED : CapabilityError::BACKEND_FAILURE,
         "Nav2 BackUp failed (error_code=" + std::to_string(nav2_code) + ")" + detail,
-        nav2_code == BackUp::Result::COLLISION_AHEAD};
+        (wrapped.result && BackUpResult::collision(*wrapped.result))};
     }
     return {true, false, CapabilityError::NONE, "Nav2 BackUp complete"};
   }
@@ -523,7 +530,7 @@ private:
     }
     const auto wrapped = result_future.get();
     if (wrapped.code != rclcpp_action::ResultCode::SUCCEEDED || !wrapped.result ||
-      wrapped.result->error_code != Spin::Result::NONE)
+      Nav2Result<Spin::Result>::error_code(*wrapped.result) != 0)
     {
       return {false, false, CapabilityError::BACKEND_FAILURE, "coarse Spin failed"};
     }
@@ -708,7 +715,8 @@ private:
           tf2::getYaw(transform.transform.rotation)},
         rclcpp::Time(transform.header.stamp)};
     } catch (const tf2::TransformException & error) {
-      RCLCPP_WARN(get_logger(), "TF lookup %s <- %s failed: %s",
+      RCLCPP_WARN(
+        get_logger(), "TF lookup %s <- %s failed: %s",
         frame.c_str(), base_frame_.c_str(), error.what());
       return std::nullopt;
     }

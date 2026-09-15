@@ -2,6 +2,10 @@
 
 ## Before running setup
 
+For native X1 / Ubuntu 22.04 ARM64, use the [Humble migration instructions](x1-controller-migration.md).
+Native build/software checks passed; physical X1 acceptance remains pending.
+The verified full-demo reference below remains Jazzy.
+
 On Robot, install [ROS 2 Jazzy for Ubuntu 24.04](https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html)
 first; setup expects `/opt/ros/jazzy/setup.bash`.
 On GPU, install the NVIDIA driver/WSL GPU support and

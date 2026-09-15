@@ -3,6 +3,8 @@ from pathlib import Path
 import sys
 import threading
 import time
+from types import SimpleNamespace
+import wave
 
 from action_msgs.msg import GoalStatus
 import rclpy
@@ -16,8 +18,48 @@ from xlerobot_voice.speak_text_node import (
     build_audio_player_command,
     build_command,
     SpeakTextNode,
+    SpeechFailure,
     validate_text,
 )
+
+
+def test_pcm_playback_decodes_native_format_and_removes_temporary_audio(tmp_path):
+    import subprocess
+
+    source = tmp_path / 'input.wav'
+    with wave.open(str(source), 'wb') as output:
+        output.setparams((1, 2, 24000, 0, 'NONE', 'not compressed'))
+        output.writeframes(b'\x00\x00' * 2400)
+    played = []
+
+    def run_process(goal, argv):
+        if argv[0] == 'ffmpeg':
+            subprocess.run(argv, check=True)
+        else:
+            assert argv[:3] == ['paplay', '--device=low-latency0', '--latency-msec=200']
+            played.append(Path(argv[-1]))
+            with wave.open(argv[-1]) as decoded:
+                assert (decoded.getframerate(), decoded.getnchannels()) == (48000, 2)
+
+    server = SimpleNamespace(audio_predecode_pcm=True, _run_process=run_process)
+    SpeakTextNode._play_audio_file(server, None, source)
+    assert len(played) == 1 and not played[0].exists()
+
+
+def test_pcm_decode_cancel_does_not_start_playback(tmp_path):
+    import pytest
+
+    commands = []
+
+    def cancel_decode(goal, argv):
+        commands.append(argv)
+        raise SpeechFailure(CapabilityError.CANCELED, 'canceled', canceled=True)
+
+    server = SimpleNamespace(audio_predecode_pcm=True, _run_process=cancel_decode)
+    with pytest.raises(SpeechFailure):
+        SpeakTextNode._play_audio_file(server, None, tmp_path / 'input.mp3')
+    assert len(commands) == 1 and commands[0][0] == 'ffmpeg'
+    assert not Path(commands[0][-1]).parent.exists()
 
 
 def wait_future(future, timeout_s=5.0):
@@ -103,7 +145,7 @@ def test_enabled_process_success_cancel_and_timeout():
         parameter_overrides=[
             Parameter('backend_enabled', value=True),
             Parameter('command_argv', value=[sys.executable, '-c', code]),
-            Parameter('timeout_s', value=0.4),
+            Parameter('timeout_s', value=1.5),
             Parameter('terminate_grace_s', value=0.2),
         ]
     )

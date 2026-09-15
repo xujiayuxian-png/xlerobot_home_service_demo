@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 import subprocess
 import xml.etree.ElementTree as ET
@@ -8,6 +9,38 @@ import yaml
 PACKAGE = Path(__file__).resolve().parents[1]
 CONFIG = PACKAGE / 'config'
 DESCRIPTION = PACKAGE.parent / 'xlerobot_description' / 'urdf' / 'two_wheel_reference.urdf.xacro'
+
+
+def test_scene_monitor_does_not_share_topics_between_message_types():
+    tree = ast.parse((PACKAGE / 'launch' / 'move_group.launch.py').read_text())
+    options = next(
+        ast.literal_eval(node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == 'move_group_options'
+                for target in node.targets)
+    )['planning_scene_monitor_options']
+    assert options['attached_collision_object_topic'] not in {
+        options['publish_planning_scene_topic'],
+        options['monitored_planning_scene_topic'],
+        options['joint_state_topic'],
+    }
+
+
+def test_humble_pipeline_uses_available_adapter_plugins():
+    import os
+    import pytest
+    from ament_index_python.packages import get_package_share_directory
+
+    if os.environ.get('ROS_DISTRO') != 'humble':
+        pytest.skip('Humble plugin inventory check')
+    ompl = yaml.safe_load((CONFIG / 'ompl_planning_humble.yaml').read_text())['ompl']
+    plugins = ET.parse(Path(get_package_share_directory('moveit_ros_planning')) /
+                       'planning_request_adapters_plugin_description.xml').getroot()
+    available = {node.attrib['name'] for node in plugins.findall('.//class')}
+    assert isinstance(ompl['request_adapters'], str)
+    assert set(ompl['request_adapters'].split()) <= available
+    assert ompl['planning_plugin'] == 'ompl_interface/OMPLPlanner'
 
 
 def urdf_root():

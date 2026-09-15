@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 from rclpy.qos import DurabilityPolicy, ReliabilityPolicy
 from sensor_msgs.msg import Image
-from slam_toolbox.srv import Reset
+from xlerobot_hmi.operator_console import Reset
 from xlerobot_hmi.operator_console import (
     _diagnostic_level_for_readiness,
     _image_array,
@@ -79,6 +79,14 @@ def test_reset_live_map_only_after_slam_success_and_preserve_saved_files(tmp_pat
     app._call_service = call
 
     async def exercise():
+        if Reset is None:
+            with pytest.raises(web.HTTPNotImplemented):
+                await app.reset_mapping(Request())
+            assert node._mapping_state['map'] == {'old': True}
+            assert not calls and not events and not audits
+            assert not node.manual_control.action_active()
+            assert saved.read_text() == 'image: map.pgm\n'
+            return
         if failure:
             with pytest.raises(web.HTTPException):
                 await app.reset_mapping(Request())
@@ -611,6 +619,7 @@ def test_external_task_cancel_uses_standard_action_cancel_service():
 
 def test_operator_health_requires_fresh_execute_task_live_readiness():
     node = object.__new__(OperatorConsoleNode)
+    node.x1_low_load = True
     node.manual_control = ManualControlCoordinator()
     node.task_client = SimpleNamespace(server_is_ready=lambda: True)
     node.manual_reservation_client = SimpleNamespace(service_is_ready=lambda: True)
@@ -641,6 +650,9 @@ def test_operator_health_requires_fresh_execute_task_live_readiness():
     health = OperatorConsoleNode.health(node)
     assert health['requirements']['execute_task_live_ready'] is True
     assert health['readiness'] == 'READY'
+    node._camera_received_at['wrist'] = time.monotonic() - 1.2
+    assert not node.health()['requirements']['wrist_camera']
+    node._camera_received_at['wrist'] = time.monotonic()
     published = []
     node.events = SimpleNamespace(
         publish=lambda kind, payload: published.append((kind, payload))

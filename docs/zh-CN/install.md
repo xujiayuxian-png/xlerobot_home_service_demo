@@ -2,6 +2,9 @@
 
 ## setup 前的准备
 
+X1 / Ubuntu 22.04 ARM64 原生安装请使用 [Humble 适配说明](x1-controller-migration.md)。
+该路线的原生构建和软件检查已通过，实机验收待完成；下述完整 Demo 的已验证参考环境仍为 Jazzy。
+
 Robot 先按 [ROS 2 Jazzy 官方安装说明](https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html)
 安装 Ubuntu 24.04 版本；setup 需要 `/opt/ros/jazzy/setup.bash` 已存在。
 GPU 先安装 NVIDIA 驱动/WSL GPU 支持和

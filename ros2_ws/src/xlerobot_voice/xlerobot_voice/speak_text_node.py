@@ -9,9 +9,11 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 import sys
 import threading
 import time
+import wave
 
 from ament_index_python.packages import get_package_share_directory
 import rclpy
@@ -89,6 +91,12 @@ class SpeakTextNode(Node):
         self.audio_player_device = str(self.declare_parameter(
             'audio_player_device', ''
         ).value)
+        self.audio_predecode_pcm = bool(self.declare_parameter(
+            'audio_predecode_pcm', False
+        ).value)
+        self.validate_preset_pcm = bool(self.declare_parameter(
+            'validate_preset_pcm', False
+        ).value)
         self.edge_tts_argv = [
             str(value)
             for value in self.declare_parameter(
@@ -152,6 +160,14 @@ class SpeakTextNode(Node):
         )
         if self.backend == 'preset' and not self.presets:
             raise ValueError('preset backend requires at least one text/file pair')
+        if self.validate_preset_pcm:
+            if self.backend != 'preset' or self.audio_predecode_pcm:
+                raise ValueError('fixed PCM requires preset backend without runtime decoding')
+            for relative_path in self.presets.values():
+                with wave.open(str(self.preset_directory / relative_path), 'rb') as audio:
+                    if (audio.getnchannels(), audio.getsampwidth(), audio.getframerate(),
+                            audio.getcomptype()) != (2, 2, 48000, 'NONE') or audio.getnframes() == 0:
+                        raise ValueError(f'expected nonempty stereo 48 kHz PCM16: {relative_path}')
         if self.backend == 'hybrid':
             if not self.voice_id:
                 raise ValueError('hybrid backend requires voice_id')
@@ -194,6 +210,9 @@ class SpeakTextNode(Node):
         result = SpeakText.Result()
         try:
             text = validate_text(goal_handle.request.text, self.max_characters)
+            if self.backend == 'preset' and text not in self.presets:
+                raise SpeechFailure(CapabilityError.UNAVAILABLE,
+                                    f'no prerecorded speech preset for: {text}')
             self._feedback(goal_handle, 'validate', 0.10, 'speech request valid')
             if goal_handle.request.dry_run:
                 result.error.code = CapabilityError.NONE
@@ -280,12 +299,7 @@ class SpeakTextNode(Node):
                 CapabilityError.UNAVAILABLE,
                 f'prerecorded speech file is unavailable: {path}',
             )
-        self._run_process(
-            goal_handle,
-            build_audio_player_command(
-                self.audio_player_argv, path, self.audio_player_device
-            ),
-        )
+        self._play_audio_file(goal_handle, path)
 
     def _play_hybrid(self, goal_handle, text):
         """Prefer fixed audio and synthesize only an uncached variable suffix."""
@@ -343,12 +357,24 @@ class SpeakTextNode(Node):
                 CapabilityError.UNAVAILABLE,
                 f'audio player is unavailable: {player}',
             )
-        self._run_process(
-            goal_handle,
-            build_audio_player_command(
-                self.audio_player_argv, path, self.audio_player_device
-            ),
-        )
+        self._play_audio_file(goal_handle, path)
+
+    def _play_audio_file(self, goal_handle, path):
+        if not self.audio_predecode_pcm:
+            self._run_process(goal_handle, build_audio_player_command(
+                self.audio_player_argv, path, self.audio_player_device))
+            return
+        # X1's Qualcomm output is 48 kHz stereo. Finish decoding before playback
+        # so camera/ASR load cannot starve an MP3 decoder or live resampler.
+        with tempfile.TemporaryDirectory(prefix='xlerobot-speech-') as directory:
+            pcm = str(Path(directory) / 'speech.wav')
+            self._run_process(goal_handle, [
+                'ffmpeg', '-nostdin', '-loglevel', 'error', '-y',
+                '-i', str(path), '-ar', '48000', '-ac', '2', pcm,
+            ])
+            self._run_process(goal_handle, [
+                'paplay', '--device=low-latency0', '--latency-msec=200', pcm,
+            ])
 
     def _run_process(self, goal_handle, argv):
         try:

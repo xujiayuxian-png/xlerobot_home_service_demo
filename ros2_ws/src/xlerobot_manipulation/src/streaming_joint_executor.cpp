@@ -76,7 +76,8 @@ public:
         controller_switch_timeout_s_});
     action_server_ = rclcpp_action::create_server<ExecutePolicyStream>(
       this, action_name_,
-      std::bind(&StreamingJointExecutor::handle_goal, this, std::placeholders::_1,
+      std::bind(
+        &StreamingJointExecutor::handle_goal, this, std::placeholders::_1,
         std::placeholders::_2),
       std::bind(&StreamingJointExecutor::handle_cancel, this, std::placeholders::_1),
       std::bind(&StreamingJointExecutor::handle_accepted, this, std::placeholders::_1));
@@ -212,7 +213,8 @@ private:
         std::find(
         position_setpoint_joints_.begin(), position_setpoint_joints_.end(),
         joint_names_[index]) != position_setpoint_joints_.end();
-      config.joints.push_back({
+      config.joints.push_back(
+        {
           joint_names_[index], lower_positions_[index], upper_positions_[index],
           position_setpoint ? JointCommandSemantics::kPositionSetpoint :
           JointCommandSemantics::kTrajectory});
@@ -268,8 +270,9 @@ private:
     if (goal.session_id.empty() || goal.source_id.empty() || goal.joint_names != joint_names_ ||
       requested_duration_s <= 0.0 || requested_duration_s > max_session_duration_s_)
     {
-      abort(goal_handle, result, CapabilityError::INVALID_GOAL,
-          "invalid session, source, joints, or duration");
+      abort(
+        goal_handle, result, CapabilityError::INVALID_GOAL,
+        "invalid session, source, joints, or duration");
       return;
     }
     publish_feedback(goal_handle, nullptr, "plan", 0.05F, "validated exclusive stream plan");
@@ -323,8 +326,9 @@ private:
     }
     if (!wait_for_command_subscriber(controller_switch_timeout_s_)) {
       static_cast<void>(controller_modes_->restore_normal_mode(gate_error));
-      abort(goal_handle, result, CapabilityError::UNAVAILABLE,
-          "policy controller command input unavailable");
+      abort(
+        goal_handle, result, CapabilityError::UNAVAILABLE,
+        "policy controller command input unavailable");
       return;
     }
 
@@ -526,10 +530,11 @@ private:
     const size_t joint_count = joint_names_.size();
     for (uint32_t sample_index = 0; sample_index < message->sample_count; ++sample_index) {
       const size_t offset = static_cast<size_t>(sample_index) * joint_count;
-      session->queue.push_back({
+      session->queue.push_back(
+        {
           std::vector<double>(
-          message->positions.begin() + static_cast<std::ptrdiff_t>(offset),
-          message->positions.begin() + static_cast<std::ptrdiff_t>(offset + joint_count)),
+            message->positions.begin() + static_cast<std::ptrdiff_t>(offset),
+            message->positions.begin() + static_cast<std::ptrdiff_t>(offset + joint_count)),
           chunk.sample_period_s});
     }
     ++session->accepted_chunks;

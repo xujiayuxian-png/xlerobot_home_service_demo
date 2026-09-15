@@ -18,12 +18,12 @@ from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalRespons
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
 from rclpy.time import Time
 from sensor_msgs.msg import Image, JointState
 from xlerobot_interfaces.action import ExecuteLearnedPolicy, ExecutePolicyStream
 from xlerobot_interfaces.msg import CapabilityError, PolicyJointChunk
 from xlerobot_policy.act_http import ActHttpClient
+from xlerobot_perception.demand_images import DemandImages
 from xlerobot_policy.postprocess import (
     freeze_joint,
     GripperGovernorConfig,
@@ -320,24 +320,16 @@ class ActPolicyNode(Node):
         self.chunk_publisher = self.create_publisher(
             PolicyJointChunk, 'policy_joint_chunks', 10
         )
-        self.create_subscription(
-            Image,
-            str(self.declare_parameter(
-                'head_image_topic', '/xlerobot/d455/color/image_raw'
-            ).value),
-            lambda message: self._store('head', message),
-            qos_profile_sensor_data,
-            callback_group=self.group,
-        )
-        self.create_subscription(
-            Image,
-            str(self.declare_parameter(
-                'wrist_image_topic', '/right_wrist_camera/image_raw'
-            ).value),
-            lambda message: self._store('wrist', message),
-            qos_profile_sensor_data,
-            callback_group=self.group,
-        )
+        low_load = bool(self.declare_parameter('x1_low_load', False).value)
+        self.wrist_only = bool(self.declare_parameter('x1_act_wrist_only', False).value)
+        head_topic = str(self.declare_parameter(
+            'head_image_topic', '/xlerobot/d455/color/image_raw').value)
+        wrist_topic = str(self.declare_parameter(
+            'wrist_image_topic', '/right_wrist_camera/image_raw').value)
+        image_specs = [(Image, wrist_topic, lambda message: self._store('wrist', message))]
+        if not self.wrist_only:
+            image_specs.append((Image, head_topic, lambda message: self._store('head', message)))
+        self.images = DemandImages(self, image_specs, self._clear_images, enabled=low_load)
         self.create_subscription(
             JointState,
             str(self.declare_parameter('joint_state_topic', '/joint_states').value),
@@ -422,6 +414,7 @@ class ActPolicyNode(Node):
                 )
             frozen_pan = None
             if not goal_handle.request.dry_run:
+                self.images.start()
                 context = goal_handle.request.start_context
                 has_context = bool(
                     context.context_id.strip()
@@ -535,8 +528,14 @@ class ActPolicyNode(Node):
             goal_handle.abort()
             return result
         finally:
+            self.images.stop()
             with self.goal_lock:
                 self.goal_active = False
+
+    def _clear_images(self):
+        with self.data_condition:
+            self.latest['head'] = None
+            self.latest['wrist'] = None
 
     def _snapshot(self, goal_handle, executor_handle=None):
         deadline = time.monotonic() + self.sensor_timeout_s
@@ -544,10 +543,10 @@ class ActPolicyNode(Node):
             while rclpy.ok() and time.monotonic() < deadline:
                 self._check_cancel(goal_handle, executor_handle)
                 head, wrist, joints = self.latest.values()
-                if head is not None and wrist is not None and joints is not None:
+                if (self.wrist_only or head is not None) and wrist is not None and joints is not None:
                     image_times = [
                         Time.from_msg(item.header.stamp).nanoseconds
-                        for item in (head, wrist)
+                        for item in ((wrist,) if self.wrist_only else (head, wrist))
                     ]
                     joint_time = Time.from_msg(joints.header.stamp).nanoseconds
                     now = self.get_clock().now().nanoseconds
@@ -617,7 +616,8 @@ class ActPolicyNode(Node):
     def _predict(self, head, wrist, state, frozen_pan):
         try:
             raw = self.http.predict(
-                head_bgr=self.bridge.imgmsg_to_cv2(head, desired_encoding='bgr8'),
+                head_bgr=None if self.wrist_only else self.bridge.imgmsg_to_cv2(
+                    head, desired_encoding='bgr8'),
                 wrist_bgr=self.bridge.imgmsg_to_cv2(wrist, desired_encoding='bgr8'),
                 state=state,
             )

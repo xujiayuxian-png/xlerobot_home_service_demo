@@ -1,0 +1,16 @@
+# Native X1: Ubuntu 22.04 ARM64, ROS Humble, Python 3.10.
+# ONNX Runtime 1.27 requires Python >=3.11; 1.23.2 supplies cp310 ARM64 wheels.
+# Keep NumPy 1.x for Humble's apt cv_bridge/OpenCV ABI.
+aiohttp==3.14.1
+ctranslate2==4.8.1
+edge-tts==7.2.8
+faster-whisper==1.2.1
+huggingface-hub==1.20.1
+onnxruntime==1.23.2
+sherpa-onnx==1.13.4
+sounddevice==0.5.5
+scipy==1.11.4
+numpy==1.26.4
+opencv-python==4.11.0.86
+# Humble launch_testing uses pytest hooks removed in pytest 9.
+pytest==8.3.5

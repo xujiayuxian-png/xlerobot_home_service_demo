@@ -4,7 +4,7 @@
 #include <memory>
 
 #include <hardware_interface/hardware_info.hpp>
-#include <hardware_interface/types/hardware_component_interface_params.hpp>
+#include <type_traits>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <rclcpp/duration.hpp>
 #include <rclcpp/time.hpp>
@@ -17,6 +17,44 @@ namespace xlerobot_hardware
 {
 namespace
 {
+
+#ifndef XLEROBOT_MODERN_HARDWARE
+// Copy the exported handle to inject passive observations into its shared
+// storage. This test-only accessor never changes the production read-only API.
+class TestStateWriter : public hardware_interface::StateInterface
+{
+public:
+  explicit TestStateWriter(const hardware_interface::StateInterface & interface)
+  : hardware_interface::StateInterface(interface) {}
+  bool set(double value) {*value_ptr_ = value; return true;}
+};
+
+bool set_interface(hardware_interface::StateInterface & interface, double value)
+{
+  return TestStateWriter(interface).set(value);
+}
+#endif
+
+template<typename Interface>
+bool set_interface(Interface & interface, double value)
+{
+  if constexpr (std::is_void_v<decltype(interface.set_value(value))>) {
+    interface.set_value(value);
+    return true;
+  } else {
+    return interface.set_value(value);
+  }
+}
+
+template<typename Interface>
+std::optional<double> get_interface(const Interface & interface)
+{
+#ifdef XLEROBOT_MODERN_HARDWARE
+  return interface.template get_optional<double>();
+#else
+  return interface.get_value();
+#endif
+}
 
 hardware_interface::ComponentInfo wheel(const std::string & name)
 {
@@ -47,7 +85,11 @@ hardware_interface::ComponentInfo position_joint(
   joint.command_interfaces.push_back(command);
   hardware_interface::InterfaceInfo position;
   position.name = hardware_interface::HW_IF_POSITION;
+#ifdef XLEROBOT_MODERN_HARDWARE
   position.parameters["initial_value"] = std::to_string(initial);
+#else
+  position.initial_value = std::to_string(initial);
+#endif
   joint.state_interfaces.push_back(position);
   hardware_interface::InterfaceInfo velocity;
   velocity.name = hardware_interface::HW_IF_VELOCITY;
@@ -67,7 +109,11 @@ hardware_interface::HardwareInfo info(bool mock_hardware, bool hardware_enabled)
   hardware_interface::HardwareInfo result;
   result.name = "right_bus_system";
   result.type = "system";
+#ifdef XLEROBOT_MODERN_HARDWARE
   result.hardware_plugin_name = "xlerobot_hardware/RightBusSystem";
+#else
+  result.hardware_class_type = "xlerobot_hardware/RightBusSystem";
+#endif
   result.hardware_parameters["mock_hardware"] = mock_hardware ? "true" : "false";
   result.hardware_parameters["hardware_enabled"] = hardware_enabled ? "true" : "false";
   result.hardware_parameters["torque_enabled"] = "false";
@@ -88,7 +134,11 @@ hardware_interface::HardwareInfo left_info()
   hardware_interface::HardwareInfo result;
   result.name = "left_bus_system";
   result.type = "system";
+#ifdef XLEROBOT_MODERN_HARDWARE
   result.hardware_plugin_name = "xlerobot_hardware/LeftBusSystem";
+#else
+  result.hardware_class_type = "xlerobot_hardware/LeftBusSystem";
+#endif
   result.hardware_parameters["mock_hardware"] = "true";
   result.hardware_parameters["hardware_enabled"] = "false";
   result.hardware_parameters["torque_enabled"] = "false";
@@ -109,7 +159,11 @@ hardware_interface::HardwareInfo leader_info()
   hardware_interface::HardwareInfo result;
   result.name = "leader_bus_system";
   result.type = "system";
+#ifdef XLEROBOT_MODERN_HARDWARE
   result.hardware_plugin_name = "xlerobot_hardware/LeaderBusSystem";
+#else
+  result.hardware_class_type = "xlerobot_hardware/LeaderBusSystem";
+#endif
   result.hardware_parameters["mock_hardware"] = "true";
   result.hardware_parameters["hardware_enabled"] = "false";
   result.hardware_parameters["torque_enabled"] = "false";
@@ -216,9 +270,13 @@ private:
 hardware_interface::CallbackReturn initialize(
   BusSystemBase & system, const hardware_interface::HardwareInfo & hardware_info)
 {
+#ifdef XLEROBOT_MODERN_HARDWARE
   hardware_interface::HardwareComponentInterfaceParams params;
   params.hardware_info = hardware_info;
   return system.on_init(params);
+#else
+  return system.on_init(hardware_info);
+#endif
 }
 
 TEST(WheelServoCodecTest, PreservesVerifiedWheelDirections)
@@ -260,16 +318,16 @@ TEST(RightBusSystemTest, MockLifecycleNeverNeedsHardwareEnable)
   auto states = system.export_state_interfaces();
   ASSERT_EQ(commands.size(), 8u);
   ASSERT_EQ(states.size(), 16u);
-  ASSERT_TRUE(commands[0].set_value(1.0));
-  ASSERT_TRUE(commands[1].set_value(2.0));
+  ASSERT_TRUE(set_interface(commands[0], 1.0));
+  ASSERT_TRUE(set_interface(commands[1], 2.0));
   EXPECT_EQ(
     system.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
     hardware_interface::return_type::OK);
   EXPECT_EQ(
     system.read(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
     hardware_interface::return_type::OK);
-  const auto left_position = states[0].get_optional<double>();
-  const auto right_position = states[2].get_optional<double>();
+  const auto left_position = get_interface(states[0]);
+  const auto right_position = get_interface(states[2]);
   ASSERT_TRUE(left_position.has_value());
   ASSERT_TRUE(right_position.has_value());
   EXPECT_NEAR(*left_position, 0.1, 1e-12);
@@ -408,30 +466,30 @@ TEST(RightBusSystemTest, ReactivationNeverTurnsWheelOdometryIntoVelocity)
   auto states = system.export_state_interfaces();
   for (int attempt = 0; attempt < 3; ++attempt) {
     // Represent ordinary earlier navigation / manually rolled wheel odometry.
-    ASSERT_TRUE(commands[0].set_value(1.2));
-    ASSERT_TRUE(commands[1].set_value(-0.7));
-    ASSERT_TRUE(commands[2].set_value(0.4));
+    ASSERT_TRUE(set_interface(commands[0], 1.2));
+    ASSERT_TRUE(set_interface(commands[1], -0.7));
+    ASSERT_TRUE(set_interface(commands[2], 0.4));
     ASSERT_EQ(system.read(rclcpp::Time(0), rclcpp::Duration::from_seconds(1.0)),
       hardware_interface::return_type::OK);
-    const double left_position = *states[0].get_optional<double>();
-    const double right_position = *states[2].get_optional<double>();
-    const double arm_position = *states[4].get_optional<double>();
+    const double left_position = *get_interface(states[0]);
+    const double right_position = *get_interface(states[2]);
+    const double arm_position = *get_interface(states[4]);
     ASSERT_NE(left_position, 0.0);
     ASSERT_NE(right_position, 0.0);
     ASSERT_EQ(system.on_deactivate(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
     // Exactly the collection Release -> Reset -> Start hardware transition.
     ASSERT_EQ(system.on_activate(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
-    EXPECT_DOUBLE_EQ(*commands[0].get_optional<double>(), 0.0);
-    EXPECT_DOUBLE_EQ(*commands[1].get_optional<double>(), 0.0);
-    EXPECT_DOUBLE_EQ(*commands[2].get_optional<double>(), arm_position);
+    EXPECT_DOUBLE_EQ(*get_interface(commands[0]), 0.0);
+    EXPECT_DOUBLE_EQ(*get_interface(commands[1]), 0.0);
+    EXPECT_DOUBLE_EQ(*get_interface(commands[2]), arm_position);
     for (int cycle = 0; cycle < 5; ++cycle) {
       ASSERT_EQ(system.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(.02)),
         hardware_interface::return_type::OK);
       ASSERT_EQ(system.read(rclcpp::Time(0), rclcpp::Duration::from_seconds(.02)),
         hardware_interface::return_type::OK);
     }
-    EXPECT_DOUBLE_EQ(*states[0].get_optional<double>(), left_position);
-    EXPECT_DOUBLE_EQ(*states[2].get_optional<double>(), right_position);
+    EXPECT_DOUBLE_EQ(*get_interface(states[0]), left_position);
+    EXPECT_DOUBLE_EQ(*get_interface(states[2]), right_position);
   }
 }
 
@@ -493,13 +551,13 @@ TEST(LeaderBusSystemTest, RuntimeTorqueKeepsLeaderStateOnItsOwnBus)
   EXPECT_EQ(commands.back().get_prefix_name(), "leader_bus");
   EXPECT_EQ(commands.back().get_interface_name(), "torque_enable");
 
-  ASSERT_TRUE(commands[0].set_value(0.4));
+  ASSERT_TRUE(set_interface(commands[0], 0.4));
   EXPECT_EQ(
     system.read(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
     hardware_interface::return_type::OK);
-  EXPECT_DOUBLE_EQ(*states[0].get_optional<double>(), 0.0);
+  EXPECT_DOUBLE_EQ(*get_interface(states[0]), 0.0);
 
-  ASSERT_TRUE(commands.back().set_value(1.0));
+  ASSERT_TRUE(set_interface(commands.back(), 1.0));
   EXPECT_EQ(
     system.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
     hardware_interface::return_type::OK);
@@ -507,13 +565,13 @@ TEST(LeaderBusSystemTest, RuntimeTorqueKeepsLeaderStateOnItsOwnBus)
     system.read(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
     hardware_interface::return_type::OK);
   // Torque enable primes the measured pose, never a stale passive target.
-  EXPECT_DOUBLE_EQ(*states[0].get_optional<double>(), 0.0);
-  ASSERT_TRUE(commands[0].set_value(0.4));
+  EXPECT_DOUBLE_EQ(*get_interface(states[0]), 0.0);
+  ASSERT_TRUE(set_interface(commands[0], 0.4));
   ASSERT_EQ(system.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
     hardware_interface::return_type::OK);
   ASSERT_EQ(system.read(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
     hardware_interface::return_type::OK);
-  EXPECT_NEAR(*states[0].get_optional<double>(), 0.05, 1e-12);
+  EXPECT_NEAR(*get_interface(states[0]), 0.05, 1e-12);
 }
 
 TEST(LeaderBusSystemTest, LifecycleRecoveryDiscardsOldTorqueLease)
@@ -523,15 +581,15 @@ TEST(LeaderBusSystemTest, LifecycleRecoveryDiscardsOldTorqueLease)
   ASSERT_EQ(system.on_configure(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
   ASSERT_EQ(system.on_activate(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
   auto commands = system.export_command_interfaces();
-  ASSERT_TRUE(commands.back().set_value(1.0));
+  ASSERT_TRUE(set_interface(commands.back(), 1.0));
   ASSERT_EQ(system.on_deactivate(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
-  EXPECT_DOUBLE_EQ(*commands.back().get_optional<double>(), 0.0);
-  ASSERT_TRUE(commands.back().set_value(1.0));
+  EXPECT_DOUBLE_EQ(*get_interface(commands.back()), 0.0);
+  ASSERT_TRUE(set_interface(commands.back(), 1.0));
   ASSERT_EQ(system.on_configure(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
-  EXPECT_DOUBLE_EQ(*commands.back().get_optional<double>(), 0.0);
-  ASSERT_TRUE(commands.back().set_value(1.0));
+  EXPECT_DOUBLE_EQ(*get_interface(commands.back()), 0.0);
+  ASSERT_TRUE(set_interface(commands.back(), 1.0));
   ASSERT_EQ(system.on_activate(rclcpp_lifecycle::State()), hardware_interface::CallbackReturn::SUCCESS);
-  EXPECT_DOUBLE_EQ(*commands.back().get_optional<double>(), 0.0);
+  EXPECT_DOUBLE_EQ(*get_interface(commands.back()), 0.0);
 }
 
 TEST(RightBusSystemTest, RealModeRequiresSecondHardwareEnableKey)
@@ -586,7 +644,7 @@ TEST(RightBusSystemTest, ReadOnlyModeIgnoresEveryCommandAtHardwareBoundary)
     hardware_interface::CallbackReturn::SUCCESS);
   auto commands = system.export_command_interfaces();
   auto states = system.export_state_interfaces();
-  ASSERT_TRUE(commands[2].set_value(100.0));
+  ASSERT_TRUE(set_interface(commands[2], 100.0));
 
   EXPECT_EQ(
     system.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
@@ -594,8 +652,8 @@ TEST(RightBusSystemTest, ReadOnlyModeIgnoresEveryCommandAtHardwareBoundary)
   EXPECT_EQ(
     system.read(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
     hardware_interface::return_type::OK);
-  ASSERT_TRUE(states[4].get_optional<double>().has_value());
-  EXPECT_DOUBLE_EQ(*states[4].get_optional<double>(), 0.0);
+  ASSERT_TRUE(get_interface(states[4]).has_value());
+  EXPECT_DOUBLE_EQ(*get_interface(states[4]), 0.0);
 }
 
 TEST(RightBusSystemTest, RejectsOutOfRangePositionCommandInMockMode)
@@ -603,7 +661,7 @@ TEST(RightBusSystemTest, RejectsOutOfRangePositionCommandInMockMode)
   RightBusSystem system;
   ASSERT_EQ(initialize(system, info(true, false)), hardware_interface::CallbackReturn::SUCCESS);
   auto commands = system.export_command_interfaces();
-  ASSERT_TRUE(commands[2].set_value(1.6));
+  ASSERT_TRUE(set_interface(commands[2], 1.6));
 
   EXPECT_EQ(
     system.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
@@ -618,20 +676,20 @@ void check_outside_startup(BusSystemBase & system,
     hardware_interface::CallbackReturn::SUCCESS);
   auto states = system.export_state_interfaces();
   auto commands = system.export_command_interfaces();
-  ASSERT_TRUE(states[joint_index * 2].set_value(1.8));
+  ASSERT_TRUE(set_interface(states[joint_index * 2], 1.8));
   ASSERT_EQ(system.on_activate(rclcpp_lifecycle::State()),
     hardware_interface::CallbackReturn::SUCCESS);
-  ASSERT_TRUE(commands[joint_index].set_value(-1.0));
+  ASSERT_TRUE(set_interface(commands[joint_index], -1.0));
   ASSERT_EQ(system.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
     hardware_interface::return_type::OK);
   ASSERT_EQ(system.read(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
     hardware_interface::return_type::OK);
-  EXPECT_DOUBLE_EQ(*states[joint_index * 2].get_optional<double>(), 1.8);
+  EXPECT_DOUBLE_EQ(*get_interface(states[joint_index * 2]), 1.8);
   // Manual repositioning clears the startup wait, not the old queued target.
-  ASSERT_TRUE(states[joint_index * 2].set_value(1.0));
+  ASSERT_TRUE(set_interface(states[joint_index * 2], 1.0));
   ASSERT_EQ(system.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
     hardware_interface::return_type::OK);
-  EXPECT_DOUBLE_EQ(*commands[joint_index].get_optional<double>(), 1.0);
+  EXPECT_DOUBLE_EQ(*get_interface(commands[joint_index]), 1.0);
 }
 
 TEST(BusStartupTest, LeaderAndBothFollowerBusesAcceptOutsideInitialObservations)
@@ -654,10 +712,10 @@ TEST(BusStartupTest, PassiveLeaderAcceptsOutsideObservationButRejectsTorqueEnabl
     hardware_interface::CallbackReturn::SUCCESS);
   auto states = leader.export_state_interfaces();
   auto commands = leader.export_command_interfaces();
-  ASSERT_TRUE(states[4].set_value(1.8));
+  ASSERT_TRUE(set_interface(states[4], 1.8));
   EXPECT_EQ(leader.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
     hardware_interface::return_type::OK);
-  ASSERT_TRUE(commands.back().set_value(1.0));
+  ASSERT_TRUE(set_interface(commands.back(), 1.0));
   EXPECT_EQ(leader.write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.1)),
     hardware_interface::return_type::ERROR);
 }

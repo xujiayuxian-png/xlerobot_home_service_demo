@@ -11,6 +11,7 @@ Usage:
   tools/run mapping --hardware [--phase build|validate] [--config PATH]
   tools/run grasp act|centroid|gpd --hardware [--config PATH]
   tools/run demo --hardware [--config PATH]
+  tools/run demo --stop|--status
 
 `gpu` checks LM Studio and starts proposal services on 8765 and 8766.
 `mapping` starts the site mapping/validation workspace. `grasp` submits the
@@ -26,12 +27,16 @@ if (($#)) && [[ $1 != -* ]]; then
   shift
 fi
 hardware=false
+service_action=''
 phase=build
 phase_set=false
 positionals=()
 while (($#)); do
   case $1 in
     --hardware) hardware=true; shift ;;
+    --stop|--status)
+      [[ -z $service_action ]] || die 'choose only one service operation'
+      service_action=${1#--}; shift ;;
     --phase)
       (($# >= 2)) || die '--phase requires build or validate'
       phase=$2
@@ -56,6 +61,14 @@ case $mode in
 esac
 
 load_local_env
+if [[ -n $service_action ]]; then
+  [[ $mode == demo && ${#positionals[@]} == 0 ]] && ! $phase_set && ! $hardware \
+    || die '--stop/--status are standalone demo service operations'
+  if [[ $service_action == stop ]]; then
+    exec sudo systemctl stop xlerobot-demo.service
+  fi
+  exec systemctl --no-pager status xlerobot-demo.service
+fi
 
 require_hardware() {
   $hardware || die \
@@ -190,6 +203,12 @@ run_demo() {
   require_config
   ((${#positionals[@]} == 0)) || die 'tools/run demo takes no positional arguments'
   ! $phase_set || die '--phase is only valid for tools/run mapping'
+  if [[ $(config_get demo.managed_service false) == true && ${XLEROBOT_MANAGED_DEMO:-0} != 1 ]]; then
+    [[ $(absolute_from_repo "$XLEROBOT_CONFIG") == "$repo_root/config/local.yaml" ]] \
+      || die 'managed demo uses config/local.yaml; alternate configs require unmanaged mode'
+    note 'starting the manual demo service; inspect journalctl -u xlerobot-demo -f for readiness'
+    exec sudo systemctl start xlerobot-demo.service
+  fi
   "$repo_root/tools/doctor" robot --config "$XLEROBOT_CONFIG"
   source_robot_workspace
 
@@ -206,6 +225,10 @@ run_demo() {
   exec ros2 launch xlerobot_bringup fetch_deliver_demo.launch.py \
     hardware_enabled:=true \
     map:="$(absolute_from_repo "$(config_get site.map '')")" \
+    x1_low_load:="$(config_get demo.low_load false)" \
+    x1_act_wrist_only:="$(config_get demo.act_wrist_only false)" \
+    x1_asr_threads:="$(config_get demo.asr_threads 2)" \
+    wrist_camera_fps:="$(config_get demo.wrist_camera_fps 30.0)" \
     places_file:="$(absolute_from_repo "$(config_get site.places '')")" \
     act_predict_url:="$(url_join "$(config_get services.act_url '')" predict)" \
     classical_base_url:="$(config_get services.classical_url '')" \

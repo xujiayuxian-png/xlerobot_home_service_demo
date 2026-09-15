@@ -7,7 +7,7 @@ import time
 import threading
 import xml.etree.ElementTree as ET
 
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from builtin_interfaces.msg import Duration
 from control_msgs.action import FollowJointTrajectory
 from controller_manager_msgs.srv import (
@@ -56,7 +56,8 @@ def test_leader_position_ownership_is_scoped_to_preparation(tmp_path, monkeypatc
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         publisher.publish(String(data=description))
         process = subprocess.Popen([
-            '/opt/ros/jazzy/lib/controller_manager/ros2_control_node', '--ros-args',
+            str(Path(get_package_prefix('controller_manager')) /
+                'lib/controller_manager/ros2_control_node'), '--ros-args',
             '-r', '__ns:=/leader', '--params-file', str(config_path)], stdout=log, stderr=log)
 
         def spin_until(predicate, timeout=5.0):
@@ -74,7 +75,8 @@ def test_leader_position_ownership_is_scoped_to_preparation(tmp_path, monkeypatc
 
         listing = node.create_client(ListControllers, '/leader/controller_manager/list_controllers')
         assert listing.wait_for_service(timeout_sec=8), (tmp_path / 'controller.log').read_text()
-        spawner = '/opt/ros/jazzy/lib/controller_manager/spawner'
+        spawner = str(Path(get_package_prefix('controller_manager')) /
+                      'lib/controller_manager/spawner')
         for names, inactive in [(['leader_joint_state_broadcaster', 'leader_torque_controller'], False),
                                 (['leader_arm_controller'], True)]:
             subprocess.run([spawner, *names, '-c', '/leader/controller_manager',

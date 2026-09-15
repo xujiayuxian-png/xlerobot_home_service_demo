@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+# shellcheck source=tools/lib/platform.sh
+source "$repo_root/tools/lib/platform.sh"
 
 die() {
   echo "ERROR: $*" >&2
@@ -139,10 +141,11 @@ require_config() {
 }
 
 source_robot_workspace() {
-  [[ -f /opt/ros/jazzy/setup.bash ]] || die 'ROS 2 Jazzy is not installed'
+  detect_robot_platform
+  [[ -f $robot_ros_setup ]] || die "ROS 2 $robot_ros_distro is not installed"
   [[ -f $repo_root/ros2_ws/install/setup.bash ]] || die \
     'workspace is not built; run tools/setup robot'
-  source_environment /opt/ros/jazzy/setup.bash
+  source_environment "$robot_ros_setup"
   source_environment "$repo_root/ros2_ws/install/setup.bash"
   if [[ -f $repo_root/.venv/robot/bin/activate ]]; then
     source_environment "$repo_root/.venv/robot/bin/activate"

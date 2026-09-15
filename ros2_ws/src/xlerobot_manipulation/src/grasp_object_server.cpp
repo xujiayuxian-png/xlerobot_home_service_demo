@@ -183,6 +183,7 @@ public:
     gripper_lower_position_ = declare_parameter<double>("gripper_lower_position", 0.0);
     gripper_upper_position_ = declare_parameter<double>("gripper_upper_position", 1.65);
     gripper_closed_position_ = declare_parameter<double>("gripper_closed_position", 0.0);
+    held_max_position_ = declare_parameter<double>("held_max_position", 0.15);
     empty_gripper_tolerance_rad_ =
       declare_parameter<double>("empty_gripper_tolerance_rad", 0.05);
     head_lower_positions_ = declare_parameter<std::vector<double>>(
@@ -273,13 +274,15 @@ public:
       this, verification_action);
     action_server_ = rclcpp_action::create_server<GraspObject>(
       this, action_name_,
-      std::bind(&GraspObjectServer::handle_goal, this, std::placeholders::_1,
+      std::bind(
+        &GraspObjectServer::handle_goal, this, std::placeholders::_1,
         std::placeholders::_2),
       std::bind(&GraspObjectServer::handle_cancel, this, std::placeholders::_1),
       std::bind(&GraspObjectServer::handle_accepted, this, std::placeholders::_1));
     prepare_action_server_ = rclcpp_action::create_server<PrepareGrasp>(
       this, prepare_action_name_,
-      std::bind(&GraspObjectServer::handle_prepare_goal, this, std::placeholders::_1,
+      std::bind(
+        &GraspObjectServer::handle_prepare_goal, this, std::placeholders::_1,
         std::placeholders::_2),
       std::bind(&GraspObjectServer::handle_prepare_cancel, this, std::placeholders::_1),
       std::bind(&GraspObjectServer::handle_prepare_accepted, this, std::placeholders::_1));
@@ -366,8 +369,9 @@ private:
         throw std::invalid_argument("grasp alignment metrics are incomplete");
       }
       if (existing_runtime) {
-        RCLCPP_WARN(get_logger(),
-            "using this unit's imported grasp alignment; no new calibration quality claim");
+        RCLCPP_WARN(
+          get_logger(),
+          "using this unit's imported grasp alignment; no new calibration quality claim");
       }
       grasp_alignment_ready_ = true;
     } catch (const YAML::Exception & error) {
@@ -410,6 +414,9 @@ private:
       gripper_closed_position_<gripper_lower_position_ ||
       gripper_closed_position_> gripper_upper_position_ ||
       !positive(empty_gripper_tolerance_rad_) ||
+      !std::isfinite(held_max_position_) ||
+      held_max_position_ <= gripper_closed_position_ + empty_gripper_tolerance_rad_ ||
+      held_max_position_ >= gripper_upper_position_ ||
       gripper_closed_position_ + empty_gripper_tolerance_rad_ >= gripper_upper_position_ ||
       !std::isfinite(pregrasp_gripper_position_) ||
       pregrasp_gripper_position_<gripper_lower_position_ ||
@@ -614,6 +621,32 @@ private:
           run_policy(goal_handle, goal.object_id, goal.dry_run, policy_start_context);
 
           if (!goal.dry_run) {
+            // Policy completion acknowledges streaming, not physical closure.
+            // Normal controllers have been restored; finish closure before lifting.
+            if (wait_for_gripper_position(goal_handle, std::chrono::steady_clock::now()) >
+              held_max_position_)
+            {
+              publish_feedback(
+                goal_handle, "close_gripper", 0.86F,
+                "policy ended with an open gripper; closing before lifting");
+              send_named_trajectory(
+                goal_handle, gripper_client_, {gripper_joint_}, {gripper_closed_position_},
+                grasp_gripper_duration_s_, controller_timeout_s_, "finish policy gripper closure");
+              const auto deadline = std::chrono::steady_clock::now() +
+                std::chrono::duration<double>(pregrasp_settle_timeout_s_);
+              double position = wait_for_gripper_position(
+                goal_handle, std::chrono::steady_clock::now());
+              while (position > held_max_position_ && std::chrono::steady_clock::now() < deadline) {
+                std::this_thread::sleep_for(20ms);
+                position = wait_for_gripper_position(goal_handle);
+              }
+              if (position > held_max_position_) {
+                throw GraspFailure(
+                        CapabilityError::SAFETY_REJECTED,
+                        "gripper remained open after closure; stopping before lift: " +
+                        std::to_string(position));
+              }
+            }
             publish_feedback(
               goal_handle, "return_ready", 0.90F,
               "lifting the grasp clear of the table before wrist verification");
@@ -1043,8 +1076,8 @@ private:
         tf2::doTransform(target, transformed, transform);
       } catch (const std::exception & error) {
         throw GraspFailure(
-              CapabilityError::UNAVAILABLE,
-            "target transform failed: " + std::string(error.what()));
+                CapabilityError::UNAVAILABLE,
+                "target transform failed: " + std::string(error.what()));
       }
     }
     transformed.header.frame_id = base_frame_;
@@ -1073,8 +1106,9 @@ private:
     const double values[3] = {transformed.point.x, transformed.point.y, transformed.point.z};
     for (size_t index = 0; index < 3; ++index) {
       if (values[index] < workspace_min_[index] || values[index] > workspace_max_[index]) {
-        throw GraspFailure(CapabilityError::SAFETY_REJECTED,
-            "pregrasp target is outside workspace");
+        throw GraspFailure(
+                CapabilityError::SAFETY_REJECTED,
+                "pregrasp target is outside workspace");
       }
     }
     return transformed;
@@ -1149,12 +1183,13 @@ private:
     throw GraspFailure(CapabilityError::CANCELED, "joint-state wait interrupted", true);
   }
 
-  double measured_gripper_position() const
+  double measured_gripper_position(
+    std::chrono::steady_clock::time_point not_before = {}) const
   {
     std::lock_guard<std::mutex> lock(state_mutex_);
     const double age_s = std::chrono::duration<double>(
       std::chrono::steady_clock::now() - joint_state_received_at_).count();
-    if (age_s > joint_state_timeout_s_) {
+    if (age_s > joint_state_timeout_s_ || joint_state_received_at_ < not_before) {
       throw GraspFailure(CapabilityError::TIMEOUT, "right-gripper state is missing or stale");
     }
     const auto item = std::find(
@@ -1174,14 +1209,16 @@ private:
   }
 
   template<typename GoalHandleT>
-  double wait_for_gripper_position(const std::shared_ptr<GoalHandleT> & goal_handle)
+  double wait_for_gripper_position(
+    const std::shared_ptr<GoalHandleT> & goal_handle,
+    std::chrono::steady_clock::time_point not_before = {})
   {
     const auto deadline = std::chrono::steady_clock::now() +
       std::chrono::duration<double>(service_timeout_s_);
     while (rclcpp::ok() && !shutting_down_) {
       check_parent(goal_handle);
       try {
-        return measured_gripper_position();
+        return measured_gripper_position(not_before);
       } catch (const GraspFailure & failure) {
         if (failure.code != CapabilityError::TIMEOUT &&
           failure.code != CapabilityError::UNAVAILABLE)
@@ -1389,8 +1426,9 @@ private:
     for (const auto & name : joint_names_) {
       const auto item = target.find(name);
       if (item == target.end() || !std::isfinite(item->second)) {
-        throw GraspFailure(CapabilityError::BACKEND_FAILURE,
-            "IK solution omitted a right-arm joint");
+        throw GraspFailure(
+                CapabilityError::BACKEND_FAILURE,
+                "IK solution omitted a right-arm joint");
       }
       moveit_msgs::msg::JointConstraint constraint;
       constraint.joint_name = name;
@@ -1517,7 +1555,11 @@ private:
     set_active_child(
       [this, handle]() {verification_client_->async_cancel_goal(handle);});
     const auto capture_deadline = std::chrono::steady_clock::now() + 1s;
-    while (rclcpp::ok() && !shutting_down_ && !*image_captured) {
+    // A fast terminal result can arrive before feedback on Humble. Let the
+    // result validator handle it rather than canceling an already finished goal.
+    while (rclcpp::ok() && !shutting_down_ && !*image_captured &&
+      result.wait_for(0ms) != std::future_status::ready)
+    {
       check_parent(parent);
       if (std::chrono::steady_clock::now() >= capture_deadline) {
         cancel_active_child();
@@ -1547,6 +1589,11 @@ private:
     if (wrapped.code == rclcpp_action::ResultCode::CANCELED) {
       throw GraspFailure(
               CapabilityError::CANCELED, "grasp verification canceled", true);
+    }
+    if (!std::isfinite(gripper_position) || gripper_position > held_max_position_) {
+      throw GraspFailure(
+              CapabilityError::SAFETY_REJECTED,
+              "gripper is too open to claim a grasp: " + std::to_string(gripper_position));
     }
     if (wrapped.result && !wrapped.result->grasped &&
       wrapped.result->error.code == CapabilityError::NOT_FOUND)
@@ -1862,6 +1909,7 @@ private:
   double gripper_lower_position_{0.0};
   double gripper_upper_position_{1.65};
   double gripper_closed_position_{0.0};
+  double held_max_position_{0.15};
   double empty_gripper_tolerance_rad_{0.05};
   std::vector<double> head_ready_positions_;
   std::vector<double> head_lower_positions_;

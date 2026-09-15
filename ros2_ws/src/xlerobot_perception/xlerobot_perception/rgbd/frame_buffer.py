@@ -35,6 +35,12 @@ class RgbdFrameBuffer:
             self._latest[key] = message
             self._condition.notify_all()
 
+    def clear(self):
+        """Drop all retained frames between action generations."""
+        with self._condition:
+            self._latest = {key: None for key in self.KEYS}
+            self._condition.notify_all()
+
     def wait_snapshot(
         self,
         *,

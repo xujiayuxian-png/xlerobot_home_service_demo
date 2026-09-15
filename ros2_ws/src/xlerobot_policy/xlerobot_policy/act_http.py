@@ -43,10 +43,11 @@ class ActHttpClient:
         if len(state) != 6 or not all(np.isfinite(value) for value in state):
             raise ValueError('ACT state must contain six finite joint values')
         payload = {
-            'head_image_base64': self._jpeg(head_bgr),
             'wrist_image_base64': self._jpeg(wrist_bgr),
             'state': state,
         }
+        if head_bgr is not None:
+            payload['head_image_base64'] = self._jpeg(head_bgr)
         headers = {'Content-Type': 'application/json'}
         if self.auth_token:
             headers['Authorization'] = f'Bearer {self.auth_token}'

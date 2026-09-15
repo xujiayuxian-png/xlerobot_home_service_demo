@@ -84,7 +84,6 @@ class FakeApproachBackends(RclpyNode):
         self.events.append('path')
         self.path_goals.append(goal_handle.request.goal)
         result = ComputePathToPose.Result()
-        result.error_code = ComputePathToPose.Result.NONE
         result.path.header = goal_handle.request.goal.header
         result.path.poses = [goal_handle.request.goal]
         goal_handle.succeed()
@@ -101,11 +100,11 @@ class FakeApproachBackends(RclpyNode):
             while not goal_handle.is_cancel_requested and time.monotonic() < deadline:
                 time.sleep(0.01)
             if goal_handle.is_cancel_requested:
-                result.error_msg = 'fake navigation canceled'
+                if hasattr(result, 'error_msg'):
+                    result.error_msg = 'fake navigation canceled'
                 goal_handle.canceled()
                 self.nav_canceled.set()
                 return result
-        result.error_code = NavigateToPose.Result.NONE
         goal_handle.succeed()
         return result
 
@@ -113,7 +112,6 @@ class FakeApproachBackends(RclpyNode):
         self.events.append('backup')
         self.backup_goals.append(goal_handle.request)
         result = BackUp.Result()
-        result.error_code = BackUp.Result.NONE
         goal_handle.succeed()
         return result
 

@@ -92,9 +92,10 @@ private:
   {
     const auto valid_pair = [](const auto & names, const auto & positions) {
         return !names.empty() && names.size() == positions.size() &&
-               std::all_of(positions.begin(), positions.end(), [](double value) {
-                   return std::isfinite(value);
-               });
+               std::all_of(
+          positions.begin(), positions.end(), [](double value) {
+            return std::isfinite(value);
+          });
       };
     if (!valid_pair(arm_joints_, arm_ready_) || !valid_pair(head_joints_, head_ready_) ||
       !valid_pair(gripper_joints_, gripper_open_))

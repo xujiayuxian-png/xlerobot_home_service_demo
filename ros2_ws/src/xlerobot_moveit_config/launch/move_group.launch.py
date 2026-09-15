@@ -61,7 +61,7 @@ def launch_setup(_context):
             'name': 'planning_scene_monitor',
             'robot_description': 'robot_description',
             'joint_state_topic': '/joint_states',
-            'attached_collision_object_topic': '/planning_scene',
+            'attached_collision_object_topic': '/attached_collision_object',
             'publish_planning_scene_topic': '/planning_scene',
             'monitored_planning_scene_topic': '/monitored_planning_scene',
             'wait_for_initial_state_timeout': 0.0,
@@ -78,7 +78,8 @@ def launch_setup(_context):
         semantic,
         kinematics,
         load_yaml(config('joint_limits.yaml')),
-        load_yaml(config('ompl_planning.yaml')),
+        load_yaml(config('ompl_planning_humble.yaml' if os.environ.get('ROS_DISTRO') == 'humble'
+                         else 'ompl_planning.yaml')),
         load_yaml(config('moveit_controllers.yaml')),
     ]
     return [

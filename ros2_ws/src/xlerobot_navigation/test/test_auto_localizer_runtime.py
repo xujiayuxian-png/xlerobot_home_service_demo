@@ -127,7 +127,7 @@ class FakeLocalizationBackend(rclpy.node.Node):
                 with self._lock:
                     self.events.append('spin_canceled')
                 goal_handle.canceled()
-                return Spin.Result(error_code=Spin.Result.NONE)
+                return Spin.Result()
             rotated += 0.08
             feedback = Spin.Feedback()
             feedback.angular_distance_traveled = rotated
@@ -138,7 +138,7 @@ class FakeLocalizationBackend(rclpy.node.Node):
                 self._publish_pose(rotated, force_converged=single_good_pose)
             time.sleep(0.02)
         goal_handle.succeed()
-        return Spin.Result(error_code=Spin.Result.NONE)
+        return Spin.Result()
 
     def _publish_pose(self, rotated, force_converged=False):
         pose = PoseWithCovarianceStamped()

@@ -11,8 +11,8 @@ from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
+from xlerobot_perception.demand_images import DemandImages
 from xlerobot_interfaces.action import VerifyGrasp
 from xlerobot_interfaces.msg import CapabilityError
 from xlerobot_perception.execution_modes import validate_dry_run_mode
@@ -73,10 +73,9 @@ class VerifyGraspNode(Node):
         self._latest_image = None
         self._goal_lock = threading.Lock()
         self._goal_active = False
-        self.create_subscription(
-            Image, self.image_topic, self._on_image, qos_profile_sensor_data,
-            callback_group=self.group,
-        )
+        self.images = DemandImages(self, [(Image, self.image_topic, self._on_image)],
+                                   self._clear_image, enabled=bool(
+                                       self.declare_parameter('x1_low_load', False).value))
         self.server = ActionServer(
             self, VerifyGrasp, 'verify_grasp',
             execute_callback=self.execute,
@@ -103,6 +102,10 @@ class VerifyGraspNode(Node):
             self._latest_image = message
             self._condition.notify_all()
 
+    def _clear_image(self):
+        with self._condition:
+            self._latest_image = None
+
     def execute(self, goal_handle):
         result = VerifyGrasp.Result()
         try:
@@ -119,6 +122,7 @@ class VerifyGraspNode(Node):
                     CapabilityError.SAFETY_REJECTED,
                     'grasp verification backend is disabled',
                 )
+            self.images.start()
             image = self._fresh_image(goal_handle)
             self._feedback(goal_handle, 'verifying', 0.40, 'checking wrist image')
             try:
@@ -160,6 +164,7 @@ class VerifyGraspNode(Node):
             goal_handle.abort()
             return result
         finally:
+            self.images.stop()
             with self._goal_lock:
                 self._goal_active = False
 

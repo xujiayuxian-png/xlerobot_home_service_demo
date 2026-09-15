@@ -32,6 +32,9 @@ def generate_launch_description():
             parameters=[
                 config,
                 {
+                    'x1_low_load': ParameterValue(
+                        LaunchConfiguration('x1_low_load', default='false'), value_type=bool
+                    ),
                     'backend_enabled': ParameterValue(
                         LaunchConfiguration('backend_enabled'), value_type=bool
                     ),

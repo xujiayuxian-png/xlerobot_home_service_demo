@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from rclpy.action import CancelResponse, GoalResponse
+from builtin_interfaces.msg import Time
 
 from xlerobot_dataset_tools import record_episode_node
 from xlerobot_dataset_tools.record_episode_node import RecordEpisodeNode
@@ -259,7 +260,7 @@ def test_start_event_rechecks_inputs_and_arms_transactionally():
         publish_feedback=lambda message: feedback.append(message)
     )
     node.get_clock = lambda: SimpleNamespace(
-        now=lambda: SimpleNamespace(to_msg=lambda: object())
+        now=lambda: SimpleNamespace(to_msg=lambda: Time(sec=1))
     )
     request = MarkEpisodeEvent.Request(
         dataset_id='dataset-001',
@@ -313,7 +314,7 @@ def test_disable_event_stops_sampling_and_allows_scoped_finalize(event):
     node.writer.manifest['teleop_enabled_at'] = 'test'
     node.goal_handle = None
     node.get_clock = lambda: SimpleNamespace(
-        now=lambda: SimpleNamespace(to_msg=lambda: object())
+        now=lambda: SimpleNamespace(to_msg=lambda: Time(sec=1))
     )
 
     boundary = RecordEpisodeNode.mark_event(

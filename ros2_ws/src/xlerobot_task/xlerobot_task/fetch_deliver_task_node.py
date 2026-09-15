@@ -123,6 +123,7 @@ class FetchDeliverTaskNode(Node):
 
     def __init__(self, *, parameter_overrides=None) -> None:
         super().__init__("fetch_deliver_task", parameter_overrides=parameter_overrides)
+        self.x1_low_load = bool(self.declare_parameter('x1_low_load', False).value)
         self.group = ReentrantCallbackGroup()
         self.task_timeout_s = float(self.declare_parameter("task_timeout_s", 360.0).value)
         self.stage_timeouts = {
@@ -376,34 +377,21 @@ class FetchDeliverTaskNode(Node):
             20,
             callback_group=self.group,
         )
-        self.head_camera_subscription = self.create_subscription(
-            Image,
-            self.head_camera_topic,
-            lambda _message: self._on_camera("head_color"),
-            qos_profile_sensor_data,
-            callback_group=self.group,
-        )
-        self.head_depth_subscription = self.create_subscription(
-            Image,
-            self.head_depth_topic,
-            lambda _message: self._on_camera("head_depth"),
-            qos_profile_sensor_data,
-            callback_group=self.group,
-        )
-        self.head_camera_info_subscription = self.create_subscription(
-            CameraInfo,
-            self.head_camera_info_topic,
-            lambda _message: self._on_camera("head_camera_info"),
-            qos_profile_sensor_data,
-            callback_group=self.group,
-        )
-        self.wrist_camera_subscription = self.create_subscription(
-            Image,
-            self.wrist_camera_topic,
-            lambda _message: self._on_camera("wrist"),
-            qos_profile_sensor_data,
-            callback_group=self.group,
-        )
+        if self.x1_low_load:
+            self.camera_health_subscription = self.create_subscription(
+                DiagnosticArray, '/camera/health', self._on_camera_health, 1,
+                callback_group=self.group)
+        else:
+            for kind, topic, camera in (
+                (Image, self.head_camera_topic, 'head_color'),
+                (Image, self.head_depth_topic, 'head_depth'),
+                (CameraInfo, self.head_camera_info_topic, 'head_camera_info'),
+                (Image, self.wrist_camera_topic, 'wrist'),
+            ):
+                self.create_subscription(
+                    kind, topic, lambda message, camera=camera: self._on_camera(camera),
+                    qos_profile_sensor_data, callback_group=self.group,
+                    raw=kind is Image)
         self.stop_state_subscription = self.create_subscription(
             Bool,
             "/drive_safety/stop_latched",
@@ -666,7 +654,8 @@ class FetchDeliverTaskNode(Node):
             )
 
             self._clear_task_observation()
-            self._run_speech_stage(goal_handle, request, deadline)
+            if not self.x1_low_load:
+                self._run_speech_stage(goal_handle, request, deadline)
 
             handover_goal = HandoverObject.Goal()
             handover_goal.object_id = request.object_id
@@ -735,9 +724,54 @@ class FetchDeliverTaskNode(Node):
             goal_handle.abort()
             return result
         finally:
+            if self.x1_low_load and self.speech_enabled:
+                # All child motion has reached a terminal state before execute
+                # reaches this point. Keep ownership until playback finishes,
+                # so the voice loop cannot listen to its own terminal prompt.
+                text = (
+                    '任务完成。' if result.error.code == CapabilityError.NONE
+                    else '任务已取消。' if result.error.code == CapabilityError.CANCELED
+                    else '任务失败，请查看页面。'
+                )
+                self._speak_terminal(text, request.dry_run)
             with self._lock:
                 if not self._blocked_reason:
                     self._goal_active = False
+
+    def _speak_terminal(self, text, dry_run):
+        """Bounded notification; audio failure never replaces the motion result."""
+        deadline = time.monotonic() + self.stage_timeouts['speak_text']
+        try:
+            while rclpy.ok() and time.monotonic() < deadline:
+                if not self.speak_client.server_is_ready():
+                    time.sleep(0.1)
+                    continue
+                request = SpeakText.Goal()
+                request.text = text
+                request.dry_run = dry_run
+                future = self.speak_client.send_goal_async(request)
+                if not self._wait_done(future, deadline):
+                    # Do not leave a late acceptance playing into a new command.
+                    future.add_done_callback(
+                        lambda done: done.result().cancel_goal_async()
+                        if done.result() and done.result().accepted else None)
+                    raise TimeoutError('terminal speech acceptance timed out')
+                handle = future.result()
+                if handle is None or not handle.accepted:
+                    time.sleep(0.1)  # The acceptance prompt may still be playing.
+                    continue
+                result_future = handle.get_result_async()
+                if not self._wait_done(result_future, deadline):
+                    handle.cancel_goal_async()
+                    self._wait_done(result_future, time.monotonic() + 1.0)
+                    raise TimeoutError('terminal speech playback timed out')
+                error = result_future.result().result.error
+                if error.code != CapabilityError.NONE:
+                    raise RuntimeError(error.message)
+                return
+            raise TimeoutError('terminal speech unavailable or busy')
+        except Exception as exc:
+            self.get_logger().warning(f'Terminal notification failed: {exc}')
 
     def _run_speech_stage(self, goal_handle, request, deadline) -> None:
         """Run stage seven, or publish an explicit skip when speech is disabled."""
@@ -1322,6 +1356,22 @@ class FetchDeliverTaskNode(Node):
 
     def _on_camera(self, camera: str) -> None:
         self._camera_received_monotonic[camera] = time.monotonic()
+
+    def _on_camera_health(self, message):
+        now = time.monotonic()
+        stamp = message.header.stamp
+        transit = (self.get_clock().now().nanoseconds -
+                   (int(stamp.sec) * 1_000_000_000 + int(stamp.nanosec))) * 1e-9
+        for status in message.status:
+            camera = status.name.removeprefix('xlerobot/camera/')
+            if camera not in self._camera_received_monotonic:
+                continue
+            try:
+                age = float(next(item.value for item in status.values if item.key == 'age_s'))
+                valid = math.isfinite(age) and age >= 0 and 0 <= transit <= 1.0
+            except (ValueError, StopIteration):
+                valid = False
+            self._camera_received_monotonic[camera] = now - age - transit if valid else 0.0
 
     def _on_stop_state(self, message) -> None:
         with self._lock:

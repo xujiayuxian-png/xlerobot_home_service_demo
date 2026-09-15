@@ -13,6 +13,7 @@ from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from std_msgs.msg import String
 from xlerobot_interfaces.action import ExecuteTask, SpeakText
 from xlerobot_interfaces.msg import CapabilityError
@@ -104,6 +105,7 @@ class VoiceAssistantNode(Node):
         self._active_goals = []
         self._task_feedback_lock = threading.Lock()
         self._last_task_capability = ''
+        self._task_not_started = False
         self.worker = None
 
         self.audio_enabled = bool(self.declare_parameter('audio_enabled', False).value)
@@ -149,7 +151,26 @@ class VoiceAssistantNode(Node):
         self.post_ack_delay_s = float(self.declare_parameter(
             'post_wake_ack_listen_delay_s', 0.0
         ).value)
+        self.x1_low_load = bool(self.declare_parameter('x1_low_load', False).value)
+        if self.x1_low_load:
+            self.wake_ack_text = '我在，请说。'
+            self.listening_cue_text = ''
+            self.accepted_text = '好的，我去拿。'
+            self.parse_failed_text = '没听清，请再说一次。'
         self._declare_audio_parameters()
+        if self.x1_low_load:
+            self.whisper_threads = int(self.declare_parameter('x1_asr_threads', 2).value)
+            if self.whisper_threads < 1:
+                raise ValueError('x1_asr_threads must be positive')
+            self.audio_debug_enabled = False
+            self.set_parameters([
+                Parameter('whisper_cpu_threads', value=self.whisper_threads),
+                Parameter('command_audio_debug_enabled', value=False),
+                Parameter('wake_ack_text', value=self.wake_ack_text),
+                Parameter('listening_cue_text', value=self.listening_cue_text),
+                Parameter('accepted_text_template', value=self.accepted_text),
+                Parameter('parse_failed_text', value=self.parse_failed_text),
+            ])
         self._validate_parameters()
 
         self.state_publisher = self.create_publisher(String, '/voice/state', 10)
@@ -287,8 +308,8 @@ class VoiceAssistantNode(Node):
             raise ValueError(
                 'accepted_text_template must be a valid template using {object_id}'
             ) from exc
-        if '{object_id}' not in self.accepted_text:
-            raise ValueError('accepted_text_template must contain {object_id}')
+        if not self.accepted_text.strip():
+            raise ValueError('accepted_text_template must not be empty')
 
     def destroy_node(self):
         self.stop_event.set()
@@ -499,7 +520,10 @@ class VoiceAssistantNode(Node):
                 )
                 with self._task_feedback_lock:
                     capability = self._last_task_capability
-                for prompt in task_failure_prompts(capability, error_code):
+                if self.x1_low_load and self._task_not_started:
+                    # Rejected goals never enter the task node's terminal handler.
+                    self._speak('任务失败，请查看页面。')
+                for prompt in ([] if self.x1_low_load else task_failure_prompts(capability, error_code)):
                     self._speak(prompt)
 
     def _execute_task_with_parallel_ack(self, intent):
@@ -523,7 +547,8 @@ class VoiceAssistantNode(Node):
         self.get_logger().info(
             'ExecuteTask dispatch started in parallel with acceptance prompt'
         )
-        self._speak(self.accepted_text.format(object_id=intent.object_id))
+        self._speak(self.accepted_text if getattr(self, 'x1_low_load', False)
+                    else self.accepted_text.format(object_id=intent.object_id))
         while worker.is_alive():
             worker.join(timeout=0.05)
         self.get_logger().info(
@@ -534,6 +559,7 @@ class VoiceAssistantNode(Node):
         return result[0] if result else None
 
     def _execute_task(self, intent):
+        self._task_not_started = False
         with self._task_feedback_lock:
             self._last_task_capability = ''
         goal = execute_task_goal(
@@ -578,27 +604,39 @@ class VoiceAssistantNode(Node):
         result_timeout_s,
         feedback_callback=None,
     ):
+        task_call = self.x1_low_load and client is self.execute_client
         if not client.wait_for_server(timeout_sec=server_timeout_s):
+            if task_call:
+                self._task_not_started = True
             self.get_logger().warning('Action server is unavailable')
             return None
         send_future = client.send_goal_async(
             goal, feedback_callback=feedback_callback
         )
-        if not self._wait_future(send_future, server_timeout_s):
+        response_late = not self._wait_future(send_future, server_timeout_s)
+        if response_late:
             self.get_logger().warning('Action goal response timed out')
-            return None
+            if not task_call or not self._wait_task_stopped(send_future):
+                return None
         goal_handle = send_future.result()
         if not goal_handle.accepted:
+            if task_call:
+                self._task_not_started = True
             self.get_logger().warning('Action goal was rejected')
             return None
         with self._active_goal_lock:
             self._active_goals.append(goal_handle)
         result_future = goal_handle.get_result_async()
         try:
+            if response_late:
+                goal_handle.cancel_goal_async()
+                if not self._wait_task_stopped(result_future):
+                    return None
             if not self._wait_future(result_future, result_timeout_s):
                 goal_handle.cancel_goal_async()
                 self.get_logger().warning('Action result timed out and cancellation was requested')
-                return None
+                if not task_call or not self._wait_task_stopped(result_future):
+                    return None
             return result_future.result().result
         finally:
             with self._active_goal_lock:
@@ -606,6 +644,14 @@ class VoiceAssistantNode(Node):
                     active for active in self._active_goals
                     if active is not goal_handle
                 ]
+
+    def _wait_task_stopped(self, future):
+        """Keep listening paused while task acceptance or cancellation is unresolved."""
+        while rclpy.ok() and not self.stop_event.is_set():
+            if future.done():
+                return True
+            self.stop_event.wait(0.1)
+        return future.done()
 
     def _wait_future(self, future, timeout_s):
         event = threading.Event()

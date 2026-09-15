@@ -79,7 +79,7 @@ bool ControllerModeManager::switch_mode(bool policy_mode, std::string & error)
   }
   const auto response = future.get();
   if (!response->ok) {
-    error = "strict controller switch failed: " + response->message;
+    error = "strict controller switch failed";
     return false;
   }
   const auto verified = controller_states(error);

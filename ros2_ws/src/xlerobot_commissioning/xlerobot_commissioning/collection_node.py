@@ -692,7 +692,9 @@ class CollectionNode(Node):
             timeout=Duration(sec=2))
         response = self._service(self.leader_switch, request)
         if not response.ok:
-            raise RuntimeError(f'Leader position controller switch failed: {response.message}')
+            raise RuntimeError(
+                'Leader position controller switch failed: '
+                + getattr(response, 'message', 'controller manager rejected the switch'))
         state = self._controller_states(self.leader_controllers).get('leader_arm_controller')
         if state != ('active' if active else 'inactive'):
             raise RuntimeError(f'Leader position controller switch unconfirmed: {state}')

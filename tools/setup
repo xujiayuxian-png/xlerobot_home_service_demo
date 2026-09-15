@@ -3,18 +3,23 @@ set -Eeuo pipefail
 
 # shellcheck source=tools/lib/common.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+# shellcheck source=tools/lib/robot_system.sh
+source "$repo_root/tools/lib/robot_system.sh"
 
 usage() {
   cat <<'EOF'
-Usage: tools/setup robot|gpu [--with-person-detector] [--with-kws-model] [--generate-voice-prompts] [--with-gpd]
+Usage: tools/setup robot|gpu [--system-only] [--with-person-detector] [--with-kws-model] [--generate-voice-prompts] [--with-gpd] [--install-demo-service]
 
 Source installation for the two supported computers. It does not start a ROS
 launch file, inference service, camera, serial device, or motor controller.
 
 The person detector is an AGPL-3.0 optional extra. The upstream KWS model terms
 are unresolved, so its direct-provider download requires --with-kws-model.
-Voice prompt generation uses Edge TTS and writes ignored MP3 files locally.
+Voice prompt generation uses Edge TTS and writes ignored audio files locally.
+--install-demo-service only installs the manual service; it never starts/enables it.
 GPD is an optional native build for the classical grasp route.
+Robot supports the Jazzy reference and native X1 Jammy/Humble migration.
+--system-only installs Robot apt/ROS dependencies without downloading models or building.
 EOF
 }
 
@@ -27,8 +32,12 @@ with_person_detector=false
 with_kws_model=false
 generate_voice_prompts=false
 with_gpd=false
+system_only=false
+install_demo_service=false
 while (($#)); do
   case $1 in
+    --system-only) system_only=true; shift ;;
+    --install-demo-service) install_demo_service=true; shift ;;
     --with-person-detector) with_person_detector=true; shift ;;
     --with-kws-model) with_kws_model=true; shift ;;
     --generate-voice-prompts) generate_voice_prompts=true; shift ;;
@@ -71,28 +80,36 @@ ensure_conda_env() {
 }
 
 setup_robot() {
-  check_ubuntu
+  detect_robot_platform
   load_local_env
-  [[ -f /opt/ros/jazzy/setup.bash ]] || die \
-    'ROS 2 Jazzy is required at /opt/ros/jazzy; install it from docs/en/install.md'
-  install_base_tools
+  if $install_demo_service; then
+    require_config
+    mkdir -p "$repo_root/.xlerobot/environment"
+    local service_file="$repo_root/.xlerobot/environment/xlerobot-demo.service"
+    python3 "$repo_root/tools/lib/demo_service.py" --repo "$repo_root" --user "$(id -un)" > "$service_file"
+    systemd-analyze verify "$service_file"
+    sudo install -m 0644 "$service_file" /etc/systemd/system/xlerobot-demo.service
+    sudo systemctl daemon-reload
+    note 'manual demo service installed; no start, boot enable, or automatic restart requested'
+    return
+  fi
   if [[ -f $XLEROBOT_CONFIG ]]; then
     require_config
     voice_model_config_is_pinned || die \
       'voice model IDs/revision must match assets/models/voice-runtime.manifest.json'
   fi
-  sudo apt-get install -y npm python3-rosdep
-  if [[ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]]; then
-    sudo rosdep init
+  install_robot_system
+  if $system_only; then
+    note 'Robot system dependencies installed; rerun tools/setup robot to build'
+    return
   fi
-  rosdep update
-  source_environment /opt/ros/jazzy/setup.bash
-  rosdep install --from-paths "$repo_root/ros2_ws/src" --ignore-src -r -y
+  ensure_robot_node
+  git -C "$repo_root" submodule update --init --recursive
 
-  python3 -m venv --system-site-packages "$repo_root/.venv/robot"
+  /usr/bin/python3 -m venv --system-site-packages "$repo_root/.venv/robot"
   "$repo_root/.venv/robot/bin/python" -m pip install --upgrade pip
   "$repo_root/.venv/robot/bin/python" -m pip install \
-    -r "$repo_root/requirements/robot.txt"
+    -r "$repo_root/requirements/$robot_requirements"
   voice_models_command "$repo_root/.venv/robot/bin/python" --component whisper
   if $with_kws_model; then
     note 'KWS model terms are not stated upstream; downloading from the provider only because --with-kws-model was explicit'
@@ -100,13 +117,15 @@ setup_robot() {
   fi
   if $with_person_detector; then
     "$repo_root/.venv/robot/bin/python" -m pip install \
-      -r "$repo_root/requirements/robot-person-agpl.txt"
+      -r "$repo_root/requirements/$robot_person_requirements"
     person_model_command "$repo_root/.venv/robot/bin/python"
   fi
   if $generate_voice_prompts; then
+    local speech_config=speak_text.yaml
+    [[ $(config_get demo.low_load false) != true ]] || speech_config=speak_fixed.yaml
     "$repo_root/.venv/robot/bin/python" \
       "$repo_root/tools/lib/generate_voice_prompts.py" \
-      --config "$repo_root/ros2_ws/src/xlerobot_voice/config/speak_text.yaml" \
+      --config "$repo_root/ros2_ws/src/xlerobot_voice/config/$speech_config" \
       --output "$repo_root/ros2_ws/src/xlerobot_voice/audio"
   fi
 
@@ -117,7 +136,11 @@ setup_robot() {
   fi
 
   source_environment "$repo_root/.venv/robot/bin/activate"
-  (cd "$repo_root/ros2_ws" && colcon build --symlink-install)
+  local workers=${XLEROBOT_BUILD_WORKERS:-2}
+  [[ $workers =~ ^[1-9][0-9]*$ ]] || die 'XLEROBOT_BUILD_WORKERS must be positive'
+  (cd "$repo_root/ros2_ws" && CMAKE_BUILD_PARALLEL_LEVEL="$workers" \
+    MAKEFLAGS="-j$workers" "$repo_root/.venv/robot/bin/python" "$(command -v colcon)" \
+    build --symlink-install --executor sequential)
   mkdir -p "$repo_root/.xlerobot/environment"
   "$repo_root/.venv/robot/bin/python" -m pip freeze \
     > "$repo_root/.xlerobot/environment/robot.freeze.txt"
@@ -220,7 +243,7 @@ if [[ $role == robot ]] && $with_gpd; then
   die '--with-gpd is only valid with tools/setup gpu'
 fi
 if [[ $role == gpu ]] && { \
-    $with_person_detector || $with_kws_model || $generate_voice_prompts; \
+    $with_person_detector || $with_kws_model || $generate_voice_prompts || $system_only || $install_demo_service; \
 }; then
   die 'robot-only setup flags require tools/setup robot'
 fi

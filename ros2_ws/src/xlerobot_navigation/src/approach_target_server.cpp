@@ -29,6 +29,7 @@
 #include <xlerobot_interfaces/action/approach_target.hpp>
 #include <xlerobot_interfaces/msg/capability_error.hpp>
 
+#include "xlerobot_navigation/nav2_result.hpp"
 #include "xlerobot_navigation/navigation_core.hpp"
 
 namespace xlerobot_navigation
@@ -41,6 +42,7 @@ using namespace std::chrono_literals;
 using CapabilityError = xlerobot_interfaces::msg::CapabilityError;
 using ApproachTarget = xlerobot_interfaces::action::ApproachTarget;
 using BackUp = nav2_msgs::action::BackUp;
+using BackUpResult = Nav2Result<BackUp::Result>;
 using ComputePath = nav2_msgs::action::ComputePathToPose;
 using NavigatePose = nav2_msgs::action::NavigateToPose;
 
@@ -107,7 +109,8 @@ public:
     backup_client_ = rclcpp_action::create_client<BackUp>(this, backup_action);
     action_server_ = rclcpp_action::create_server<ApproachTarget>(
       this, "approach_target",
-      std::bind(&ApproachTargetServer::handle_goal, this, std::placeholders::_1,
+      std::bind(
+        &ApproachTargetServer::handle_goal, this, std::placeholders::_1,
         std::placeholders::_2),
       std::bind(&ApproachTargetServer::handle_cancel, this, std::placeholders::_1),
       std::bind(&ApproachTargetServer::handle_accepted, this, std::placeholders::_1));
@@ -403,7 +406,7 @@ private:
     clear_active_child();
     const auto wrapped = result_future.get();
     if (wrapped.code != rclcpp_action::ResultCode::SUCCEEDED || !wrapped.result ||
-      wrapped.result->error_code != ComputePath::Result::NONE ||
+      Nav2Result<ComputePath::Result>::error_code(*wrapped.result) != 0 ||
       wrapped.result->path.poses.empty())
     {
       return "planner found no valid path";
@@ -474,7 +477,7 @@ private:
       throw ApproachFailure(CapabilityError::CANCELED, "Nav2 approach canceled", true);
     }
     if (wrapped.code != rclcpp_action::ResultCode::SUCCEEDED || !wrapped.result ||
-      wrapped.result->error_code != NavigatePose::Result::NONE)
+      Nav2Result<NavigatePose::Result>::error_code(*wrapped.result) != 0)
     {
       throw ApproachFailure(CapabilityError::BACKEND_FAILURE, "Nav2 approach failed");
     }
@@ -511,7 +514,7 @@ private:
       throw ApproachFailure(CapabilityError::CANCELED, "approach canceled", true);
     }
     return wrapped.code == rclcpp_action::ResultCode::SUCCEEDED && wrapped.result &&
-           wrapped.result->error_code == BackUp::Result::NONE;
+           BackUpResult::error_code(*wrapped.result) == 0;
   }
 
   geometry_msgs::msg::PoseStamped make_pose(const Pose2D & pose)

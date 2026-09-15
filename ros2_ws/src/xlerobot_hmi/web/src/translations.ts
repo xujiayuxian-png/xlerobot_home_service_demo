@@ -1,6 +1,8 @@
 // Exact UI source messages only. Never search or replace inside user data.
 // Numbered placeholders receive verbatim data unless explicitly wrapped in msg().
 export const english: Record<string, string> = {
+"关闭视频": "Close video",
+"打开视频": "Open video",
 "语音提示": "Voice feedback",
 "激光-地图一致性": "Scan–map consistency",
 "运动控制器": "Motion controllers",

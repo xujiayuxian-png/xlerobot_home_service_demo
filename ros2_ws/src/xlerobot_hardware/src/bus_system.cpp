@@ -92,10 +92,14 @@ double initial_position(const hardware_interface::ComponentInfo & joint)
     if (state.name != hardware_interface::HW_IF_POSITION) {
       continue;
     }
+#ifdef XLEROBOT_MODERN_HARDWARE
     const auto it = state.parameters.find("initial_value");
     if (it != state.parameters.end()) {
       return parse_double(it->second, 0.0);
     }
+#else
+    return parse_double(state.initial_value, 0.0);
+#endif
   }
   return 0.0;
 }
@@ -128,14 +132,14 @@ BusSystemBase::~BusSystemBase()
 }
 
 hardware_interface::CallbackReturn BusSystemBase::on_init(
-  const hardware_interface::HardwareComponentInterfaceParams & params)
+  const BusInitParams & params)
 {
   if (hardware_interface::SystemInterface::on_init(params) !=
     hardware_interface::CallbackReturn::SUCCESS)
   {
     return hardware_interface::CallbackReturn::ERROR;
   }
-  const auto & info = params.hardware_info;
+  const auto & info = info_;
   bool parameters_valid = true;
   mock_hardware_ = parse_bool(info, "mock_hardware", true, parameters_valid);
   hardware_enabled_ = parse_bool(info, "hardware_enabled", false, parameters_valid);

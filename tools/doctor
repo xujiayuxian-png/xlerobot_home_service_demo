@@ -6,19 +6,27 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 
 usage() {
   cat <<'EOF'
-Usage: tools/doctor robot|gpu [--config PATH]
+Usage: tools/doctor robot|gpu [--config PATH] [--profile --duration SECONDS --label NAME]
 
 Read-only checks only: this command never opens a camera or motor device.
 EOF
 }
 
 role=''
+profile=false
+duration=60
+profile_label=idle
 if (($#)) && [[ $1 != -* ]]; then
   role=$1
   shift
 fi
 while (($#)); do
   case $1 in
+    --profile) profile=true; shift ;;
+    --duration|--label)
+      (($# >= 2)) || die "$1 requires a value"
+      if [[ $1 == --duration ]]; then duration=$2; else profile_label=$2; fi
+      shift 2 ;;
     --config)
       (($# >= 2)) || die '--config requires a path'
       XLEROBOT_CONFIG=$2
@@ -37,6 +45,13 @@ esac
 
 load_local_env
 require_config
+if $profile; then
+  [[ $role == robot ]] || die '--profile is only available for robot'
+  exec python3 "$repo_root/tools/lib/profile_robot.py" \
+    --duration "$duration" --label "$profile_label" \
+    --health-url "http://127.0.0.1:$(config_get demo.web_port 8080)/api/v1/health" \
+    --output "$repo_root/.xlerobot/environment/profile-$(date +%Y%m%d-%H%M%S).json"
+fi
 errors=0
 warnings=0
 
@@ -127,10 +142,11 @@ http_check() {
 }
 
 doctor_robot() {
-  if [[ -f /opt/ros/jazzy/setup.bash ]]; then
-    ok 'ROS 2 Jazzy installed'
+  detect_robot_platform
+  if [[ -f $robot_ros_setup ]]; then
+    ok "ROS 2 $robot_ros_distro installed"
   else
-    fail 'ROS 2 Jazzy missing at /opt/ros/jazzy'
+    fail "ROS 2 $robot_ros_distro missing at $robot_ros_setup"
   fi
   check_file 'workspace build' "$repo_root/ros2_ws/install/setup.bash"
   if vlm_config_is_pinned; then
@@ -140,9 +156,15 @@ doctor_robot() {
   fi
   local robot_python="$repo_root/.venv/robot/bin/python" voice_enabled
   voice_enabled=$(config_get demo.voice true)
+  local onnx_version=1.27.0 torch_version=2.12.0+cpu
+  if [[ $robot_ros_distro == humble ]]; then
+    onnx_version=1.23.2
+    check_python_versions 'X1 NumPy/OpenCV ABI' "$robot_python" '' \
+      numpy 1.26.4 opencv-python 4.11.0.86
+  fi
   check_python_versions 'robot voice' "$robot_python" '' \
     aiohttp 3.14.1 ctranslate2 4.8.1 edge-tts 7.2.8 \
-    faster-whisper 1.2.1 huggingface-hub 1.20.1 onnxruntime 1.27.0 \
+    faster-whisper 1.2.1 huggingface-hub 1.20.1 onnxruntime "$onnx_version" \
     scipy 1.11.4 sherpa-onnx 1.13.4 sounddevice 0.5.5
   if [[ $voice_enabled == true ]]; then
     if voice_model_config_is_pinned; then
@@ -191,7 +213,7 @@ doctor_robot() {
     fail 'person detector missing or invalid; rerun tools/setup robot --with-person-detector'
   fi
   check_python_versions 'optional AGPL person detector' "$robot_python" '' \
-    torch 2.12.0+cpu ultralytics 8.4.58
+    torch "$torch_version" ultralytics 8.4.58
   require_device_name 'lidar alias' "$(config_get robot.devices.lidar /dev/lidar)"
   require_device_name 'right arm alias' "$(config_get robot.devices.right_arm /dev/right_arm)"
   require_device_name 'left arm alias' "$(config_get robot.devices.left_arm /dev/left_arm)"
@@ -199,6 +221,15 @@ doctor_robot() {
   require_device_name 'wrist camera alias' "$(config_get robot.devices.wrist_camera '')"
   check_d455_inventory "$(config_get robot.devices.head_camera_serial '')"
   [[ $voice_enabled != true ]] || check_audio_inventory
+  if [[ $voice_enabled == true && $(config_get demo.low_load false) == true ]]; then
+    if "$robot_python" "$repo_root/tools/lib/generate_voice_prompts.py" \
+        --config "$repo_root/ros2_ws/src/xlerobot_voice/config/speak_fixed.yaml" \
+        --output "$repo_root/ros2_ws/src/xlerobot_voice/audio" --check; then
+      ok 'six fixed PCM prompts ready; runtime TTS disabled'
+    else
+      fail 'fixed prompts missing or invalid; run tools/setup robot --generate-voice-prompts'
+    fi
+  fi
 
   local lm lm_model classical act
   lm=$(config_get services.lm_studio_url '')
@@ -212,6 +243,24 @@ doctor_robot() {
   fi
   http_check 'classical grasp service' "$(url_join "$classical" health)"
   http_check 'ACT service' "$(url_join "$act" healthz)"
+  if [[ $(config_get demo.act_wrist_only false) == true ]]; then
+    if python3 - "$(url_join "$act" healthz)" <<'PY'
+import json
+import sys
+import urllib.request
+try:
+    with urllib.request.urlopen(sys.argv[1], timeout=5) as response:
+        features = json.load(response).get('image_features')
+    raise SystemExit(0 if features == ['observation.images.wrist'] else 1)
+except (OSError, ValueError):
+    raise SystemExit(1)
+PY
+    then
+      ok 'ACT server confirms the wrist-only image contract'
+    else
+      fail 'ACT wrist-only profile does not match the deployed checkpoint'
+    fi
+  fi
   if [[ -n ${XLEROBOT_ACT_TOKEN:-} && ${XLEROBOT_ACT_TOKEN} != replace-* ]]; then
     ok 'ACT token is configured'
   else

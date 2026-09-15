@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -12,6 +13,11 @@ def generate_launch_description():
     params_file = LaunchConfiguration('params_file')
     use_sim_time = LaunchConfiguration('use_sim_time')
     common_parameters = [params_file, {'use_sim_time': use_sim_time}]
+    humble = os.environ.get('ROS_DISTRO') == 'humble'
+    if humble:
+        common_parameters.append(str(share / 'config' / 'nav2_humble_overrides.yaml'))
+    behavior_tree = ('navigate_to_pose_position_only_humble.xml' if humble
+                     else 'navigate_to_pose_position_only.xml')
     localization_motion_nodes = [
         'controller_server',
         'smoother_server',
@@ -72,7 +78,7 @@ def generate_launch_description():
                         'default_nav_to_pose_bt_xml': str(
                             share
                             / 'behavior_trees'
-                            / 'navigate_to_pose_position_only.xml'
+                            / behavior_tree
                         )
                     },
                 ],

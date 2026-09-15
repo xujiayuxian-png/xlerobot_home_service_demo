@@ -172,8 +172,9 @@ private:
     get_parameter("mask.auto_body_posts.padding_deg", auto_body_posts_config_.padding_deg);
     get_parameter("mask.auto_body_posts.cluster_gap_deg", auto_body_posts_config_.cluster_gap_deg);
     get_parameter("mask.auto_body_posts.max_clusters", auto_body_posts_config_.max_clusters);
-    get_parameter("mask.auto_body_posts.min_cluster_points",
-        auto_body_posts_config_.min_cluster_points);
+    get_parameter(
+      "mask.auto_body_posts.min_cluster_points",
+      auto_body_posts_config_.min_cluster_points);
     get_parameter("checksum.enabled", checksum_enabled_);
     get_parameter("serial.max_bytes_per_poll", max_bytes_per_poll_);
     max_bytes_per_poll_ = std::max(256, max_bytes_per_poll_);

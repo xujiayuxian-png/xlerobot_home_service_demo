@@ -39,6 +39,7 @@
 
 # The imported voice clips have no auditable redistribution record yet.
 *.mp3
+/ros2_ws/src/xlerobot_voice/audio/*.wav
 
 # Editor and operating-system state
 /.vscode/

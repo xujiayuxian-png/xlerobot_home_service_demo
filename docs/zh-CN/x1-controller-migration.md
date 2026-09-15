@@ -1,145 +1,154 @@
-# 犀牛派 X1 主控适配计划
+# 犀牛派 X1 原生 Ubuntu 22.04 适配
 
 [English](../en/x1-controller-migration.md) · [文档目录](README.md)
 
-状态：**规划 / 已完成 SSH 接入与只读环境检查，尚未完成适配**。
-检查日期：2026-09-12；代码基线：`c3f85aa`。
-这不是已验证的 X1 安装教程，不改变当前 Ubuntu 24.04 x86_64 参考环境的支持声明。
+状态：**P1 原生安装、编译与软件验收通过；尚未通过实机运动验收**。
+更新日期：2026-09-12。此前的容器/Jazzy建议已被本次用户指定的原生方案替代。
 
-## 1. 目标与开发方式
+本机实测结果：
 
-第一阶段只换主控：**X1 完整接替笔记本的 Robot 职责，GPU 主机保持不变**。
-ACT 仍为主 Demo 后端，centroid / GPD 继续共用同一套任务与执行基础。
-不同时换本体、不重新训练 ACT、不迁移到 Humble、不另写一套硬件运行栈。
-AlohaMini 改造和 X1 NPU 推理是后续独立任务，避免同时改变机械、系统和算法。
-
-推荐 **笔记本编辑器 + Remote SSH 到 X1，源码、ARM64 编译和测试在 X1 上**：
-
-| 位置 | 第一阶段职责 |
+| 检查 | 结果 |
 | --- | --- |
-| 笔记本 | 编辑器、浏览器、日志查看；保留原有可用环境作为对照与回退，不参与上线后的控制 |
-| X1 | 设备驱动、ros2_control、50 Hz 控制循环、本地 ACT streaming executor、MoveIt、导航、任务编排、网页、标定和数采 |
-| GPU 主机 | LM Studio + Qwen、SAM 2 / GPD、ACT 推理与训练，接口及模型先保持不变 |
+| 正式 setup 入口 | 原生安装完成，20 个 ROS 包全部构建成功 |
+| ROS 软件回归 | 全工作区测试及修复项复验后，当前 colcon 汇总 1021 项，0 errors、0 failures、45 skipped |
+| HMI 前端 | 13 个测试文件、96 项通过，生产构建成功 |
+| 标定与数采 | 标定 161 项、数采 58 项通过；新增悬停图像检测另测 12 项通过 |
+| 无设备运行 | 真实 Nav2 控制器、碰撞监测、规划器和行为树激活通过；模拟总线与 Leader 生命周期通过 |
+| 本地推理 | CPU 寻人推理通过，KWS 与 Whisper int8 模型加载通过；22 个语音提示已生成 |
+| 公开工具 | 五入口 help、shellcheck、无 --hardware 的 Demo 拒绝启动检查通过 |
+| doctor | ROS / 依赖 / 模型通过；18 errors、1 warning 均为待接入设备、标定/地图、GPU 地址与 token 等运行条件 |
 
-现有 Robot 侧还包含 KWS、CPU Whisper 和 person detector；它们也要迁移并测量负载。
-“重推理仍在 GPU”不等于 X1 上完全没有推理。若这些模块拖慢控制，再单独决定优化或服务化，
-不悄悄关闭语音或寻人来宣布完整 Demo 通过。
+版本记录和验收日志在本机忽略的 `.xlerobot/environment/`；软件测试使用模拟 I/O，
+不是相机采集、麦克风识别、50 Hz 实机时序或完整 Demo 的通过证据。
 
-Remote SSH 不要求给 X1 接显示器。它支持 AArch64 Linux，但带原生二进制的编辑器扩展需另查兼容性，
-目前只验证了 SSH，没有安装或验证编辑器服务器。[官方说明](https://code.visualstudio.com/docs/remote/linux)。
+## 1. 本次环境与职责
 
-本次已在管理笔记本配置别名，下面的命令已通过密钥登录验证：
+X1 使用原厂 AidLux / Ubuntu 22.04 ARM64、Python 3.10 和 ROS 2 Humble。
+不安装容器，不混装 Noble 软件包，不升级厂商内核或刷机。
+[Humble 官方平台说明](https://docs.ros.org/en/humble/Releases/Release-Humble-Hawksbill.html)
+列出 Ubuntu 22.04 的 ARM64 支持。原 Ubuntu 24.04 x86_64 / Jazzy 参考环境继续保留。
+
+X1 承担驱动、ros2_control、本地 ACT executor、MoveIt、导航、任务、网页、语音、寻人、
+标定与数采。GPU 主机继续运行 LM Studio、SAM 2/GPD、ACT 推理和训练，接口保持原样。
+所有远程服务只返回数据，控制器命令仍在 X1 生成。
+
+本机为 Qualcomm QCS8550，6 核、约 14 GiB 内存；初始构建按单包顺序、包内 2 线程执行。
+50 Hz 控制配置和 watchdog 保持原值；这并不证明厂商 PREEMPT 内核已满足控制时序要求。
+
+## 2. 原生安装
+
+源码必须包含固定的 SCServo 子模块；不迁移 x86 的 build、install、venv 或缓存。
+在仓库根目录运行：
 
 ```bash
-ssh xlerobot-x1
-ssh -o BatchMode=yes xlerobot-x1 'uname -m'
+# 仅安装 apt / ROS / rosdep 依赖；需要 sudo。
+./tools/setup robot --system-only
+
+# 安装本机 Python 依赖、下载模型、构建 HMI 和全部 ROS 包。
+./tools/setup robot --with-person-detector --with-kws-model --generate-voice-prompts
 ```
 
-该别名仅存在管理笔记本的 SSH 配置中，不会随仓库自动安装。复现者需自行配置主机地址和公钥。
-免密仅指 SSH，不意味着 sudo 免密；不复制笔记本私钥到 X1，也不将密码、IP 或密钥写入仓库。
+新工作副本还需从 `config/local.example.yaml` 创建忽略的 `config/local.yaml`，
+设置 `demo.web_port: 18080` 并填写实际设备和 GPU 地址；秘密单独放入 `.env`。
 
-工作副本规则：建议在 X1 建立 `adapt/x1-controller` 分支（本轮尚未创建），通过 Git 交换提交。
-不双向同步 `build/`、`install/`、`.venv/`、`.xlerobot/` 或设备配置；x86_64 二进制不能直接搬到 ARM64。
-如果某个编辑器扩展不能在 ARM64 运行，可退回笔记本编辑、单向同步源码并在 X1 编译测试，
-同一时间只在一个副本编辑，避免双向覆盖。
+setup 自动识别 `Ubuntu 22.04 + aarch64`，使用 `/opt/ros/humble`。
+GPU 仍按原 Ubuntu 24.04 x86_64 约束检查。安装不会启动机器人节点或打开电机设备。
+ROS apt 源限定 Jammy/ARM64，校验 Open Robotics 签名密钥；不关闭包签名验证。
+ROS 官方 apt 地址使用 HTTP，完整性由签名索引和包哈希验证。
 
-## 2. 实机检查发现
+Node 22.22.0 下载到忽略的 `.xlerobot/vendor`，校验官方 SHA-256 后使用；
+Jammy 自带 Node 12 无法构建当前 Vite 前端。Python 环境位于 `.venv/robot`，
+colcon 使用该解释器生成 Python 节点入口，避免节点遗漏语音等 venv 依赖。
+`XLEROBOT_BUILD_WORKERS` 可设置包内并发，默认 2，初次验收前不要盲目提高。
 
-| 项目 | 本次读取的结果 | 适配影响 |
-| --- | --- | --- |
-| 平台 | 本机运维记录为 Qualcomm QCS8550；实机 `aarch64`、6 核 | 需要 ARM64 编译与依赖验证 |
-| 系统 | AidLux Linux，Ubuntu 22.04.2，Python 3.10.12 | 不能直接安装当前 Noble/Jazzy 运行环境 |
-| 内核 | `5.15.148-qki-consolidate-android13` 系列，PREEMPT | 保留厂商内核；不是已证明实时性能达标 |
-| 内存 / 存储 | 可见内存约 14 GiB；根分区约 104 GiB，本次可用约 81 GiB | 初始编译并发限制为 2，观察峰值再调 |
-| 开发环境 | Git、GCC/G++、CMake、rsync 已有；未发现 ROS、colcon、Node/npm | 尚不能构建或运行项目 |
-| 隔离环境 | 未安装 Docker / Podman / nspawn；内核启用了 namespace、cgroup、overlay、veth | 具备部分前提，但没有证明容器能运行 |
-| USB | 有 5 Gbit/s 根控制器；本次枚举未见 D455、腕相机或机器人串口 | 还未验证带宽、供电、设备别名或权限 |
-| 内核设备支持 | ACM、CH341、CP210X、UVC、USB audio 配置已启用 | 配置存在不等于实际设备已通过 |
-| 端口 | `127.0.0.1:8080` 被 `filebrowser` 占用，8081 也有监听 | 不能直接沿用网页默认 8080 |
-| 网络 / 风扇 | Wi-Fi 上行；板载网口桥接有独立 LAN；`x1-fanctl` 为 active | 保留现有网络和风扇配置，接网线前核对路由/DHCP |
+X1 依赖固定在 `requirements/robot-x1.txt`：ONNX Runtime 1.23.2 支持 Python 3.10，
+NumPy 1.26.4 与 OpenCV 4.11.0.86 保持 Humble cv_bridge 的 NumPy 1.x ABI。
+寻人使用 `robot-person-x1-agpl.txt` 中的 ARM64 PyTorch CPU wheel；
+不能直接改用 PyPI 的同版本 torch，它会引入 CUDA 依赖。
+原参考环境的依赖锁定不变，实际环境清单写入忽略的 `.xlerobot/environment`。
 
-本机运维笔记中的旧地址不是当前地址；板载网口曾有抢占家庭网关的历史，
-不能把它默认当作普通 DHCP 客户端网口使用。本次没有改动该网络设置。
-旧笔记记载了 Qwen2.5-VL 的端侧实验，但本次未观察到 8888 监听，也未做模型请求；
-不将那份历史实验当作当前 NPU 服务可用的证据。
+寻人使用 AGPL Ultralytics；KWS 上游模型条款未明确，下载选项明确保留。
+Whisper、KWS 和寻人模型均按仓库清单校验，模型不进入 Git。
 
-## 3. 先决定运行环境，再移植
+## 3. 本机包管理修复记录
 
-当前 `tools/setup` 同时检查 Ubuntu 24.04 和 `x86_64`，直接在 X1 上运行会拒绝。
-ROS 2 Jazzy 官方目标包括 Ubuntu 24.04 ARM64；**ARM64 本身不是核心障碍，22.04 与厂商内核才是环境差异**。
-[ROS 官方平台说明](https://docs.ros.org/en/jazzy/Installation/Alternatives/Ubuntu-Install-Binary.html)。
+首次检查发现 `libkmod2 29-1ubuntu1.1` 已解包但未配置，已安装的 `kmod` 为 `29-1ubuntu1`。
+常规修复试图更新 kmod，却与 AidLux `mod-blacklist` 所有的
+`/etc/modprobe.d/blacklist.conf` 冲突。此次将 libkmod2 恢复为匹配的 `29-1ubuntu1`，
+保留厂商 blacklist 文件；未强制覆盖、移除厂商包或修改内核。
+这是本机已有包状态的修复记录，**不写入通用 setup 自动执行**。
+以后若再次出现此冲突，应先检查 `dpkg --audit` 和 `apt-get -s --fix-broken install`，
+不要直接使用 `--force-overwrite`。
 
-建议按以下顺序决策：
+## 4. Humble 兼容边界
 
-1. **厂商已验证的 Ubuntu 24.04 镜像优先**，前提是保留 X1 USB、网络、散热和后续 NPU 能力。
-   当前尚未取得这样的镜像和验证资料；不执行通用 `do-release-upgrade`，不刷机。
-2. 没有可用镜像时，建议试验 **原厂 22.04 宿主 + 最小 Ubuntu 24.04 ARM64 容器 + Jazzy**。
-   这是针对 X1 的平台适配例外，与原项目“不提供容器”的约定不同，**需用户确认后才实施**。
-   本轮未安装容器引擎、拉取镜像、修改内核或启动容器。
-3. 若不接受容器，或厂商内核不能可靠运行容器，则暂停选择环境，评估独立 Noble rootfs/chroot
-   或厂商方案；不自动退回 Humble，也不把 Noble 软件包混装到 Jammy。
+- 硬件插件兼容 Humble 的 HardwareInfo 初始化接口；总线门控、标定、扭矩和读写实现共用。
+- 标定检测器兼容新版 OpenCV 的 ArucoDetector，并在旧单 Tag 位姿接口缺失时用相同角点坐标
+  与迭代 solvePnP 求解；合成数据测试核对旋转、平移和重投影误差。
+- Leader 控制器兼容 Humble 的同步接口写入；心跳过期及生命周期退出仍关闭扭矩。
+- 所有公开入口按本机平台选择 ROS；测试通过包索引寻找 controller_manager，不写死 Jazzy 路径。
+- Leader 租约参数通过 spawner 的参数文件传递，支持 Humble 与 Jazzy。
+- Humble 的 SLAM 是普通节点，没有新版在线 Reset 服务。建图、保存仍可用；清空现场地图
+  需要停止并重新启动建图会话。网页会明确拒绝不支持的在线重置，保留预览和已保存资产，
+  不把清除交互编辑的 Clear 服务冒充地图重置。
+- Nav2 在 Humble 加载小型参数覆盖和 BT.CPP 3 行为树，兼容插件名、progress checker 和碰撞点数参数。
+- Humble 的 Nav2 action 没有 Jazzy 的细分错误码。仍同时检查 action 状态和非空结果，
+  失败不会变为成功；BackUp 中止后不再前进重试。上层收到通用后端错误，无法声称已识别具体碰撞原因。
+  本地取消等待和超时保留。Humble 的恢复树不使用 Jazzy 的错误码条件，实际恢复行为需在 P3/P4 复验。
 
-容器方案的最小验证：先无设备运行 ARM64 用户态、Jazzy 通信与构建；再验证所需的 USB/串口/音频映射。
-使用同一台 X1 的本地 executor 与控制器，GPU 服务不得获得设备访问权。
-容器仍共享厂商内核，并不能解决缺失驱动或保证控制实时性。
-不把全设备映射、全权限模式作为发布默认值；无 `--hardware` 时仍不得打开电机。
-网络、设备热插拔、宿主 udev 和持久目录必须验证；无需引入发布包、自动升级或 systemd 交付体系。
+Humble 中不存在的 Jazzy 控制器诊断参数不能代替实测。需要另行测量 50 Hz 周期的 p95/p99、
+CPU、温度、串口耗时与超时，逐项叠加相机、语音、寻人和网页负载。
 
-## 4. 代码与配置改动清单
+## 5. 本地配置与资产
 
-| 位置 | 计划修改 / 核验 |
+机器配置只放在忽略的 `config/local.yaml`；秘密只放在忽略的 `.env`。
+本次创建的本地配置设置 `demo.web_port: 18080`。AidLux 已使用 8080，不停止 filebrowser。
+标定工作台另用 `--web-port 18080`，Demo、标定、建图、数采交替运行，避免争抢设备。
+
+接线前核对：
+
+- GPU 可达地址、X1 到 GPU 的 SSH、公用 ACT token；示例地址不可直接使用。
+- D455 USB3 直连、实际序列号、腕相机和串口稳定别名、音频设备及用户组权限。
+- 同一机器人的完整 active 标定版本、地图和地点。不要复制笔记本的数字设备序号或绝对路径。
+- D455 初始保持 RGB/depth 640×480 @ 15 fps、对齐深度、不启用点云和 IMU。
+
+同机且机械安装未变时可私下迁移已有标定，不自动重做物理标定。
+迁入后执行标定 status/render 并检查实际版本和校验值，参考[标定版本说明](calibration-versions.md)。
+若相机或机械安装改变，重测受影响项目。
+
+## 6. 验收顺序
+
+```bash
+# 软件检查：不连接电机设备。
+./tools/setup --help
+./tools/doctor --help
+./tools/calibrate --help
+./tools/act --help
+./tools/run --help
+source /opt/ros/humble/setup.bash
+source .venv/robot/bin/activate
+cd ros2_ws
+source install/setup.bash
+python "$(command -v colcon)" test --executor sequential --event-handlers console_cohesion+
+colcon test-result --verbose
+cd ..
+./tools/doctor robot
+```
+
+安装初期 doctor 对缺少实机标定、地图、设备和 GPU 服务的错误表示剩余接入工作，
+不能据此声称软件编译失败，也不能忽略这些错误启动真实 Demo。
+
+| 阶段 | 完成条件 |
 | --- | --- |
-| `tools/setup` | 分开 Robot / GPU 架构判断；仅在验证后为 Robot 开放 ARM64，GPU 保持既有 NVIDIA 环境 |
-| `requirements/robot*.txt`、`tools/doctor` | 检查 Python 3.12 ARM64 wheel：sherpa-onnx、CTranslate2、ONNX Runtime、SciPy、PyTorch 等；保留已验证锁定，不盲目放开版本 |
-| ROS workspace | Jazzy ARM64 的 MoveIt、Nav2、ros2_control、相机与雷达依赖；全部从源码/对应架构包重建，保持原有 package 边界 |
-| D455 | 先试正常 V4L2；厂商内核不兼容时评估同版本 librealsense RSUSB，固定 SDK/wrapper 版本，避免重复链接两套 SDK |
-| 串口 / 音频 | X1 宿主的稳定 udev 别名、组权限和 ALSA 设备；用户当前未加入 dialout，按设备实际权限补齐，不复制笔记本数字设备序号 |
-| 网页端口 | X1 的 `config/local.yaml` 设置 `demo.web_port: 18080`；标定入口另用 `--web-port 18080`，不是自动继承前者 |
-| 标定与运行资产 | 同机完整版本、active 指针与地图私下迁移，重新 render 并检查 checksum/路径；不迁入 Git |
-| 数据与 GPU 访问 | 更新本机路径、GPU 可达地址及 X1→GPU SSH；此次完成的笔记本→X1 免密不等于 X1→GPU 已配置 |
+| P1 原生环境 | X1 全部源码构建、HMI 测试/构建、软件测试及五入口检查 |
+| P2 外设 | 接线后验证相机、雷达、音频、GPU HTTP；目标连续采集 30 分钟，记录实际结果 |
+| P3 控制 | 明确授权当次运动测试后，逐项测底盘、头部、双臂、夹爪、Leader 与 ACT executor；测时序 |
+| P4 Demo | ACT 默认八阶段流程，另测 centroid/GPD、语音/HMI；笔记本不运行任何控制节点 |
+| P5 配套 | 建图、数采、转换、GPU 训练调度、标定与版本替换 |
 
-18080 在本次检查时未被监听；启动前仍需重新检查。Demo、数采、建图和标定工作台按会话交替运行，
-不让它们争抢设备或同一端口，也不停止 AidLux 的 `filebrowser` 来腾位置。
+所有真实运动仍要求公开命令显式携带 `--hardware`，软件安装授权不等于运动测试授权。
+硬件验收前不将 X1 写成完整 Demo 已验证环境。保留旧笔记本回退环境；切换主控前停止另一台的节点。
+NPU、本体改造和端侧 VLM 仍留作独立后续任务。
 
-D455 初始保持当前配置：RGB/depth 为 **640×480 @ 15 fps**、深度对齐、不启用点云与 IMU。
-先检查 USB3 直连，再逐一加入腕相机、音频和串口，记录帧率、丢帧、USB 重置及 CPU 占用。
-RSUSB 是待验证备选，不是 X1 已兼容的结论。[RealSense 官方 RSUSB 说明](https://github.com/realsenseai/librealsense/blob/master/doc/installation_jetson.md)。
-
-## 5. 分阶段验收
-
-以下是下一阶段的待办，不代表本轮已运行。所有轮子、头部、机械臂、夹爪测试仍需针对当次测试明确授权。
-
-| 阶段 | 工作 | 完成条件 |
-| --- | --- | --- |
-| P0 接入 | SSH 与环境清点 | 本轮已完成；无密码交互登录成功，记录 OS、内核、资源、端口 |
-| P1 环境可行性 | 确认原厂镜像或隔离用户态选择；ARM64 依赖、ROS 构建、HMI `npm ci/test/build`、软件测试 | 无电机设备的环境能重复构建，五入口 help 与软件契约通过；不以硬件缺失的 doctor 告警当构建失败 |
-| P2 非运动外设 | 用户接线后验证 D455、腕相机、雷达、麦克风/扬声器与 GPU HTTP | 数据稳定；以 30 分钟连续采集作为测试目标，记录实际结果；无电机动作 |
-| P3 本地控制 | 经授权逐项验证现有总线、底盘、头部、右臂、夹爪及 ACT executor | 保留 50 Hz 控制配置和现有轨迹语义；记录周期 p95/p99、超时、CPU/温度，不靠放宽 watchdog 掩盖抖动 |
-| P4 完整 Demo | 同机既有标定与地图，ACT 默认；再测 centroid/GPD 和语音/HMI | 笔记本不运行 ROS 或控制节点，X1 能完成原八阶段流程；每种后端至少一轮受控功能测试，不宣布统计成功率 |
-| P5 配套工具 | 建图、数采、转换、训练调度、标定工作台和版本替换 | 数据格式、30 Hz 数采目标/实际时序按现有配置核对；GPU 仍训练；不因主控替换自动重做物理标定 |
-| P6 发布 | 记录实际包版本、配置差异和验收结果 | 只有通过的组合写成支持环境；不把规划改成验收记录 |
-
-P3 先在低负载测量，再叠加相机、语音、寻人与网页。50 Hz 对应 20 ms 周期，但内核 PREEMPT 标志
-本身不是满足截止时间的证据；具体延迟以实测对比笔记本基线与现有超时约束判断。
-P4 完成后可关闭笔记本或断开其网络做独立性检查，现场操作使用另一台浏览器设备。
-
-## 6. 资产迁移与回退
-
-- 保留笔记本当前运行环境、提交号、配置和校验记录，不清理旧 `.xlerobot/`。
-- 只迁移本次需要的 active 标定及其引用版本、地图/地点、必要模型与音频；保留符号链接语义，
-  检查绝对路径，不整包复制环境、缓存和日志。敏感配置单独传输，`.env` 不入 Git。
-- 只换计算机且相机/机械安装未变，可沿用同一机器人标定；若拆装改变相机、Tag、机械安装，
-  重新测受影响项目。主机迁移不应顺便激活未验证的新标定草稿。
-- 启动前执行标定 `status`/`render` 并核对生效版本，参考[标定配置替换手册](calibration-versions.md)。
-- 切回时先停止 X1 全部机器人运行节点，再将设备接回笔记本；禁止两个主控同时接管电机。
-  如迁移了机械安装，旧主机上的旧标定也不自动恢复有效。
-
-## 7. 第二阶段才考虑端侧 AI
-
-主控验收后，才分别评估人检测、语音或 VLM 的 X1 CPU/NPU 加速，逐项比较延迟、质量与控制负载。
-既有 AidLux Qwen2.5-VL 实验仅作参考；Qwen3-VL 的输入、bbox 语义和模型要求不能不测就替换。
-ACT、SAM 2、GPD 与训练先保持 GPU 方案。端侧模型化简和 AlohaMini 本体改造分别立项，
-每次只更换一个主要变量。
-
-**建议下一步：先确认“保留原厂系统，用 Noble ARM64 隔离环境验证 Jazzy”是否接受，再做 P1；
-不是现在就拔掉笔记本或安装整套运行环境。**
+当前 X1 的按需图像订阅、固定语音、手动服务启停与 CPU 对照结果见
+[X1 Demo 降负载实施与验证](x1-cpu-optimization.md)。静态对照结果与完整实机验收分开记录。

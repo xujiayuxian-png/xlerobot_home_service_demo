@@ -3,6 +3,14 @@ project(xlerobot_bringup)
 
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
+
+add_executable(camera_health src/camera_health_node.cpp)
+target_compile_features(camera_health PUBLIC cxx_std_17)
+ament_target_dependencies(camera_health rclcpp sensor_msgs diagnostic_msgs)
+install(TARGETS camera_health DESTINATION lib/${PROJECT_NAME})
 
 ament_python_install_package(${PROJECT_NAME})
 
@@ -23,6 +31,7 @@ install(PROGRAMS
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_camera_health_runtime test/test_camera_health_runtime.py TIMEOUT 30)
   ament_add_pytest_test(test_initial_pose test/test_initial_pose.py TIMEOUT 30)
   ament_add_pytest_test(test_handeye_pose_geometry test/test_handeye_pose_geometry.py TIMEOUT 30)
   ament_add_pytest_test(test_lidar_geometry_source test/test_lidar_geometry_source.py TIMEOUT 30)

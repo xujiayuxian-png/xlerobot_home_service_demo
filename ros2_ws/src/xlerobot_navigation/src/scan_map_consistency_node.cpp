@@ -108,8 +108,9 @@ private:
         latest_map_->header.frame_id, scan->header.frame_id, rclcpp::Time(scan->header.stamp),
         tf2::durationFromSec(tf_timeout_s_));
     } catch (const tf2::TransformException & error) {
-      publish_unavailable(*scan,
-          std::string("missing timestamped laser-to-map TF: ") + error.what());
+      publish_unavailable(
+        *scan,
+        std::string("missing timestamped laser-to-map TF: ") + error.what());
       return;
     }
 

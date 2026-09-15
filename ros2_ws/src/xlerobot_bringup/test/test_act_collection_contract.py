@@ -161,8 +161,11 @@ def test_collection_control_lease_is_shared_by_both_backends_and_coordinator():
     assert "'leader_torque_controller', '-c', '/leader/controller_manager'" in leader_runtime
     assert "'leader_arm_controller', '-c', '/leader/controller_manager', '--inactive'" in leader_runtime
     assert 'set_last_command_interface_value_as_state_on_activation: false' in leader_config
-    assert "'--controller-ros-args'" in leader_runtime
-    assert "LaunchConfiguration('control_enable_lease_s')" in leader_runtime
+    assert "'--param-file'" in leader_runtime
+    lease_template = (Path(__file__).parents[1] /
+                      'config/leader_torque_lease.yaml').read_text()
+    assert 'enable_lease_s: $(var control_enable_lease_s)' in lease_template
+    assert 'allow_substs=True' in leader_runtime
     assert '/leader/leader_torque_controller:' in leader_config
     assert 'enable_lease_s: 1.0' in leader_config
 

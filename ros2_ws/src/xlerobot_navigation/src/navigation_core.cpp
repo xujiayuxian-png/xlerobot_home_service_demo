@@ -58,9 +58,10 @@ Pose2D make_standoff_pose(
 {
   const double values[] = {
     target.x, target.y, robot.x, robot.y, standoff_m, minimum_separation_m};
-  if (!std::all_of(std::begin(values), std::end(values), [](double value) {
-      return std::isfinite(value);
-    }) || standoff_m <= 0.0 || minimum_separation_m <= 0.0)
+  if (!std::all_of(
+      std::begin(values), std::end(values), [](double value) {
+        return std::isfinite(value);
+      }) || standoff_m <= 0.0 || minimum_separation_m <= 0.0)
   {
     throw std::invalid_argument("standoff geometry must be finite and positive");
   }

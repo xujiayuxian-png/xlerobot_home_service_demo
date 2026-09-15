@@ -5,7 +5,7 @@ import sys
 from aiohttp import WSMsgType
 from aiohttp.test_utils import TestClient, TestServer
 from nav_msgs.msg import OccupancyGrid
-from slam_toolbox.srv import Reset
+from xlerobot_hmi.operator_console import Reset
 
 import xlerobot_hmi.operator_console as console
 
@@ -56,7 +56,8 @@ def test_console_keeps_teleop_alive_during_ros_map_updates_and_stops_on_timeout(
             response.result = Reset.Response.RESULT_SUCCESS
             return response
 
-        node.create_service(Reset, '/slam_toolbox/reset', reset_map)
+        if Reset is not None:
+            node.create_service(Reset, '/slam_toolbox/reset', reset_map)
         nodes.append(node)
         return node
 
@@ -83,9 +84,13 @@ def test_console_keeps_teleop_alive_during_ros_map_updates_and_stops_on_timeout(
             assert len(executors) == 1
             assert isinstance(executors[0], original_executor)
             response = await client.post('/api/v1/mapping/reset', json={'confirm': True})
-            assert response.status == 200
-            assert (await response.json())['saved_assets_preserved'] is True
-            assert resets == [False]
+            if Reset is None:
+                assert response.status == 501
+                assert resets == []
+            else:
+                assert response.status == 200
+                assert (await response.json())['saved_assets_preserved'] is True
+                assert resets == [False]
             assert not nodes[0].manual_action_active()
 
     monkeypatch.setattr(console, 'OperatorConsoleNode', make_node)

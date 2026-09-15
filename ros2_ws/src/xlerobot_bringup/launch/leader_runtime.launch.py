@@ -2,10 +2,10 @@
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, RegisterEventHandler
-from launch.event_handlers import OnProcessExit
+from launch.event_handlers import OnProcessExit, OnShutdown
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.parameter_descriptions import ParameterFile, ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -35,17 +35,20 @@ def runtime(context):
         package='controller_manager', executable='spawner', output='screen',
         arguments=['leader_arm_controller', '-c', '/leader/controller_manager', '--inactive'],
     )
+    lease_parameters = ParameterFile(PathJoinSubstitution([
+        FindPackageShare('xlerobot_bringup'), 'config', 'leader_torque_lease.yaml',
+    ]), allow_substs=True)
+    lease_path = str(lease_parameters.evaluate(context))
     torque = Node(
         package='controller_manager', executable='spawner', output='screen',
         arguments=[
             'leader_torque_controller', '-c', '/leader/controller_manager',
-            '--controller-ros-args', [
-                '--ros-args -p enable_lease_s:=',
-                LaunchConfiguration('control_enable_lease_s'),
-            ],
+            '--param-file', lease_path,
         ],
     )
     return [
+        RegisterEventHandler(OnShutdown(
+            on_shutdown=lambda event, context: lease_parameters.cleanup())),
         Node(
             package='xlerobot_bringup', executable='robot_description_publisher',
             namespace='leader', parameters=[description], output='screen',

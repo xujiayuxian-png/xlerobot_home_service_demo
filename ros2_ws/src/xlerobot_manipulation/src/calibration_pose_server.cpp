@@ -52,7 +52,7 @@ std::vector<std::vector<double>> load_head_poses(const std::string & path)
       !unique.emplace(pan, tilt).second)
     {
       throw std::runtime_error(
-          "head-camera poses must be unique and inside the reference scan range");
+              "head-camera poses must be unique and inside the reference scan range");
     }
     poses.push_back({pan, tilt});
   }
@@ -239,7 +239,7 @@ private:
         return false;
       }
       auto result = client->async_get_result(controller_handle);
-      const auto try_cancel = [&client, &controller_handle]() noexcept {
+      const auto try_cancel = [&client, &controller_handle]() {
           try {
             (void)client->async_cancel_goal(controller_handle);
           } catch (...) {
@@ -338,13 +338,15 @@ private:
       feedback(handle, 0.1F, "returning to shared reference ready pose");
       bool reached = true;
       if (request->workflow_id == Move::Goal::RIGHT_HANDEYE) {
-        reached = follow(handle, arm_client_,
-            {"right_arm_shoulder_pan", "right_arm_shoulder_lift", "right_arm_elbow_flex",
-              "right_arm_wrist_flex", "right_arm_wrist_roll"}, arm_ready_, 5.0, error,
-            controller_terminal);
+        reached = follow(
+          handle, arm_client_,
+          {"right_arm_shoulder_pan", "right_arm_shoulder_lift", "right_arm_elbow_flex",
+            "right_arm_wrist_flex", "right_arm_wrist_roll"}, arm_ready_, 5.0, error,
+          controller_terminal);
       }
       if (reached) {
-        reached = follow(handle, head_client_, {"head_pan_joint", "head_tilt_joint"},
+        reached = follow(
+          handle, head_client_, {"head_pan_joint", "head_tilt_joint"},
           head_ready_, 2.5, error, controller_terminal);
       }
       if (!reached) {

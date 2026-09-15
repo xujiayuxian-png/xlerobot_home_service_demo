@@ -19,8 +19,9 @@ double seconds(const builtin_interfaces::msg::Duration & duration)
 
 bool finite_vector(const std::vector<double> & values)
 {
-  return std::all_of(values.begin(), values.end(), [](double value) {
-             return std::isfinite(value);
+  return std::all_of(
+    values.begin(), values.end(), [](double value) {
+      return std::isfinite(value);
     });
 }
 

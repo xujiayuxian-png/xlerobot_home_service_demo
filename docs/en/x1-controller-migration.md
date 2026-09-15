@@ -1,162 +1,143 @@
-# Rhino Pi X1 controller migration plan
+# X1 native Ubuntu 22.04 migration
 
-[中文](../zh-CN/x1-controller-migration.md) · [Documentation](README.md)
+[中文](../zh-CN/x1-controller-migration.md) · [Documentation index](README.md)
 
-Status: **planned; SSH access and read-only inventory completed, controller migration not validated**.
-Inspection: 2026-09-12, source baseline `c3f85aa`. This is not an installation
-guide or a change to the supported Ubuntu 24.04 x86_64 reference environment.
+Status: **P1 native installation, build and software acceptance passed on X1;
+physical motion has not been accepted**. Updated 2026-09-12.
+The user's native Ubuntu 22.04 requirement supersedes the earlier Noble container proposal.
 
-## Goal and development workflow
+Measured results: the public setup built all 20 ROS packages. After workspace
+testing and targeted reruns, colcon reports 1021 tests, zero errors/failures and
+45 skips. HMI's 13 frontend test files / 96
+tests and production build passed. Calibration passed 161 tests, collection 58;
+the additional hover image path passed a separate 12-test run. Real Nav2 plugins
+and its behavior tree activated with synthetic sensors. Mock bus/Leader
+lifecycle checks passed. CPU person inference and KWS/Whisper int8 model loading
+passed; 22 voice prompts were generated. All five help commands, shellcheck and
+the no-hardware Demo rejection passed.
 
-First replace the Robot computer, not the robot body or inference stack.
-Keep ACT as the main backend and centroid/GPD on the same task/execution stack.
-Do not simultaneously introduce AlohaMini, retrain ACT, move to Humble or create
-a second motor runtime.
+Doctor passed ROS, dependencies and models. Its 18 errors and one warning are
+remaining device, calibration/map, GPU endpoint/token prerequisites. Version
+records and logs live under ignored `.xlerobot/environment`. Software tests do
+not qualify physical camera/audio acquisition, 50 Hz timing or the full demo.
 
-| Computer | Role |
-| --- | --- |
-| Laptop | Editor, browser and logs; preserve the working installation for comparison/rollback; no control dependency after migration |
-| X1 | Device drivers, ros2_control, existing 50 Hz control loop, local ACT streaming executor, MoveIt, navigation, orchestration, web UI, calibration and collection |
-| GPU host | Existing LM Studio/Qwen, SAM 2/GPD, ACT inference and training |
+## Platform and ownership
 
-Robot-side KWS, CPU Whisper and person detection must also be ported and
-profiled. Keeping heavy inference remote does not mean the X1 performs no
-inference. Do not silently disable voice or person finding to pass acceptance.
+The X1 retains AidLux / Ubuntu 22.04 ARM64, its vendor kernel and Python 3.10,
+using ROS 2 Humble. No container, OS upgrade, or Noble packages are needed.
+[ROS lists Jammy ARM64 as a Humble platform](https://docs.ros.org/en/humble/Releases/Release-Humble-Hawksbill.html).
+The original Ubuntu 24.04 x86_64 / Jazzy reference remains available.
 
-Recommended workflow: **laptop editor over Remote SSH, with source, ARM64 builds
-and tests on X1**. No X1 monitor is needed. AArch64 Linux is supported by Remote
-SSH, but native editor extensions may have architecture restrictions; only SSH,
-not the editor server, has been tested. See [VS Code prerequisites](https://code.visualstudio.com/docs/remote/linux).
+X1 owns drivers, ros2_control, the local ACT executor, MoveIt, navigation, task
+orchestration, HMI, voice, person detection, calibration and collection. The GPU
+continues to own LM Studio, SAM 2/GPD, ACT inference and training. Remote services
+return data only; motor commands remain local to the robot computer.
 
-The following alias was configured on the management laptop and tested:
+## Native installation
+
+From a recursive checkout on X1:
 
 ```bash
-ssh xlerobot-x1
-ssh -o BatchMode=yes xlerobot-x1 'uname -m'
+./tools/setup robot --system-only
+./tools/setup robot --with-person-detector --with-kws-model --generate-voice-prompts
 ```
 
-It is a local SSH configuration, not supplied by this repository. Reproducers
-must configure their own address and public key. Passwordless SSH does not grant
-passwordless sudo. Never copy the laptop's private key onto the X1.
+A new checkout also needs ignored `config/local.yaml` copied from
+`config/local.example.yaml`, with web port 18080 and real device/GPU settings.
+Keep secrets separately in `.env`.
 
-Create an `adapt/x1-controller` branch on X1 during implementation; none was
-created during inventory. Exchange commits using Git. Never synchronize x86_64
-builds, virtual environments or machine settings into the ARM64 installation.
-If an editor extension cannot run remotely, edit locally and transfer source in
-one direction, then build/test on X1. Avoid editing two copies simultaneously.
+The first command installs system/ROS dependencies with sudo. The second installs
+the Python environment, verifies model downloads, tests/builds HMI and builds the
+workspace. Setup never starts robot nodes or opens motor devices.
+It selects `/opt/ros/humble` only for Jammy ARM64; GPU retains its original guard.
+The Jammy ROS apt repository uses its verified Open Robotics signing key.
+The official HTTP apt endpoint relies on signed indexes and package hashes.
 
-## Observed environment
+Node 22.22.0 is checksum-verified and installed under ignored `.xlerobot/vendor`;
+Jammy's Node 12 cannot build Vite 6. Python uses `.venv/robot` with ROS system
+packages. Colcon runs through that interpreter so Python nodes retain access to
+voice dependencies. Builds process packages sequentially with two compiler jobs;
+`XLEROBOT_BUILD_WORKERS` controls the latter.
 
-| Item | Observation | Consequence |
-| --- | --- | --- |
-| Platform | QCS8550 per local device notes; inspected `aarch64`, 6 CPUs | ARM64 dependencies and native build required |
-| OS | AidLux Linux, Ubuntu 22.04.2, Python 3.10.12 | Does not match Noble/Jazzy |
-| Kernel | Vendor `5.15.148-qki-consolidate-android13` family, PREEMPT | Preserve vendor kernel; timing not qualified |
-| Resources | About 14 GiB visible RAM; 104 GiB root filesystem, about 81 GiB free | Start builds with two parallel workers |
-| Tools | Git, GCC/G++, CMake, rsync present; ROS, colcon, Node/npm not found | Project cannot yet build/run |
-| Isolation | Docker/Podman/nspawn absent; namespaces, cgroups, overlay and veth enabled | Some prerequisites only, no container execution tested |
-| USB | 5 Gbit/s root controller; no robot cameras or serial controllers observed | Bandwidth, power and permissions untested |
-| Drivers | Kernel configs enable ACM, CH341, CP210X, UVC and USB audio | Actual device behavior still untested |
-| Ports | `filebrowser` occupies loopback 8080; 8081 also listening | Do not use default web port |
-| Network/cooling | Wi-Fi uplink, separate bridged Ethernet LAN; fan-control service active | Preserve configuration; inspect DHCP/routes before wiring Ethernet |
+`requirements/robot-x1.txt` pins ONNX Runtime 1.23.2 for Python 3.10,
+NumPy 1.26.4 and OpenCV 4.11.0.86 for Humble's NumPy 1.x cv_bridge ABI.
+`robot-person-x1-agpl.txt` selects ARM64 CPU PyTorch wheels explicitly: current
+PyPI ARM64 torch also installs CUDA dependencies. Reference pins remain intact.
+Resolved versions are recorded under ignored `.xlerobot/environment`.
+Ultralytics is AGPL; KWS model terms remain unresolved, and both retain explicit
+setup flags. Model files stay outside Git and are checked against the manifests.
 
-Historical network addresses are not current. The board previously had a
-gateway-address conflict; its Ethernet port is not assumed to be a normal DHCP
-client. Old local notes describe an on-device Qwen2.5-VL experiment, but no 8888
-listener was observed now and no model request was tested.
+## Existing AidLux package repair
 
-## Runtime decision gate
+This X1 arrived with unpacked/unconfigured libkmod2 29-1ubuntu1.1 and kmod
+29-1ubuntu1. A normal apt repair attempted to overwrite AidLux mod-blacklist's
+`/etc/modprobe.d/blacklist.conf`. Restoring libkmod2 to matching 29-1ubuntu1
+resolved the dependency while preserving that vendor file. No forced overwrite,
+vendor package removal or kernel change was used. This machine-specific repair
+is deliberately not automated in setup. Inspect `dpkg --audit` and simulate apt
+repairs before addressing a recurrence.
 
-`tools/setup` currently requires Ubuntu 24.04 and x86_64 for both roles.
-Jazzy supports Ubuntu 24.04 ARM64; architecture is not by itself the blocker.
-See the [official ROS platform documentation](https://docs.ros.org/en/jazzy/Installation/Alternatives/Ubuntu-Install-Binary.html).
+## Compatibility boundaries
 
-1. Prefer a **vendor-validated Ubuntu 24.04 image**, if available with working
-   USB, networking, cooling and future NPU support. No such image was established
-   during inventory. Do not run a generic distribution upgrade or flash firmware.
-2. Otherwise, propose **stock 22.04 host + minimal Ubuntu 24.04 ARM64 container +
-   Jazzy**. This is an explicit exception to the project's original no-container
-   scope and requires user agreement before implementation. No engine or image
-   has been installed, no container started, and no kernel changed.
-3. If isolation is rejected or fails on the vendor kernel, reconsider a separate
-   Noble rootfs/chroot or vendor solution. Do not silently downgrade ROS or mix
-   Noble packages into the Jammy host.
+Hardware initialization supports Humble HardwareInfo and Jazzy component
+parameters, sharing the same bus gates, calibration and torque implementation.
+Calibration supports modern OpenCV ArucoDetector and uses the same centered
+corners with iterative solvePnP when the old single-marker pose helper is absent;
+synthetic tests check rotation, translation and reprojection error.
+The Leader controller supports Humble's void-returning synchronous writes while
+retaining lease expiry and torque-off lifecycle handling. Lease parameters use a
+spawner parameter file. Public tools select the native ROS installation; tests
+resolve controller_manager through the package index.
 
-First validate the userspace, ROS communication and build without devices; then
-test the required USB, serial and audio mappings. Containers share the host
-kernel and do not guarantee driver compatibility or real-time performance.
-GPU services never gain motor access. Keep hardware-disabled behavior intact;
-do not publish unrestricted device/privileged access as the default. Validate
-host udev, hotplug, networking and persistent paths without adding a release
-bundle, automatic upgrades or a systemd delivery framework.
+Humble's SLAM is a regular node and lacks the newer live Reset service. Mapping
+and saving remain available; clearing the live map requires stopping and
+restarting the mapping session. HMI explicitly rejects unsupported live resets,
+preserving the preview and saved assets. Clear only removes interactive edits
+and is not substituted for Reset.
 
-## Implementation checklist
+Humble loads a small Nav2 parameter override and a BT.CPP 3 behavior tree for
+plugin names, progress checking and collision point thresholds. Its action
+results lack Jazzy's structured errors. Callers still require SUCCEEDED and a
+non-null result; failed BackUp stops recovery without blind forward retry.
+Errors without detailed codes are reported as generic backend failures. The
+Humble recovery tree cannot use Jazzy's error-code predicates, so physical
+recovery behavior must be requalified. Local cancellation waits and deadlines
+remain in place. Jazzy-only controller diagnostics do not become timing evidence
+on Humble; measure 50 Hz loop p95/p99 and load explicitly.
 
-- Separate Robot/GPU architecture checks in `tools/setup`; enable ARM64 for
-  Robot only after validation. Leave the NVIDIA GPU environment unchanged.
-- Audit Python 3.12 ARM64 wheels for sherpa-onnx, CTranslate2, ONNX Runtime,
-  SciPy, PyTorch and the optional person extra. Preserve validated pins and
-  update architecture-aware `doctor` checks; do not simply loosen versions.
-- Rebuild Jazzy MoveIt, Nav2, ros2_control and device dependencies for ARM64,
-  preserving the package boundaries and local executor behavior.
-- Test D455 V4L2 first; consider a pinned librealsense RSUSB build if the vendor
-  kernel is incompatible. Keep SDK/wrapper versions consistent. RSUSB is a
-  candidate, not proof of X1 support. See [RealSense documentation](https://github.com/realsenseai/librealsense/blob/master/doc/installation_jetson.md).
-- Preserve the existing 640×480 at 15 fps RGB/depth profile, aligned depth,
-  no point cloud/IMU. Test direct USB3 before adding wrist camera, audio and
-  serial devices; record resets, frame drops and load.
-- Configure stable host udev aliases and actual device permissions. The current
-  account is not in dialout; do not reuse laptop-specific numeric device indexes.
-- Set X1 `demo.web_port: 18080` in ignored `config/local.yaml`; calibration uses
-  its separate `--web-port 18080` argument. That port was free during inventory;
-  recheck before use. Do not stop AidLux's filebrowser to free 8080. Run workspaces
-  sequentially to avoid device/port ownership conflicts.
-- Transfer same-robot active calibration, referenced versions, maps and required
-  assets privately; regenerate runtime paths and verify checksums. Configure
-  X1-to-GPU access separately: laptop-to-X1 SSH does not establish that link.
+## Configuration and acceptance
 
-## Acceptance sequence
+Keep machine settings in ignored `config/local.yaml`, secrets in ignored `.env`.
+The X1 local web port is 18080; preserve AidLux filebrowser on 8080. Calibration
+needs its own `--web-port 18080`. Alternate demo, mapping, collection and
+calibration sessions to avoid resource contention.
 
-These are future tests, not completed results. Every wheel, head, arm or gripper
-test still requires explicit authorization for that test.
+Before physical testing, configure GPU URLs, X1-to-GPU SSH and the shared ACT
+token, serial/video aliases, D455 serial and audio devices. Privately migrate the
+same robot's complete active calibration, map and places; render/check them on
+X1. Never copy x86 build/install/venv directories or numeric device assignments.
+Keep D455 RGB/depth at 640x480/15 fps, aligned depth, no point cloud or IMU.
+See [calibration versions](calibration-versions.md) for asset activation.
 
-| Stage | Work | Completion evidence |
-| --- | --- | --- |
-| P0 | Access and inventory | Completed: key login and environment checks |
-| P1 | Agreed runtime, ARM64 dependencies/build, HMI npm ci/test/build, software tests | Repeatable device-free build and five-entry contracts; expected missing-device doctor findings distinguished from failures |
-| P2 | Connected cameras/lidar/audio and GPU HTTP, no motor movement | Stable data; target a 30-minute capture test and record actual results |
-| P3 | Authorized buses, base, head, right arm/gripper, ACT executor | Preserve 50 Hz and trajectory semantics; measure p95/p99 cycle timing, timeouts, load and temperature; do not hide jitter by loosening watchdogs |
-| P4 | Existing active calibration/map, ACT then centroid/GPD, voice and HMI | Eight-stage demo with no laptop ROS/control dependency; at least one controlled functional task per backend, no success-rate claim |
-| P5 | Mapping, collection, conversion/training workflow, calibration UI/version management | Same formats and configured collection timing; training remains on GPU; changing computers alone does not imply recalibration |
-| P6 | Publish measured environment and limitations | Only passed combinations become supported configurations |
+```bash
+source /opt/ros/humble/setup.bash
+source .venv/robot/bin/activate
+cd ros2_ws
+source install/setup.bash
+python "$(command -v colcon)" test --executor sequential --event-handlers console_cohesion+
+colcon test-result --verbose
+cd ..
+./tools/doctor robot
+```
 
-Test control first at low load, then with cameras, voice, person finding and
-web activity. A 50 Hz loop has a 20 ms period; PREEMPT alone is not deadline
-evidence. Compare measurements with the laptop baseline and existing timeout
-constraints. Verify independence with the laptop disconnected and another
-browser device available to the on-site operator.
-
-## Assets and rollback
-
-Preserve the laptop's working revision and local state. Copy only required
-active versions, maps/places, models and audio; preserve symlinks and check
-absolute paths. Do not copy environments/caches wholesale or commit `.env`.
-Same-robot calibration can be retained only if the relevant physical mounts
-are unchanged. Moving cameras, tags or mechanics requires rechecking affected
-calibration. Do not activate experimental drafts as part of the computer swap.
-Use `status`/`render` and the [replacement guide](calibration-versions.md).
-
-To return to the laptop, stop all X1 robot nodes before reconnecting devices.
-Never allow both computers to own the motors. If hardware geometry changed,
-the laptop's previous calibration is not automatically valid either.
-
-## Later: on-device AI
-
-After controller acceptance, evaluate CPU/NPU person detection, speech or VLM
-one at a time, measuring quality, latency and control load. Historical AidLux
-Qwen2.5-VL experiments are not a drop-in replacement for the configured Qwen3-VL
-contract. Keep ACT/SAM 2/GPD and training on the GPU first. Treat model migration
-and AlohaMini body changes as separate projects.
-
-Next decision: agree on the X1 runtime exception before P1. This plan does not
-authorize disconnecting the laptop, installing the full stack or moving motors.
+P1 requires workspace build, HMI tests/build, software tests and all five public
+help commands. Missing device/calibration/map/GPU doctor errors identify remaining
+commissioning work, not a build failure, and still block live operation.
+P2 checks peripherals (target 30-minute acquisition). P3 checks each authorized
+motion and 50 Hz timing under progressive load. P4 qualifies the full ACT demo,
+centroid/GPD, voice and HMI independently of the laptop. P5 qualifies mapping,
+collection, conversion, GPU training dispatch and calibration replacement.
+All real motion requires explicit `--hardware` and authorization for that test;
+installation permission is not permission to move the robot. Preserve the laptop
+for rollback and stop the other controller before switching hosts. NPU inference
+and mechanical changes remain separate follow-up work.

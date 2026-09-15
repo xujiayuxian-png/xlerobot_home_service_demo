@@ -17,6 +17,35 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class PublicToolsTest(unittest.TestCase):
+    def test_robot_platform_selection_is_limited_to_reference_and_x1(self):
+        for version, architecture, expected in [
+            ('24.04', 'x86_64', 'jazzy robot.txt'),
+            ('22.04', 'aarch64', 'humble robot-x1.txt'),
+            ('22.04', 'x86_64', None),
+            ('24.04', 'aarch64', None),
+        ]:
+            with self.subTest(version=version, architecture=architecture):
+                result = subprocess.run([
+                    'bash', '-eu', '-c',
+                    'source tools/lib/common.sh; '
+                    'select_robot_platform ubuntu "$1" "$2"; '
+                    'echo "$robot_ros_distro $robot_requirements"',
+                    'platform-test', version, architecture,
+                ], cwd=ROOT, capture_output=True, text=True, check=False)
+                if expected is None:
+                    self.assertNotEqual(result.returncode, 0)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.strip(), expected)
+
+    def test_gpu_rejects_robot_system_only_before_installing(self):
+        result = subprocess.run(
+            [str(ROOT / 'tools/setup'), 'gpu', '--system-only'],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('robot-only setup flags', result.stderr)
+
     def test_documentation_image_links_and_languages(self):
         # Include package READMEs, examples and assets, not just docs/en.
         files = subprocess.check_output(

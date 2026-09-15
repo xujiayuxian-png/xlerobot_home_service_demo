@@ -1,0 +1,6 @@
+# Optional AGPL detector. Use CPU wheels: PyPI ARM64 torch now pulls CUDA too.
+-c robot-x1.txt
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.12.0+cpu
+torchvision==0.27.0+cpu
+ultralytics==8.4.58

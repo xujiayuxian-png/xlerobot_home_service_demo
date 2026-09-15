@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include <pluginlib/class_list_macros.hpp>
@@ -14,6 +15,18 @@ namespace xlerobot_leader_teleop
 
 namespace
 {
+
+template<typename Interface>
+bool command_torque(Interface & interface, double value)
+{
+  // Humble writes synchronously and returns void; Jazzy reports write failure.
+  if constexpr (std::is_void_v<decltype(interface.set_value(value))>) {
+    interface.set_value(value);
+    return true;
+  } else {
+    return interface.set_value(value);
+  }
+}
 
 std::int64_t steady_now_ns()
 {
@@ -85,7 +98,7 @@ controller_interface::CallbackReturn LeaderTorqueController::clear_lease_and_tor
     return controller_interface::CallbackReturn::SUCCESS;
   }
   if (command_interfaces_.size() != 1 ||
-    !command_interfaces_[0].set_value(0.0))
+    !command_torque(command_interfaces_[0], 0.0))
   {
     RCLCPP_ERROR(
       get_node()->get_logger(),
@@ -138,7 +151,7 @@ controller_interface::return_type LeaderTorqueController::update(
       deadline_ns, 0, std::memory_order_acq_rel);
   }
   if (command_interfaces_.size() != 1 ||
-    !command_interfaces_[0].set_value(enabled ? 1.0 : 0.0))
+    !command_torque(command_interfaces_[0], enabled ? 1.0 : 0.0))
   {
     return controller_interface::return_type::ERROR;
   }

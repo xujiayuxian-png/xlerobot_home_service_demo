@@ -173,13 +173,31 @@ def test_diagnostics_accept_serialized_ros_byte_levels():
     assert not node._live_readiness()[0]
 
 
-def test_camera_subscriptions_use_sensor_data_qos():
-    source = (
-        Path(__file__).parents[1]
-        / 'xlerobot_task'
-        / 'fetch_deliver_task_node.py'
-    ).read_text(encoding='utf-8')
-    assert source.count('qos_profile_sensor_data,') >= 4
+def test_camera_health_rejects_stale_frames_old_diagnostics_and_recovers():
+    from diagnostic_msgs.msg import DiagnosticArray, KeyValue
+
+    node = bare_node()
+    node.get_clock = lambda: SimpleNamespace(now=lambda: SimpleNamespace(nanoseconds=10_000_000_000))
+    health = DiagnosticArray()
+    health.header.stamp.sec = 10
+    health.status = [DiagnosticStatus(name='xlerobot/camera/wrist', values=[
+        KeyValue(key='age_s', value='0.1')])]
+    node._on_camera_health(health)
+    assert node._live_readiness()[0]
+    health.status[0].values[0].value = '2.0'
+    node._on_camera_health(health)
+    assert not node._live_readiness()[0]
+    health.status[0].values[0].value = '0.1'
+    health.header.stamp.sec = 8
+    node._on_camera_health(health)
+    assert not node._live_readiness()[0]
+    health.header.stamp.sec = 10
+    node._on_camera_health(health)
+    assert node._live_readiness()[0]
+    for invalid in ('nan', 'inf', '-1', 'broken'):
+        health.status[0].values[0].value = invalid
+        node._on_camera_health(health)
+        assert not node._live_readiness()[0]
 
 
 def test_readiness_joint_state_requires_every_finite_demo_joint():

@@ -102,18 +102,21 @@ class FixedTargetDetector:
                 ], dtype=np.float32)
         return points
 
+    def _detect_markers(self, gray):
+        if hasattr(aruco, 'detectMarkers'):
+            return aruco.detectMarkers(gray, self.dictionary, parameters=self.parameters)
+        return aruco.ArucoDetector(self.dictionary, self.parameters).detectMarkers(gray)
+
     def detect(self, image_bgr, camera_matrix, distortion):
         """Detect marker corners then estimate the configured target."""
         gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
-        corners, ids, _ = aruco.detectMarkers(
-            gray, self.dictionary, parameters=self.parameters
-        )
+        corners, ids, _ = self._detect_markers(gray)
         return self.estimate(corners, ids, camera_matrix, distortion)
 
     def detect_with_debug(self, image_bgr, camera_matrix, distortion):
         """Detect once and annotate the same image, including rejected targets."""
         gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
-        corners, ids, _ = aruco.detectMarkers(gray, self.dictionary, parameters=self.parameters)
+        corners, ids, _ = self._detect_markers(gray)
         estimate = self.estimate(corners, ids, camera_matrix, distortion)
         debug = image_bgr.copy()
         if ids is not None and len(ids):
@@ -182,16 +185,27 @@ class FixedTargetDetector:
             return None
         marker = np.asarray(corners[matches[0]], dtype=np.float32)
         tag_size = float(self.target['tag_size_m'])
-        rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(
-            marker, tag_size, camera_matrix, distortion
-        )
-        rvec = rvecs[0].reshape(3, 1)
-        tvec = tvecs[0].reshape(3, 1)
         half = tag_size * 0.5
         object_points = np.asarray([
             [-half, half, 0.0], [half, half, 0.0],
             [half, -half, 0.0], [-half, -half, 0.0],
         ], dtype=np.float32)
+        if hasattr(aruco, 'estimatePoseSingleMarkers'):
+            rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(
+                marker, tag_size, camera_matrix, distortion
+            )
+            rvec = rvecs[0].reshape(3, 1)
+            tvec = tvecs[0].reshape(3, 1)
+        else:
+            # Same centered corner convention and iterative solver as the
+            # legacy helper, which is absent from current non-contrib wheels.
+            ok, rvec, tvec = cv2.solvePnP(
+                object_points, marker[0], camera_matrix, distortion,
+                flags=cv2.SOLVEPNP_ITERATIVE,
+            )
+            if not ok:
+                self.diagnostic['detail'] = 'tag detected, but pose estimation failed'
+                return None
         error = _rmse(
             object_points, marker[0], rvec, tvec, camera_matrix, distortion
         )

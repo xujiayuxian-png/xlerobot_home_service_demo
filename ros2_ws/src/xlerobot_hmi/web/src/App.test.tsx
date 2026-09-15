@@ -298,6 +298,11 @@ describe('operator console API', () => {
 
     render(<App />)
     expect(await screen.findByText('发起取物递送')).toBeTruthy()
+    expect(document.querySelector('img[src*="/cameras/"]')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '打开视频' }))
+    expect(document.querySelectorAll('img[src*="/cameras/"]')).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: '关闭视频' }))
+    expect(document.querySelector('img[src*="/cameras/"]')).toBeNull()
     expect(screen.queryByLabelText('底盘摇杆')).toBeNull()
     expect(socketCount).toBe(0)
     fireEvent.click(screen.getByRole('button', { name: '手动控制' }))

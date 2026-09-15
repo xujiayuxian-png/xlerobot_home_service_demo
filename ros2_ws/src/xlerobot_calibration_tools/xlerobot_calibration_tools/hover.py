@@ -60,9 +60,8 @@ class HoverDetector:
         return board, tag
 
     def detect(self, image, camera, distortion):
-        corners, ids, _ = cv2.aruco.detectMarkers(
-            cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), self.board.dictionary,
-            parameters=self.board.parameters)
+        corners, ids, _ = self.board._detect_markers(
+            cv2.cvtColor(image, cv2.COLOR_BGR2GRAY))
         return self.estimate(corners, ids, camera, distortion)
 
 

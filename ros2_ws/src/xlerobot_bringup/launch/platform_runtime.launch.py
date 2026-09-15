@@ -1,5 +1,7 @@
 """Start the canonical runtime, optionally owning only the two head servos."""
 
+import os
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, RegisterEventHandler
 from launch.event_handlers import OnProcessExit
@@ -88,8 +90,9 @@ def _runtime_nodes(context):
         package='controller_manager', executable='spawner', output='screen',
         arguments=[
             'base_controller', '-c', '/controller_manager',
+        ] + ([] if os.environ.get('ROS_DISTRO') == 'humble' else [
             '--controller-ros-args', '--ros-args --remap ~/odom:=/odom',
-        ],
+        ]),
     )
     normal_spawner = Node(
         package='xlerobot_bringup', executable='position_ready_spawner', output='screen',
@@ -120,6 +123,7 @@ def _runtime_nodes(context):
         Node(
             package='controller_manager', executable='ros2_control_node',
             parameters=[description, controllers], output='screen',
+            remappings=[('/base_controller/odom', '/odom')],
         ),
         Node(
             package='xlerobot_base', executable='drive_safety_node',

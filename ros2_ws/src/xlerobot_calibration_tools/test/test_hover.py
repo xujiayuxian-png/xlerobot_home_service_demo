@@ -43,6 +43,11 @@ def test_partial_board_hover_does_not_relax_calibration_gate():
     assert len(detector.board._board) == 16
 
 
+def test_hover_image_detection_preserves_missing_board_gate():
+    with pytest.raises(ValueError, match='3'):
+        HoverDetector().detect(np.zeros((480, 640, 3), dtype=np.uint8), CAMERA, DISTORTION)
+
+
 @pytest.mark.parametrize('visible', [[0, 1], [0, 1, 2], [0, 4, 8]])
 def test_occluded_or_collinear_board_refused(visible):
     detector, corners, ids = detections(visible)

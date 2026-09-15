@@ -43,7 +43,12 @@ from rclpy.qos import (
 )
 from rclpy.time import Time
 from sensor_msgs.msg import Image, LaserScan
-from slam_toolbox.srv import Reset, SaveMap
+from slam_toolbox.srv import SaveMap
+try:
+    from slam_toolbox.srv import Reset
+except ImportError:
+    # Humble has no live-map Reset; Clear only clears interactive edits.
+    Reset = None
 from std_msgs.msg import Bool, String
 from std_srvs.srv import SetBool, Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
@@ -366,6 +371,7 @@ class OperatorConsoleNode(Node):
 
     def __init__(self):
         super().__init__('xlerobot_operator_console')
+        self.x1_low_load = bool(self.declare_parameter('x1_low_load', False).value)
         self.declare_parameter('bind_host', '0.0.0.0')
         self.declare_parameter('port', 8080)
         self.declare_parameter('artifact_root', '.xlerobot/artifacts')
@@ -420,6 +426,10 @@ class OperatorConsoleNode(Node):
         self._camera_frames: dict[str, tuple[int, bytes]] = {}
         self._camera_last_encoded: dict[str, float] = {}
         self._camera_received_at: dict[str, float] = {}
+        self._camera_demand_lock = threading.RLock()
+        self._camera_viewers = {}
+        self._camera_subscriptions = {}
+        self._camera_generation = {}
         self._observation_lock = threading.Lock()
         self._observation_frames: dict[str, bytes] = {}
         self._perception_state: dict[str, Any] | None = None
@@ -462,16 +472,16 @@ class OperatorConsoleNode(Node):
         self.create_subscription(
             DiagnosticArray, '/diagnostics', self._on_diagnostics, 20
         )
-        self.create_subscription(
-            Image, str(self.parameter('head_camera_topic')),
-            lambda message: self._on_image('head', message),
-            qos_profile_sensor_data,
-        )
-        self.create_subscription(
-            Image, str(self.parameter('wrist_camera_topic')),
-            lambda message: self._on_image('wrist', message),
-            qos_profile_sensor_data,
-        )
+        if self.x1_low_load:
+            self.create_subscription(
+                DiagnosticArray, '/camera/health', self._on_camera_health, 1)
+        else:
+            self.create_subscription(
+                Image, str(self.parameter('head_camera_topic')),
+                lambda message: self._on_image('head', message), qos_profile_sensor_data)
+            self.create_subscription(
+                Image, str(self.parameter('wrist_camera_topic')),
+                lambda message: self._on_image('wrist', message), qos_profile_sensor_data)
         if map_visualization_enabled(str(self.parameter('workspace'))):
             self.create_subscription(
                 OccupancyGrid, '/map', self._on_map, map_qos_profile()
@@ -508,7 +518,8 @@ class OperatorConsoleNode(Node):
             )
         if self._mapping_enabled():
             self.map_saver = self.create_client(SaveMap, '/slam_toolbox/save_map')
-            self.map_resetter = self.create_client(Reset, '/slam_toolbox/reset')
+            self.map_resetter = (self.create_client(Reset, '/slam_toolbox/reset')
+                                 if Reset is not None else None)
         if self._mapping_validation_enabled():
             self.localize_client = ActionClient(
                 self, AutoLocalize, '/auto_localize'
@@ -960,7 +971,8 @@ class OperatorConsoleNode(Node):
             with self._camera_lock:
                 sequence = self._camera_frames.get(camera_id, (0, b''))[0] + 1
                 self._camera_frames[camera_id] = (sequence, jpeg.tobytes())
-                self._camera_received_at[camera_id] = now
+                if not self.x1_low_load:
+                    self._camera_received_at[camera_id] = now
         except (TypeError, ValueError, cv2.error) as error:
             self.get_logger().warning(
                 f'Unable to encode {camera_id} camera frame: {error}',
@@ -970,6 +982,67 @@ class OperatorConsoleNode(Node):
     def camera_frame(self, camera_id: str) -> tuple[int, bytes] | None:
         with self._camera_lock:
             return self._camera_frames.get(camera_id)
+
+    def acquire_camera(self, camera_id):
+        """Share one bounded encoder subscription among all stream clients."""
+        if not self.x1_low_load or camera_id not in ('head', 'wrist'):
+            return
+        with self._camera_demand_lock:
+            if self._camera_viewers.get(camera_id, 0):
+                self._camera_viewers[camera_id] += 1
+                return
+            generation = self._camera_generation.get(camera_id, 0) + 1
+            self._camera_generation[camera_id] = generation
+
+            def receive(message):
+                with self._camera_demand_lock:
+                    if (self._camera_viewers.get(camera_id, 0) and
+                            self._camera_generation.get(camera_id) == generation):
+                        self._on_image(camera_id, message)
+
+            from rclpy.qos import QoSProfile, ReliabilityPolicy
+            subscription = self.create_subscription(
+                Image, str(self.parameter(f'{camera_id}_camera_topic')), receive,
+                QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
+            self._camera_subscriptions[camera_id] = subscription
+            self._camera_viewers[camera_id] = 1
+
+    def release_camera(self, camera_id):
+        """Retire callbacks before destroying the final viewer's subscription."""
+        if not self.x1_low_load or camera_id not in ('head', 'wrist'):
+            return
+        with self._camera_demand_lock:
+            count = self._camera_viewers.get(camera_id, 0)
+            if count > 1:
+                self._camera_viewers[camera_id] = count - 1
+                return
+            self._camera_viewers.pop(camera_id, None)
+            self._camera_generation[camera_id] = self._camera_generation.get(camera_id, 0) + 1
+            subscription = self._camera_subscriptions.pop(camera_id, None)
+            if subscription is not None:
+                self.destroy_subscription(subscription)
+            with self._camera_lock:
+                self._camera_frames.pop(camera_id, None)
+                self._camera_last_encoded.pop(camera_id, None)
+
+    def _on_camera_health(self, message):
+        now = time.monotonic()
+        stamp = message.header.stamp
+        transit = (self.get_clock().now().nanoseconds -
+                   (int(stamp.sec) * 1_000_000_000 + int(stamp.nanosec))) * 1e-9
+        with self._camera_lock:
+            for status in message.status:
+                camera = {'xlerobot/camera/head_color': 'head',
+                          'xlerobot/camera/wrist': 'wrist'}.get(status.name)
+                if camera is None:
+                    continue
+                try:
+                    age = float(next(item.value for item in status.values if item.key == 'age_s'))
+                    valid = math.isfinite(age) and age >= 0 and 0 <= transit <= 1.0
+                except (ValueError, StopIteration):
+                    valid = False
+                self._camera_received_at[camera] = now - age - transit if valid else float('-inf')
+        self._on_diagnostics(message)
 
     def _on_map(self, message: OccupancyGrid) -> None:
         origin = message.info.origin
@@ -1245,8 +1318,8 @@ class OperatorConsoleNode(Node):
                     for camera_id in ('head', 'wrist')
                 }
             requirements.update({
-                'head_camera': camera_age['head'] <= 2.0,
-                'wrist_camera': camera_age['wrist'] <= 2.0,
+                'head_camera': camera_age['head'] <= (1.0 if self.x1_low_load else 2.0),
+                'wrist_camera': camera_age['wrist'] <= (1.0 if self.x1_low_load else 2.0),
             })
         diagnostics = {}
         levels = []
@@ -2592,8 +2665,11 @@ class ConsoleApplication:
         })
         await response.prepare(request)
         last_sequence = -1
+        self.node.acquire_camera(camera_id)
         try:
             while True:
+                if request.transport is None or request.transport.is_closing():
+                    break
                 frame = self.node.camera_frame(camera_id)
                 if frame and frame[0] != last_sequence:
                     last_sequence = frame[0]
@@ -2605,6 +2681,8 @@ class ConsoleApplication:
                 await asyncio.sleep(0.05)
         except (ConnectionResetError, asyncio.CancelledError):
             pass
+        finally:
+            self.node.release_camera(camera_id)
         return response
 
     def _require_engineering_workspace(self, _request: web.Request) -> None:
@@ -2685,6 +2763,9 @@ class ConsoleApplication:
         if owner is None:
             raise web.HTTPConflict(text='end teleoperation and wait for other manual operations first')
         try:
+            if Reset is None:
+                raise web.HTTPNotImplemented(
+                    text='This SLAM version cannot reset a live map; stop and restart the mapping session.')
             response = await self._call_service(
                 self.node.map_resetter, Reset.Request(pause_new_measurements=False), 10.0,
             )

@@ -22,6 +22,7 @@
 #include <xlerobot_interfaces/action/auto_localize.hpp>
 #include <xlerobot_interfaces/msg/capability_error.hpp>
 
+#include "xlerobot_navigation/nav2_result.hpp"
 #include "xlerobot_navigation/localization_core.hpp"
 
 namespace xlerobot_navigation
@@ -112,7 +113,8 @@ public:
     spin_client_ = rclcpp_action::create_client<Spin>(this, spin_action_name_);
     action_server_ = rclcpp_action::create_server<AutoLocalize>(
       this, action_name_,
-      std::bind(&AutoLocalizerServer::handle_goal, this, std::placeholders::_1,
+      std::bind(
+        &AutoLocalizerServer::handle_goal, this, std::placeholders::_1,
         std::placeholders::_2),
       std::bind(&AutoLocalizerServer::handle_cancel, this, std::placeholders::_1),
       std::bind(&AutoLocalizerServer::handle_accepted, this, std::placeholders::_1));
@@ -204,7 +206,8 @@ private:
       return;
     }
     if (!execution_enabled_) {
-      abort(goal_handle, result, CapabilityError::SAFETY_REJECTED,
+      abort(
+        goal_handle, result, CapabilityError::SAFETY_REJECTED,
         "execution_enabled is false");
       return;
     }
@@ -230,7 +233,8 @@ private:
       if (shutting_down_ || !rclcpp::ok() ||
         std::chrono::steady_clock::now() >= service_deadline)
       {
-        abort(goal_handle, result, CapabilityError::UNAVAILABLE,
+        abort(
+          goal_handle, result, CapabilityError::UNAVAILABLE,
           global_localization_service_ + " unavailable");
         return false;
       }
@@ -242,7 +246,8 @@ private:
       if (goal_handle->is_canceling()) {
         cancel_outer(goal_handle, result, "canceled while scattering AMCL particles");
       } else {
-        abort(goal_handle, result, CapabilityError::TIMEOUT,
+        abort(
+          goal_handle, result, CapabilityError::TIMEOUT,
           "AMCL global localization request timed out");
       }
       return false;
@@ -250,7 +255,8 @@ private:
     try {
       static_cast<void>(future.get());
     } catch (const std::exception & error) {
-      abort(goal_handle, result, CapabilityError::BACKEND_FAILURE,
+      abort(
+        goal_handle, result, CapabilityError::BACKEND_FAILURE,
         std::string("AMCL global localization failed: ") + error.what());
       return false;
     }
@@ -359,7 +365,8 @@ private:
       }
       if (converged) {
         if (!cancel_spin_and_wait(spin_handle, spin_result_future, 2.0)) {
-          abort(outer, result, CapabilityError::TIMEOUT,
+          abort(
+            outer, result, CapabilityError::TIMEOUT,
             "Nav2 Spin did not stop after convergence cancellation");
           return;
         }
@@ -369,7 +376,8 @@ private:
           return;
         }
         if (settle_status == SettleStatus::kTimeout) {
-          abort(outer, result, CapabilityError::TIMEOUT,
+          abort(
+            outer, result, CapabilityError::TIMEOUT,
             "odom did not confirm a stable stop after Nav2 Spin cancellation");
           return;
         }
@@ -378,7 +386,8 @@ private:
         if (!pose_is_fresh(final_state) ||
           !convergence_tracker_->is_within_threshold(final_state.quality, rotated_rad))
         {
-          abort(outer, result, CapabilityError::BACKEND_FAILURE,
+          abort(
+            outer, result, CapabilityError::BACKEND_FAILURE,
             "AMCL convergence was lost while rotation settled");
           return;
         }
@@ -402,18 +411,21 @@ private:
       if (spin_result_future.wait_for(0ms) == std::future_status::ready) {
         const auto wrapped = spin_result_future.get();
         fill_result_state(*result);
-        if (wrapped.result && wrapped.result->error_code == Spin::Result::TIMEOUT) {
-          abort(outer, result, CapabilityError::TIMEOUT,
+        if (wrapped.result && Nav2Result<Spin::Result>::timeout(*wrapped.result)) {
+          abort(
+            outer, result, CapabilityError::TIMEOUT,
             "Nav2 Spin timed out before AMCL converged");
         } else {
-          abort(outer, result, CapabilityError::BACKEND_FAILURE,
+          abort(
+            outer, result, CapabilityError::BACKEND_FAILURE,
             "maximum localization rotation reached without convergence");
         }
         return;
       }
       if (current >= deadline) {
         static_cast<void>(cancel_spin_and_wait(spin_handle, spin_result_future, 2.0));
-        abort(outer, result, CapabilityError::TIMEOUT,
+        abort(
+          outer, result, CapabilityError::TIMEOUT,
           "auto localization exceeded its deadline");
         return;
       }
@@ -451,7 +463,8 @@ private:
       if (outer->is_canceling()) {
         cancel_outer(outer, result, "canceled while checking Nav2 lifecycle state");
       } else {
-        abort(outer, result, CapabilityError::UNAVAILABLE,
+        abort(
+          outer, result, CapabilityError::UNAVAILABLE,
           "Nav2 lifecycle status service unavailable");
       }
       return false;
@@ -462,7 +475,8 @@ private:
       if (outer->is_canceling()) {
         cancel_outer(outer, result, "canceled while checking Nav2 lifecycle state");
       } else {
-        abort(outer, result, CapabilityError::TIMEOUT,
+        abort(
+          outer, result, CapabilityError::TIMEOUT,
           "Nav2 lifecycle status request timed out");
       }
       return false;
@@ -472,7 +486,8 @@ private:
         return true;
       }
     } catch (const std::exception & error) {
-      abort(outer, result, CapabilityError::BACKEND_FAILURE,
+      abort(
+        outer, result, CapabilityError::BACKEND_FAILURE,
         std::string("Nav2 lifecycle status request failed: ") + error.what());
       return false;
     }
@@ -481,7 +496,8 @@ private:
       if (outer->is_canceling()) {
         cancel_outer(outer, result, "canceled before Nav2 lifecycle startup");
       } else {
-        abort(outer, result, CapabilityError::UNAVAILABLE,
+        abort(
+          outer, result, CapabilityError::UNAVAILABLE,
           "Nav2 lifecycle management service unavailable");
       }
       return false;
@@ -493,19 +509,22 @@ private:
       if (outer->is_canceling()) {
         cancel_outer(outer, result, "canceled during Nav2 lifecycle startup");
       } else {
-        abort(outer, result, CapabilityError::TIMEOUT,
+        abort(
+          outer, result, CapabilityError::TIMEOUT,
           "Nav2 lifecycle startup timed out");
       }
       return false;
     }
     try {
       if (!startup_future.get()->success) {
-        abort(outer, result, CapabilityError::BACKEND_FAILURE,
+        abort(
+          outer, result, CapabilityError::BACKEND_FAILURE,
           "Nav2 lifecycle manager rejected navigation startup");
         return false;
       }
     } catch (const std::exception & error) {
-      abort(outer, result, CapabilityError::BACKEND_FAILURE,
+      abort(
+        outer, result, CapabilityError::BACKEND_FAILURE,
         std::string("Nav2 lifecycle startup failed: ") + error.what());
       return false;
     }

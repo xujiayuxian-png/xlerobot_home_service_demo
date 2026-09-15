@@ -27,6 +27,7 @@ def generate_launch_description():
                 name='fetch_deliver_task',
                 output='screen',
                 parameters=[config, {
+                    'x1_low_load': ParameterValue(LaunchConfiguration('x1_low_load', default='false'), value_type=bool),
                     'speech_enabled': ParameterValue(
                         LaunchConfiguration('speech_enabled'), value_type=bool
                     ),

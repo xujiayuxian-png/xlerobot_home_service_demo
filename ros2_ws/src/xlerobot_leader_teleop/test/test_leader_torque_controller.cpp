@@ -38,6 +38,7 @@ TEST(
   HeartbeatExpiryAndLifecycleTransitionsCommandTorqueOff)
 {
   xlerobot_leader_teleop::LeaderTorqueController controller;
+#if __has_include(<hardware_interface/types/hardware_component_interface_params.hpp>)
   controller_interface::ControllerInterfaceParams parameters;
   parameters.controller_name = "leader_torque_controller";
   parameters.update_rate = 50;
@@ -47,6 +48,15 @@ TEST(
       rclcpp::Parameter("enable_lease_s", 0.12)});
   ASSERT_EQ(
     controller.init(parameters), controller_interface::return_type::OK);
+#else
+  auto options = rclcpp::NodeOptions()
+    .allow_undeclared_parameters(true)
+    .automatically_declare_parameters_from_overrides(true);
+  options.parameter_overrides({rclcpp::Parameter("enable_lease_s", 0.12)});
+  ASSERT_EQ(
+    controller.init("leader_torque_controller", "/leader", options),
+    controller_interface::return_type::OK);
+#endif
   ASSERT_EQ(
     controller.configure().id(),
     lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE);
@@ -55,7 +65,11 @@ TEST(
   auto command = std::make_shared<hardware_interface::CommandInterface>(
     "leader_bus", "torque_enable", &torque_enable);
   std::vector<hardware_interface::LoanedCommandInterface> commands;
+#if __has_include(<hardware_interface/types/hardware_component_interface_params.hpp>)
   commands.emplace_back(command, []() {});
+#else
+  commands.emplace_back(*command, []() {});
+#endif
   controller.assign_interfaces(std::move(commands), {});
   ASSERT_EQ(
     controller.get_node()->activate().id(),

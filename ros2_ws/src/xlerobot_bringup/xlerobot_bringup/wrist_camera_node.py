@@ -15,6 +15,7 @@ import cv2
 from cv_bridge import CvBridge
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CameraInfo, Image
 
 
@@ -32,6 +33,7 @@ class WristCameraNode(Node):
         self.declare_parameter('fps', 10.0)
         self.declare_parameter('pixel_format', 'MJPG')
         self.declare_parameter('topic', '/right_wrist_camera/image_raw')
+        self.low_load = bool(self.declare_parameter('x1_low_load', False).value)
 
         self.device = str(self.get_parameter('video_device').value)
         self.frame_id = str(self.get_parameter('camera_frame_id').value)
@@ -50,7 +52,9 @@ class WristCameraNode(Node):
             raise ValueError('wrist camera dimensions and fps must be positive')
 
         self.bridge = CvBridge()
-        self.image_publisher = self.create_publisher(Image, topic, 10)
+        image_qos = (QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+                     if self.low_load else 10)
+        self.image_publisher = self.create_publisher(Image, topic, image_qos)
         self.info_publisher = self.create_publisher(CameraInfo, '~/camera_info', 10)
         self.capture = None
         if not self._open_capture():
@@ -88,12 +92,14 @@ class WristCameraNode(Node):
             return False
         self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-        self.capture.set(cv2.CAP_PROP_FPS, self.fps)
         if len(self.pixel_format) >= 4:
             self.capture.set(
                 cv2.CAP_PROP_FOURCC,
                 cv2.VideoWriter_fourcc(*self.pixel_format[:4]),
             )
+        self.capture.set(cv2.CAP_PROP_FPS, self.fps)
+        if self.low_load and not self.capture.set(cv2.CAP_PROP_BUFFERSIZE, 1):
+            self.get_logger().warning('V4L2 could not bound the capture queue to one frame')
         return True
 
     @staticmethod
@@ -101,6 +107,8 @@ class WristCameraNode(Node):
         return ''.join(chr((value >> (8 * index)) & 0xff) for index in range(4))
 
     def _publish_frame(self) -> None:
+        # Conservative host acquisition time, not a new timestamp after decode.
+        stamp = self.get_clock().now().to_msg()
         try:
             success, bgr = self.capture.read()
         except cv2.error as exc:
@@ -110,7 +118,6 @@ class WristCameraNode(Node):
             self._capture_failed('failed to capture wrist frame')
             return
         self.capture_failures = 0
-        stamp = self.get_clock().now().to_msg()
         image = self.bridge.cv2_to_imgmsg(bgr, encoding='bgr8')
         image.header.stamp = stamp
         image.header.frame_id = self.frame_id

@@ -1,0 +1,3 @@
+/**/leader_torque_controller:
+  ros__parameters:
+    enable_lease_s: $(var control_enable_lease_s)

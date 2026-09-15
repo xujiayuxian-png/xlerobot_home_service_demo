@@ -1,5 +1,8 @@
 """One-command composition for the complete fetch-and-deliver demo."""
 
+import os
+import platform
+
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -12,6 +15,7 @@ from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -50,6 +54,8 @@ def _append_entrypoints(actions, context, live):
                         ]
                     ),
                     {
+                        'x1_low_load': ParameterValue(LaunchConfiguration('x1_low_load', default='false'), value_type=bool),
+                        'x1_asr_threads': ParameterValue(LaunchConfiguration('x1_asr_threads', default='2'), value_type=int),
                         'audio_enabled': live,
                         'intent_backend_enabled': live,
                         'task_dry_run': not live,
@@ -74,6 +80,7 @@ def _append_entrypoints(actions, context, live):
             output='screen',
             parameters=[
                 {
+                    'x1_low_load': ParameterValue(LaunchConfiguration('x1_low_load', default='false'), value_type=bool),
                     'bind_host': LaunchConfiguration('web_bind_host'),
                     'port': LaunchConfiguration('web_port'),
                     'artifact_root': LaunchConfiguration('artifact_root'),
@@ -83,6 +90,10 @@ def _append_entrypoints(actions, context, live):
                     'places_file': LaunchConfiguration('places_file'),
                     'workspace': 'operator',
                     'enable_engineering_tools': False,
+                    'camera_max_fps': (
+                        3.0 if os.environ.get('ROS_DISTRO') == 'humble'
+                        and platform.machine() == 'aarch64' else 10.0
+                    ),
                 }
             ],
         )
@@ -105,6 +116,7 @@ def _runtime(context):
             'live demo requires hardware_enabled:=true; no device was opened'
         )
     live = True
+    low_load = LaunchConfiguration('x1_low_load', default='false').perform(context) == 'true'
     enabled = 'true'
     perception_mode = 'observe'
     map_file = LaunchConfiguration('map').perform(context)
@@ -189,6 +201,8 @@ def _runtime(context):
                 output='screen',
                 parameters=[
                     {
+                        'x1_low_load': low_load,
+                        'x1_act_wrist_only': ParameterValue(LaunchConfiguration('x1_act_wrist_only', default='false'), value_type=bool),
                         'backend_enabled': live,
                         'capture_only_mode': False,
                         'predict_url': LaunchConfiguration('act_predict_url'),
@@ -258,8 +272,14 @@ def _runtime(context):
                 'speak_text.launch.py',
                 {
                     'backend_enabled': LaunchConfiguration('enable_tts'),
-                    'audio_player_device': LaunchConfiguration('audio_output_device'),
+                    'audio_player_device': '' if low_load else LaunchConfiguration('audio_output_device'),
                     'edge_cache_dir': LaunchConfiguration('tts_cache_dir'),
+                    'config_file': PathJoinSubstitution([
+                        FindPackageShare('xlerobot_voice'), 'config',
+                        'speak_fixed.yaml' if low_load else 'speak_text.yaml']),
+                    'audio_predecode_pcm': 'false' if low_load else (
+                        'true' if os.environ.get('ROS_DISTRO') == 'humble'
+                        and platform.machine() == 'aarch64' else 'false'),
                 },
             ),
             _include(
@@ -277,15 +297,19 @@ def _runtime(context):
             output='screen',
             parameters=[
                 {
+                    'x1_low_load': low_load,
                     'video_device': LaunchConfiguration('wrist_camera_device'),
                     'image_width': 640,
                     'image_height': 480,
-                    'fps': 30.0,
+                    'fps': ParameterValue(LaunchConfiguration('wrist_camera_fps'), value_type=float),
                     'pixel_format': 'MJPG',
                 }
             ],
         )
     )
+    if low_load:
+        actions.append(Node(package='xlerobot_bringup', executable='camera_health',
+                            name='camera_health', output='screen'))
     _append_entrypoints(actions, context, live)
     return actions
 
@@ -294,6 +318,10 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription(
         [
             SetEnvironmentVariable('FASTDDS_BUILTIN_TRANSPORTS', 'UDPv4'),
+            DeclareLaunchArgument('x1_low_load', default_value='false', choices=['true', 'false']),
+            DeclareLaunchArgument('x1_act_wrist_only', default_value='false', choices=['true', 'false']),
+            DeclareLaunchArgument('x1_asr_threads', default_value='2'),
+            DeclareLaunchArgument('wrist_camera_fps', default_value='30.0'),
             DeclareLaunchArgument(
                 'hardware_enabled', default_value='false', choices=['true', 'false'],
                 description='Explicit consent for the live robot demo.',
