@@ -16,14 +16,16 @@ def read(path):
         return ''
 
 
-def snapshot():
+def snapshot(telemetry_cache=None):
     cpu = [int(value) for value in read('/proc/stat').splitlines()[0].split()[1:9]]
     processes = {}
     for directory in Path('/proc').glob('[0-9]*'):
-        fields = read(directory / 'stat').rpartition(') ')[2].split()
+        stat = read(directory / 'stat')
+        fields = stat.rpartition(') ')[2].split()
         if len(fields) < 39:
             continue
-        name = read(directory / 'comm')
+        # stat already contains comm; avoid another /proc open for every PID.
+        name = stat.partition(' (')[2].rpartition(') ')[0]
         processes[directory.name] = {
             'name': name, 'start': fields[19], 'ticks': int(fields[11]) + int(fields[12]),
             'rss_bytes': int(fields[21]) * os.sysconf('SC_PAGE_SIZE'),
@@ -40,14 +42,21 @@ def snapshot():
                     'policy': int(fields[38]), 'rt_priority': int(fields[37]),
                     'ticks': int(fields[11]) + int(fields[12]), 'cpu': int(fields[36]),
                 }
+    now = time.monotonic()
+    cache = {} if telemetry_cache is None else telemetry_cache
+    if not cache or now - cache['sampled_at'] >= 5.0:
+        cache.update(sampled_at=now, values={
+            'cpu_pressure': read('/proc/pressure/cpu'), 'meminfo': read('/proc/meminfo'),
+            'temperature_mC': {read(path.parent / 'type'): read(path)
+                               for path in Path('/sys/class/thermal').glob('thermal_zone*/temp')},
+            'frequency_kHz': {path.parent.name: read(path)
+                              for path in Path('/sys/devices/system/cpu/cpufreq').glob('policy*/scaling_cur_freq')},
+        })
     return {
         'monotonic': time.monotonic(), 'cpu': cpu, 'processes': processes,
         'control_threads': controllers, 'loadavg': read('/proc/loadavg'),
-        'cpu_pressure': read('/proc/pressure/cpu'), 'meminfo': read('/proc/meminfo'),
-        'temperature_mC': {read(path.parent / 'type'): read(path)
-                           for path in Path('/sys/class/thermal').glob('thermal_zone*/temp')},
-        'frequency_kHz': {path.parent.name: read(path)
-                          for path in Path('/sys/devices/system/cpu/cpufreq').glob('policy*/scaling_cur_freq')},
+        'telemetry_age_s': max(0.0, now - cache['sampled_at']),
+        **cache['values'],
     }
 
 
@@ -111,12 +120,13 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.duration <= 7200:
         parser.error('duration must be 1..7200 seconds')
-    before = snapshot()
+    telemetry_cache = {}
+    before = snapshot(telemetry_cache)
     samples = []
     started = time.monotonic()
     for index in range(args.duration):
         time.sleep(max(0, started + index + 1 - time.monotonic()))
-        after = snapshot()
+        after = snapshot(telemetry_cache)
         sample = interval(before, after)
         sample.update({key: value for key, value in after.items() if key not in ('cpu', 'processes')})
         if args.health_url:
