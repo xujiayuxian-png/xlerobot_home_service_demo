@@ -3,6 +3,8 @@
 状态：已在 `x1-native` 分支开始实现，尚未通过整机验收。进度与实测见
 [第一阶段实现记录](x1-native-implementation.md)。基于现有原生 Ubuntu 22.04 / ROS 2 Humble、
 六个在线 CPU、既有地图和标定；ACT、VLM 继续使用现有远程服务。
+下文的现状分析保留重构前的研究背景；当前结果和后续优先级请结合
+[优化复盘](x1-optimization-retrospective.md) 阅读，不把原计划中的预期收益视作已实现收益。
 本次检查时 demo 服务已停止，方案分析没有启动硬件或发起机器人动作。
 讨论更新：本轮维持推理部署现状，Whisper 和人员检测继续在 X1 CPU，ACT/VLM
 继续远程；NPU 迁移另做后续专题。独立 X1 分支已创建，迁移基线为 `bd85c8b`。

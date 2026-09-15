@@ -30,7 +30,11 @@
 ## 源码布局
 
 [犀牛派 X1 主控适配计划](x1-controller-migration.md)：先替代笔记本主控、保留 GPU 推理。
-目前仅完成 SSH 与环境检查，**不是已支持的安装方案**。
+当前 `x1-native` 分支已完成原生部署与第一阶段 CPU 优化，尚未完成完整任务与稳定性验收。
+
+- [X1 优化复盘与后续路线](x1-optimization-retrospective.md)：本次经验、证据边界与下一阶段优先级。
+- [X1 第一阶段实现与实测](x1-native-implementation.md)：代码变化、局部基准、实机启动及待机数据。
+- [完整 demo 低于 60% 的方案](x1-demo-under-60-plan.md)：验收约束与整体重构方向。
 
 | 位置 | 内容 |
 | --- | --- |
