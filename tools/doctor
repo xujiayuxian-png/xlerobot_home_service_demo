@@ -8,6 +8,8 @@ usage() {
   cat <<'EOF'
 Usage: tools/doctor robot|gpu [--config PATH] [--profile --duration SECONDS --label NAME]
        tools/doctor robot --npu-bench yolo|whisper [--help]
+       tools/doctor robot --npu-act-bench [--help]
+       tools/doctor robot --npu-vlm-probe [--help]
 
 Read-only checks only: this command never opens a camera or motor device.
 EOF
@@ -23,6 +25,17 @@ if (($#)) && [[ $1 != -* ]]; then
 fi
 while (($#)); do
   case $1 in
+    --npu-act-bench)
+      [[ $role == robot ]] || die '--npu-act-bench is only available for robot'
+      shift
+      [[ -x "$repo_root/.xlerobot/npu/ort-env/bin/python" ]] || die 'Prepare the isolated NPU experiment environment; see docs/zh-CN/x1-npu-vlm-act-experiments.md'
+      exec "$repo_root/.xlerobot/npu/ort-env/bin/python" "$repo_root/tools/lib/npu_act_bench.py" "$@"
+      ;;
+    --npu-vlm-probe)
+      [[ $role == robot ]] || die '--npu-vlm-probe is only available for robot'
+      shift
+      exec "$repo_root/.venv/robot/bin/python" "$repo_root/tools/lib/npu_vlm_probe.py" "$@"
+      ;;
     --npu-bench)
       [[ $role == robot ]] || die '--npu-bench is only available for robot'
       shift
