@@ -40,6 +40,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/MoveCalibrationPose.action"
   "action/SpeakText.action"
   "srv/ActivateArtifact.srv"
+  "srv/LookupRobotTransform.srv"
   "srv/CaptureCalibrationSample.srv"
   "srv/ImportCalibrationResult.srv"
   "srv/FinalizeEpisode.srv"

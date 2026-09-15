@@ -22,6 +22,7 @@ from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, Image
 from xlerobot_perception.demand_images import DemandImages
 from tf2_ros import Buffer, TransformException, TransformListener
+from .robot_transform_client import RobotTransformClient
 from xlerobot_interfaces.action import ScanForPerson
 from xlerobot_interfaces.msg import CapabilityError, PerceptionObservation
 from xlerobot_perception.detection.yolo import YoloPersonDetector
@@ -106,8 +107,9 @@ class ScanForPersonNode(Node):
         self.frames = RgbdFrameBuffer()
         self._goal_lock = threading.Lock()
         self._goal_active = False
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
+        low_load = bool(self.declare_parameter('x1_low_load', False).value)
+        self.tf_buffer = RobotTransformClient(self, self.group) if low_load else Buffer()
+        self.tf_listener = None if low_load else TransformListener(self.tf_buffer, self)
         self.observation_publisher = self.create_publisher(
             PerceptionObservation, '/perception/observations', 10
         )
@@ -115,7 +117,7 @@ class ScanForPersonNode(Node):
             (Image, self.color_topic, lambda message: self.frames.store('color', message)),
             (Image, self.depth_topic, lambda message: self.frames.store('depth', message)),
             (CameraInfo, self.camera_info_topic, lambda message: self.frames.store('info', message)),
-        ], self.frames.clear, enabled=bool(self.declare_parameter('x1_low_load', False).value))
+        ], self.frames.clear, enabled=low_load)
         self.server = ActionServer(
             self,
             ScanForPerson,

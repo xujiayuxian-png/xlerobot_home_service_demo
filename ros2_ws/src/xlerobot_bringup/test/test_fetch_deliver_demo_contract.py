@@ -146,6 +146,11 @@ def test_x1_profile_propagates_typed_parameters_and_selects_fixed_audio(monkeypa
         return Node(**kwargs)
     monkeypatch.setattr(module, 'Node', capture_node)
     actions = module._runtime(context)  # Construct only: never execute motor actions.
+    assert not any(isinstance(action, IncludeLaunchDescription) and
+        'maintenance_presets.launch.py' in str(action.launch_description_source.location)
+        for action in actions)
+    assert {'robot_state_gateway', 'wrist_camera_native'} <= {
+        node['executable'] for node in nodes}
     assert not context.launch_configurations.get('global_params')
     voice = next(node for node in nodes if node['executable'] == 'voice_assistant')
     parameters = evaluate_parameters(context, normalize_parameters(voice['parameters']))

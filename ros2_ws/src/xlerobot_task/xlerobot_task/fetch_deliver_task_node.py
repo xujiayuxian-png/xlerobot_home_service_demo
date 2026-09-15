@@ -42,6 +42,7 @@ from xlerobot_interfaces.msg import (
     TaskEvent,
 )
 from xlerobot_task.flow import CAPABILITY_SEQUENCE, FetchDeliverRequest, validate_request
+from xlerobot_perception.demand_images import DemandImages
 
 
 READINESS_JOINT_NAMES = (
@@ -370,13 +371,14 @@ class FetchDeliverTaskNode(Node):
             10,
             callback_group=self.group,
         )
-        self.joint_state_subscription = self.create_subscription(
-            JointState,
-            "/joint_states",
-            self._on_joint_state,
-            20,
-            callback_group=self.group,
-        )
+        self.task_joints = DemandImages(
+            self, [(JointState, '/joint_states', self._on_joint_state)],
+            lambda: None, enabled=self.x1_low_load)
+        self.joint_state_subscription = None
+        if self.x1_low_load:
+            self.joint_state_subscription = self.create_subscription(
+                JointState, '/x1/joint_state_summary', self._on_joint_summary,
+                1, callback_group=self.group)
         if self.x1_low_load:
             self.camera_health_subscription = self.create_subscription(
                 DiagnosticArray, '/camera/health', self._on_camera_health, 1,
@@ -724,6 +726,7 @@ class FetchDeliverTaskNode(Node):
             goal_handle.abort()
             return result
         finally:
+            self.task_joints.stop()
             if self.x1_low_load and self.speech_enabled:
                 # All child motion has reached a terminal state before execute
                 # reaches this point. Keep ownership until playback finishes,
@@ -801,6 +804,13 @@ class FetchDeliverTaskNode(Node):
         )
 
     def _move_head_for_detection(self, parent_goal, task_deadline):
+        self.task_joints.start()
+        try:
+            self._move_head_for_detection_active(parent_goal, task_deadline)
+        finally:
+            self.task_joints.stop()
+
+    def _move_head_for_detection_active(self, parent_goal, task_deadline):
         stage_deadline = min(
             task_deadline,
             time.monotonic() + self.stage_timeouts["detect_object"],
@@ -1344,15 +1354,26 @@ class FetchDeliverTaskNode(Node):
         self._latest_amcl_pose = message
 
     def _on_joint_state(self, message) -> None:
+        received_at = time.monotonic()
+        if self.x1_low_load:
+            stamp_ns = message.header.stamp.sec * 1_000_000_000 + message.header.stamp.nanosec
+            age_s = (self.get_clock().now().nanoseconds - stamp_ns) / 1e9
+            if stamp_ns <= 0 or age_s < -0.1 or age_s > self.joint_state_max_age_s:
+                return
+            received_at -= max(0.0, age_s)
         with self._head_condition:
             self._latest_joint_state = message
             self._latest_joint_state_sequence += 1
-            self._latest_joint_state_received_monotonic = time.monotonic()
+            self._latest_joint_state_received_monotonic = received_at
             if readiness_joint_state_valid(message):
                 self._readiness_joint_state_received_monotonic = (
                     self._latest_joint_state_received_monotonic
                 )
             self._head_condition.notify_all()
+
+    def _on_joint_summary(self, message):
+        if not self.task_joints.active:
+            self._on_joint_state(message)
 
     def _on_camera(self, camera: str) -> None:
         self._camera_received_monotonic[camera] = time.monotonic()

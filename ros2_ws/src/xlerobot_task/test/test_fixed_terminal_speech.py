@@ -15,6 +15,7 @@ def test_terminal_prompt_follows_handover_or_confirmed_child_stop(outcome, text)
     node = object.__new__(FetchDeliverTaskNode)
     node.x1_low_load = True
     node.speech_enabled = True
+    node.task_joints = SimpleNamespace(stop=lambda: None)
     node.task_timeout_s = 10
     node.default_standoff_m = 0.5
     node._lock = threading.Lock()

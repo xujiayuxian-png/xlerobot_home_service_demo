@@ -1,6 +1,7 @@
 import os
 import threading
 import time
+import pytest
 
 from action_msgs.msg import GoalStatus
 import rclpy
@@ -129,11 +130,14 @@ def policy_goal(*, dry_run, node=None, with_context=True):
     return goal
 
 
-def test_dry_run_and_session_chunks_never_need_a_controller_or_network():
+@pytest.mark.parametrize('low_load', [False, True])
+def test_dry_run_and_session_chunks_never_need_a_controller_or_network(low_load):
     os.environ['ROS_DOMAIN_ID'] = '84'
     rclpy.init()
     fake = FakeStreamingExecutor()
-    policy = ActPolicyNode(parameter_overrides=[Parameter('backend_enabled', value=True)])
+    policy = ActPolicyNode(parameter_overrides=[Parameter('backend_enabled', value=True),
+        Parameter('x1_low_load', value=low_load),
+        Parameter('x1_act_wrist_only', value=low_load)])
     client_node = Node('act_policy_runtime_client')
     client = ActionClient(client_node, ExecuteLearnedPolicy, 'execute_learned_policy')
     head_pub = client_node.create_publisher(
@@ -188,6 +192,10 @@ def test_dry_run_and_session_chunks_never_need_a_controller_or_network():
     thread.start()
     try:
         assert client.wait_for_server(timeout_sec=3.0)
+        if low_load:
+            assert not policy.images.active
+            assert joint_pub.get_subscription_count() == 0
+            assert wrist_pub.get_subscription_count() == 0
         dry_handle = wait_future(client.send_goal_async(policy_goal(dry_run=True)))
         dry_result = wait_future(dry_handle.get_result_async()).result
         assert dry_result.error.code == CapabilityError.NONE
@@ -264,6 +272,9 @@ def test_dry_run_and_session_chunks_never_need_a_controller_or_network():
         assert canceled.status == GoalStatus.STATUS_CANCELED
         assert canceled.result.error.code == CapabilityError.CANCELED
         assert fake.canceled.wait(timeout=2.0)
+        if low_load:
+            assert not policy.images.active
+            assert all(value is None for value in policy.latest.values())
         cancel_predictions = calls[1 + refill_predictions:]
         assert calls[0] == 'close'
         assert cancel_predictions

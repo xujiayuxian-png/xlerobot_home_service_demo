@@ -2,6 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import threading
 import time
+import pytest
 
 from diagnostic_msgs.msg import DiagnosticStatus
 from rclpy.action import GoalResponse
@@ -19,6 +20,19 @@ class ReadyClient:
 
     def server_is_ready(self):
         return self.ready
+
+
+def test_head_stage_releases_full_rate_joints_on_failure():
+    calls = []
+    node = object.__new__(FetchDeliverTaskNode)
+    node.task_joints = SimpleNamespace(start=lambda: calls.append('start'),
+                                       stop=lambda: calls.append('stop'))
+    def fail(*args):
+        raise RuntimeError('head action failed')
+    node._move_head_for_detection_active = fail
+    with pytest.raises(RuntimeError, match='head action failed'):
+        node._move_head_for_detection(None, 10)
+    assert calls == ['start', 'stop']
 
 
 def bare_node():

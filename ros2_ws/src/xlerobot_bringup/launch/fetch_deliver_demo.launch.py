@@ -190,11 +190,6 @@ def _runtime(context):
                 'streaming_executor.launch.py',
                 {'execution_enabled': enabled},
             ),
-            _include(
-                'xlerobot_manipulation',
-                'maintenance_presets.launch.py',
-                {'execution_enabled': enabled},
-            ),
             Node(
                 package='xlerobot_policy',
                 executable='act_policy_adapter',
@@ -236,6 +231,7 @@ def _runtime(context):
                 output='screen',
                 parameters=[
                     {
+                        'x1_low_load': low_load,
                         'retreat_distance_m': 0.40,
                         'retreat_speed_mps': 0.08,
                         'manual_retreat_extra_timeout_s': 2.0,
@@ -289,10 +285,13 @@ def _runtime(context):
         ]
     )
 
+    if not low_load:
+        actions.append(_include('xlerobot_manipulation', 'maintenance_presets.launch.py',
+                                {'execution_enabled': enabled}))
     actions.append(
         Node(
             package='xlerobot_bringup',
-            executable='wrist_camera_node',
+            executable='wrist_camera_native' if low_load else 'wrist_camera_node',
             name='right_wrist_camera',
             output='screen',
             parameters=[
@@ -308,8 +307,11 @@ def _runtime(context):
         )
     )
     if low_load:
+        actions.append(Node(package='xlerobot_bringup', executable='robot_state_gateway',
+                            name='x1_robot_state', output='screen'))
         actions.append(Node(package='xlerobot_bringup', executable='camera_health',
-                            name='camera_health', output='screen'))
+                            name='camera_health', output='screen',
+                            parameters=[{'external_wrist_health': True}]))
     _append_entrypoints(actions, context, live)
     return actions
 

@@ -193,8 +193,8 @@ export function App() {
       aria-label={t("Operator 视图")}>
       <button className={operatorView === 'demo' ? 'active' : ''}
         onClick={() => setOperatorView('demo')}>{t("Demo 演示")}</button>
-      <button className={operatorView === 'manual' ? 'active' : ''}
-        onClick={() => setOperatorView('manual')}>{t("手动控制")}</button>
+      {!health.demo_only && <button className={operatorView === 'manual' ? 'active' : ''}
+        onClick={() => setOperatorView('manual')}>{t("手动控制")}</button>}
     </nav>}
     {error && <div className="notice">{s(error)}</div>}
     {workspace === 'operator' && <OperatorWorkspace
@@ -1024,10 +1024,10 @@ function OperatorWorkspace({
         state={demoReady ? 'ok' : 'bad'} />
       <StatusMetric label={t("语音")} value={t(voiceNames[health.voice_state]) || health.voice_state}
         state={health.voice_state === 'DISABLED' ? 'muted' : 'ok'} />
-      <StatusMetric label={t("导航地图")} value={mapping?.map ? t("已加载") : t("等待地图")}
-        state={mapping?.map ? 'ok' : 'bad'} />
-      <StatusMetric label={t("机器人位置")} value={mapping?.pose ? t("正在跟踪") : t("等待定位")}
-        state={mapping?.pose ? 'ok' : 'warn'} />
+      {!health.demo_only && <StatusMetric label={t("导航地图")} value={mapping?.map ? t("已加载") : t("等待地图")}
+        state={mapping?.map ? 'ok' : 'bad'} />}
+      {!health.demo_only && <StatusMetric label={t("机器人位置")} value={mapping?.pose ? t("正在跟踪") : t("等待定位")}
+        state={mapping?.pose ? 'ok' : 'warn'} />}
       <StatusMetric label={t("双路相机")} value={health.requirements.head_camera && health.requirements.wrist_camera
         ? t("画面正常") : t("等待画面")}
         state={health.requirements.head_camera && health.requirements.wrist_camera ? 'ok' : 'warn'} />
@@ -1041,14 +1041,14 @@ function OperatorWorkspace({
         {!running && <form onSubmit={submit}>
           <input value={objectId} onChange={event => setObjectId(event.target.value)}
             placeholder={t("输入物体名称，例如：羽毛球")} aria-label={t("物体名")} required />
-          <select value={graspBackend} aria-label={t("抓取路线")}
+          {!health.demo_only && <select value={graspBackend} aria-label={t("抓取路线")}
             onChange={event => setGraspBackend(
               event.target.value as 'act' | 'centroid' | 'gpd',
             )}>
             <option value="act">{t("ACT 学习策略")}</option>
             <option value="centroid">{t("传统 · 质心顶抓")}</option>
             <option value="gpd">{t("传统 · GPD 顶抓")}</option>
-          </select>
+          </select>}
           <button className="primary" disabled={!demoReady}>
             {t("开始任务 ")}</button>
         </form>}
@@ -1065,7 +1065,7 @@ function OperatorWorkspace({
               : t("说“小乐小乐”发起任务；状态会实时更新。")}</p></div></div>
       </article>
     </section>}
-    <section className="operator-observation">
+    {!health.demo_only && <section className="operator-observation">
       <article className="map-card">
         <div className="map-heading"><div><p className="section-label">LIVE NAVIGATION</p>
           <h2>{t("地图与机器人位置")}</h2></div>
@@ -1091,8 +1091,8 @@ function OperatorWorkspace({
           <CameraPreview camera="wrist" perception={null} />
         </div>}
       </article>
-    </section>
-    {view === 'manual' && <section className="operator-controls">
+    </section>}
+    {view === 'manual' && !health.demo_only && <section className="operator-controls">
       <article className="operator-console">
         <div className="console-heading">
           <div><p className="section-label">OPERATOR CONTROL</p>

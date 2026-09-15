@@ -31,6 +31,7 @@ def search_fixture():
     search._odom_lock = threading.Lock()
     search._base_xy = None
     search._goal_active = True
+    search.odom_stream = SimpleNamespace(start=lambda: None, stop=lambda: None)
     return search
 
 

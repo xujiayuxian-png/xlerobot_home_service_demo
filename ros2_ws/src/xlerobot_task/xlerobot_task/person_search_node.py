@@ -20,6 +20,7 @@ from rclpy.node import Node
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from xlerobot_interfaces.action import ScanForPerson
 from xlerobot_interfaces.msg import CapabilityError
+from xlerobot_perception.demand_images import DemandImages
 
 
 class SearchFailure(RuntimeError):
@@ -94,9 +95,9 @@ class PersonSearchNode(Node):
         self._odom_lock = threading.Lock()
         self._base_xy = None
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel_teleop', 10)
-        self.odom_sub = self.create_subscription(
-            Odometry, '/odom', self._on_odom, 10, callback_group=self.group
-        )
+        self.odom_stream = DemandImages(
+            self, [(Odometry, '/odom', self._on_odom)], self._clear_odom,
+            enabled=bool(self.declare_parameter('x1_low_load', False).value))
         self._lock = threading.Lock()
         self._goal_active = False
         self.readiness_publisher = self.create_publisher(
@@ -147,11 +148,20 @@ class PersonSearchNode(Node):
                 return result
 
             if self.retreat_distance_m > 0.0:
+                self.odom_stream.start()
+                odom_deadline = time.monotonic() + 2.0
+                while self._current_base_xy() is None:
+                    if goal_handle.is_cancel_requested:
+                        raise SearchFailure(CapabilityError.CANCELED, 'person search canceled')
+                    if time.monotonic() >= odom_deadline:
+                        raise SearchFailure(CapabilityError.UNAVAILABLE, 'fresh odometry unavailable')
+                    time.sleep(0.02)
                 self._feedback(goal_handle, 'retreat', 0.05, 'retreating before body scan')
                 retreat_start = self._current_base_xy()
                 self._manual_retreat(
                     goal_handle, retreat_start, abs(self.retreat_distance_m)
                 )
+                self.odom_stream.stop()
 
             candidates = []
             total_views = len(self.body_turns_rad) * len(self.scan_pan_rad)
@@ -267,8 +277,13 @@ class PersonSearchNode(Node):
                 goal_handle.abort()
             return result
         finally:
+            self.odom_stream.stop()
             with self._lock:
                 self._goal_active = False
+
+    def _clear_odom(self):
+        with self._odom_lock:
+            self._base_xy = None
 
     def _move_head(self, pan, parent):
         goal = FollowJointTrajectory.Goal()

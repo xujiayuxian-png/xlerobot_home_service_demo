@@ -106,6 +106,7 @@ export interface MappingState {
 }
 
 export interface Health {
+  demo_only?: boolean
   readiness: Readiness
   execute_task_available: boolean
   voice_state: string

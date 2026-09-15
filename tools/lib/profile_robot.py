@@ -57,6 +57,8 @@ def interval(before, after):
     elapsed = after['monotonic'] - before['monotonic']
     result = {
         'elapsed_s': elapsed,
+        'cpu_total_ticks': total,
+        'cpu_busy_ticks': total - differences[3] - differences[4],
         'cpu_busy_percent': 100 * (total - differences[3] - differences[4]) / max(total, 1),
         'cpu_system_percent': 100 * differences[2] / max(total, 1),
         'cpu_irq_percent': 100 * (differences[5] + differences[6]) / max(total, 1),
@@ -69,6 +71,35 @@ def interval(before, after):
             result['processes'].append({'pid': pid, **item, 'cpu_one_core_percent': percent})
     result['processes'].sort(key=lambda item: item['cpu_one_core_percent'], reverse=True)
     return result
+
+
+def rolling_cpu_summary(samples, window_s=10.0, target_percent=60.0):
+    """Windows end at each sample; prorate only the oldest boundary interval."""
+    windows = []
+    elapsed = 0.0
+    for end, sample in enumerate(samples):
+        elapsed += sample['elapsed_s']
+        if elapsed < window_s - 1e-6:
+            continue
+        remaining, total, busy = window_s, 0.0, 0.0
+        for previous_index in range(end, -1, -1):
+            item = samples[previous_index]
+            seconds = item['elapsed_s']
+            fraction = min(remaining, seconds) / seconds
+            # Backward compatibility for reports without raw jiffies.
+            ticks = item.get('cpu_total_ticks', seconds)
+            total += ticks * fraction
+            busy += item.get('cpu_busy_ticks', ticks * item['cpu_busy_percent'] / 100) * fraction
+            remaining -= seconds * fraction
+            if remaining <= 1e-6:
+                break
+        windows.append({'end_s': elapsed, 'cpu_busy_percent': 100 * busy / max(total, 1e-9)})
+    maximum = max((w['cpu_busy_percent'] for w in windows), default=None)
+    return {'window_s': window_s, 'target_percent': target_percent,
+            'max_cpu_busy_percent': maximum,
+            'windows_at_or_above_target': sum(w['cpu_busy_percent'] >= target_percent for w in windows),
+            'passed': maximum is not None and maximum < target_percent,
+            'windows': windows}
 
 
 def main():
@@ -103,6 +134,7 @@ def main():
     report = {'label': args.label, 'time': datetime.now(timezone.utc).isoformat(),
               'online_cpus': read('/sys/devices/system/cpu/online'),
               'mean_cpu_busy_percent': average, 'samples': samples}
+    report['rolling_cpu'] = rolling_cpu_summary(samples)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2))
     args.output.chmod(0o600)

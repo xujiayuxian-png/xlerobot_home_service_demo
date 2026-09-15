@@ -451,8 +451,8 @@ class OperatorConsoleNode(Node):
         self._teleop_last_command = 0.0
         self._teleop_was_active = False
         self._mapping_localized = False
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.tf_buffer = None if self.x1_low_load else Buffer()
+        self.tf_listener = None if self.x1_low_load else TransformListener(self.tf_buffer, self)
         self.create_subscription(String, '/voice/state', self._on_voice_state, 10)
         self.create_subscription(
             String, '/voice/transcript', self._on_voice_transcript, 10
@@ -482,7 +482,7 @@ class OperatorConsoleNode(Node):
             self.create_subscription(
                 Image, str(self.parameter('wrist_camera_topic')),
                 lambda message: self._on_image('wrist', message), qos_profile_sensor_data)
-        if map_visualization_enabled(str(self.parameter('workspace'))):
+        if not self.x1_low_load and map_visualization_enabled(str(self.parameter('workspace'))):
             self.create_subscription(
                 OccupancyGrid, '/map', self._on_map, map_qos_profile()
             )
@@ -509,7 +509,7 @@ class OperatorConsoleNode(Node):
             self.site_activate_client = self.create_client(
                 ActivateArtifact, '/site_manager/activate'
             )
-        if self._mapping_enabled() or str(self.parameter('workspace')) == 'operator':
+        if not self.x1_low_load and (self._mapping_enabled() or str(self.parameter('workspace')) == 'operator'):
             self.declare_parameter('teleop_timeout_s', 0.35)
             self.declare_parameter('teleop_max_linear_mps', 0.12)
             self.declare_parameter('teleop_max_angular_radps', 0.50)
@@ -528,15 +528,16 @@ class OperatorConsoleNode(Node):
                 self, NavigateToNamedPlace, '/navigate_to_named_place'
             )
         if str(self.parameter('workspace')) == 'operator':
-            self.localize_client = ActionClient(
-                self, AutoLocalize, '/auto_localize'
-            )
-            self.named_navigation_client = ActionClient(
-                self, NavigateToNamedPlace, '/navigate_to_named_place'
-            )
-            self.maintenance_preset_client = ActionClient(
-                self, SetMaintenancePreset, '/maintenance_preset'
-            )
+            if not self.x1_low_load:
+                self.localize_client = ActionClient(
+                    self, AutoLocalize, '/auto_localize'
+                )
+                self.named_navigation_client = ActionClient(
+                    self, NavigateToNamedPlace, '/navigate_to_named_place'
+                )
+                self.maintenance_preset_client = ActionClient(
+                    self, SetMaintenancePreset, '/maintenance_preset'
+                )
             self.manual_reservation_client = self.create_client(
                 SetBool, '/execute_task/set_manual_control'
             )
@@ -1153,7 +1154,7 @@ class OperatorConsoleNode(Node):
                 self.stop_teleop()
 
     def mapping_snapshot(self) -> dict[str, Any] | None:
-        if not map_visualization_enabled(str(self.parameter('workspace'))):
+        if self.x1_low_load or not map_visualization_enabled(str(self.parameter('workspace'))):
             return None
         with self._mapping_lock:
             return json.loads(json.dumps(self._mapping_state))
@@ -1345,6 +1346,7 @@ class OperatorConsoleNode(Node):
             readiness = 'READY'
         return {
             'readiness': readiness,
+            'demo_only': self.x1_low_load,
             'workspace': workspace,
             'execute_task_available': action_ready,
             'voice_state': self.voice_state,
@@ -2081,6 +2083,17 @@ class ConsoleApplication:
 
     def build(self) -> web.Application:
         app = web.Application(client_max_size=64 * 1024)
+        if getattr(self.node, 'x1_low_load', False):
+            @web.middleware
+            async def demo_routes(request, handler):
+                allowed = (
+                    '/', '/api/v1/bootstrap', '/api/v1/health', '/api/v1/events',
+                    '/api/v1/tasks', '/api/v1/operator/stop-base')
+                if (request.path not in allowed and
+                    not request.path.startswith(('/api/v1/tasks/', '/assets/'))):
+                    raise web.HTTPNotFound(text='not available in the X1 demo')
+                return await handler(request)
+            app.middlewares.append(demo_routes)
         app.add_routes([
             web.get('/', self.index),
             web.get('/api/v1/bootstrap', self.bootstrap),
@@ -2256,6 +2269,8 @@ class ConsoleApplication:
     async def submit_task(self, request):
         try:
             goal = parse_task_request(await request.json())
+            if getattr(self.node, 'x1_low_load', False) and goal.grasp_backend != 'act':
+                raise ValueError('X1 demo supports the ACT backend only')
         except (ValueError, json.JSONDecodeError) as exc:
             raise web.HTTPBadRequest(text=str(exc)) from exc
         return web.json_response(await self.node.submit_task(goal), status=202)

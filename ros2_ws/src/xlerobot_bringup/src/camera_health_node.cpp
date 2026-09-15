@@ -19,10 +19,12 @@ class CameraHealth : public rclcpp::Node
 public:
   CameraHealth() : Node("camera_health")
   {
+    external_wrist_ = declare_parameter("external_wrist_health", false);
     const std::array<std::string, 4> defaults = {
       "/xlerobot/d455/color/image_raw", "/xlerobot/d455/aligned_depth_to_color/image_raw",
       "/xlerobot/d455/color/camera_info", "/right_wrist_camera/image_raw"};
     for (size_t i = 0; i < names_.size(); ++i) {
+      if (i == 3 && external_wrist_) {continue;}
       const auto topic = declare_parameter(names_[i] + "_topic", defaults[i]);
       if (i == 2) {
         subscriptions_.push_back(create_subscription<sensor_msgs::msg::CameraInfo>(
@@ -67,6 +69,7 @@ private:
     message.header.stamp = now();
     const auto ros_now = rclcpp::Time(message.header.stamp).nanoseconds();
     for (size_t i = 0; i < names_.size(); ++i) {
+      if (i == 3 && external_wrist_) {continue;}
       const auto & sample = samples_[i];
       const double stamp_age = (ros_now - sample.stamp_ns) * 1e-9;
       const double receive_age = std::chrono::duration<double>(Steady::now() - sample.received).count();
@@ -90,6 +93,7 @@ private:
   }
   const std::array<std::string, 4> names_ = {"head_color", "head_depth", "head_camera_info", "wrist"};
   std::array<Sample, 4> samples_;
+  bool external_wrist_{false};
   std::vector<rclcpp::SubscriptionBase::SharedPtr> subscriptions_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr publisher_;
   rclcpp::TimerBase::SharedPtr timer_;

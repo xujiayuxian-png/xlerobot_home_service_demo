@@ -329,14 +329,10 @@ class ActPolicyNode(Node):
         image_specs = [(Image, wrist_topic, lambda message: self._store('wrist', message))]
         if not self.wrist_only:
             image_specs.append((Image, head_topic, lambda message: self._store('head', message)))
-        self.images = DemandImages(self, image_specs, self._clear_images, enabled=low_load)
-        self.create_subscription(
-            JointState,
+        image_specs.append((JointState,
             str(self.declare_parameter('joint_state_topic', '/joint_states').value),
-            lambda message: self._store('joints', message),
-            10,
-            callback_group=self.group,
-        )
+            lambda message: self._store('joints', message)))
+        self.images = DemandImages(self, image_specs, self._clear_images, enabled=low_load)
         self.server = ActionServer(
             self,
             ExecuteLearnedPolicy,
@@ -536,6 +532,7 @@ class ActPolicyNode(Node):
         with self.data_condition:
             self.latest['head'] = None
             self.latest['wrist'] = None
+            self.latest['joints'] = None
 
     def _snapshot(self, goal_handle, executor_handle=None):
         deadline = time.monotonic() + self.sensor_timeout_s
