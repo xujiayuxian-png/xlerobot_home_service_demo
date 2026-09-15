@@ -1,21 +1,22 @@
-<h1 align="center">Xiao Le Robot · XLeRobot Edition</h1>
+<h1 align="center">Xiao Le Robot · X1 On-Device Edition</h1>
 
 <p align="center"><sub>XLeRobot Home Service Demo</sub></p>
 
 <p align="center">
   A slightly modified XLeRobot. A spoken request. An object delivered.<br/>
-  <strong>The demo, calibration tools and grasping backends to reproduce it.</strong>
+  <strong>x1-native: dedicated adaptation for running the complete demo on X1.</strong>
 </p>
 
 <p align="center">
   <a href="README.zh-CN.md">中文</a> ·
+  <a href="docs/zh-CN/x1-single-machine-demo.md">X1 startup guide (中文)</a> ·
   <a href="docs/en/README.md">Documentation</a> ·
   <a href="https://huggingface.co/lissajous/xlerobot-act-local-grasp-v1">ACT weights</a> ·
   <a href="https://huggingface.co/datasets/lissajous/xlerobot-glue-stick-grasp-30">30-demo dataset</a>
 </p>
 
 <p align="center">
-  <a href="https://www.bilibili.com/video/BV1srNg6XEZj"><strong>▶ Full robot demo</strong></a> &nbsp;·&nbsp;
+  <a href="https://www.bilibili.com/video/BV1srNg6XEZj"><strong>▶ Original reference demo</strong></a> &nbsp;·&nbsp;
   <a href="https://www.bilibili.com/video/BV18RK66JEdP">ACT grasping</a> &nbsp;·&nbsp;
   <a href="https://www.bilibili.com/video/BV1GSK66XEqf">Web console</a>
 </p>
@@ -25,7 +26,46 @@
   <br/><sub>URDF visualization, not a photograph. <a href="docs/artwork/README.md">Source &amp; rendering</a> · Real robot in the videos above.</sub>
 </p>
 
-## One robot, two grasp routes
+## This branch: complete on-device deployment on X1
+
+**`x1-native` is dedicated to deployment and optimization on Rhino Pi X1 (QCS8550).**
+It runs natively on Ubuntu 22.04 ARM64 with ROS 2 Humble, without containers.
+The prepared machine uses local inference throughout the demo; no laptop or remote
+GPU service is required at runtime.
+
+| Function | X1 implementation |
+| --- | --- |
+| Wake word and speech prompts | Local lightweight wake word and six fixed audio clips |
+| Chinese transcription | Whisper-base / NPU |
+| Intent, object grounding and visual grasp verification | One shared Qwen2.5-VL-3B / NPU |
+| Person detection | YOLOv8n / NPU |
+| Grasp policy inference | ACT / NPU, with the original weights and wrist images |
+| Localization, navigation, control and web console | Local X1 CPU |
+
+Models load at startup and remain resident. The local profile uses the ACT grasp
+route. Optimization prioritizes reasonable idle overhead and smooth task execution;
+CPU peaks during work are acceptable, and no fixed CPU percentage is a hard gate.
+Each run automatically records CPU, memory, DSP/NPU metrics and task stages.
+
+On an **X1 already prepared with the SDK, models, map and calibration**, run:
+
+```bash
+tools/run demo --hardware
+# Stop
+tools/run demo --stop
+```
+
+See the [X1 single-machine guide (中文)](docs/zh-CN/x1-single-machine-demo.md)
+for startup, resource reports and rollback. Machine settings belong in ignored
+`config/local.yaml`; models, maps, calibration and credentials are not distributed
+with the repository. Cloning alone does not complete deployment.
+
+Local model interfaces, mixed inference and relevant software tests have passed.
+Complete physical fetch-and-deliver validation is still pending. The videos above
+and the two-computer instructions below describe the original reference build;
+they are not evidence of a completed X1 on-device robot test.
+
+## Original reference build: one robot, two grasp routes
 
 The same calibrated robot stack handles the full task: find the table, grasp an
 object, find a person and deliver it. Change the grasp backend, not the demo.
@@ -49,7 +89,10 @@ The published checkpoint was trained on **30 yellow-glue-stick demonstrations
 only**. Shuttlecock grasping is a qualitative generalization demo, not a
 measured success-rate or general-purpose grasping claim.
 
-## Reproduce the demo
+## Original Robot/GPU two-computer setup
+
+The following retains the original Ubuntu 24.04 / Jazzy deployment instructions.
+For this X1 branch, use the single-machine guide above.
 
 The Demo console and operator tools include an **EN / 中文** switch in the top
 bar. Chinese remains the default for the reference workflow; the selected

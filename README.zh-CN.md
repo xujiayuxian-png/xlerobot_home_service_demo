@@ -1,21 +1,22 @@
-<h1 align="center">小乐机器人 · XLeRobot 版</h1>
+<h1 align="center">小乐机器人 · X1 全端侧部署版</h1>
 
 <p align="center"><sub>XLeRobot Home Service Demo</sub></p>
 
 <p align="center">
   对 XLeRobot 稍加改装，听一句指令，把物品送到你手边。<br/>
-  <strong>公开 Demo、标定工具和抓取后端，方便你参考复现。</strong>
+  <strong>x1-native 分支：专门适配 X1 单机运行完整 Demo。</strong>
 </p>
 
 <p align="center">
   <a href="README.md">English</a> ·
+  <a href="docs/zh-CN/x1-single-machine-demo.md">X1 单机启动</a> ·
   <a href="docs/zh-CN/README.md">文档目录</a> ·
   <a href="https://huggingface.co/lissajous/xlerobot-act-local-grasp-v1">ACT 权重</a> ·
   <a href="https://huggingface.co/datasets/lissajous/xlerobot-glue-stick-grasp-30">30 条示教数据</a>
 </p>
 
 <p align="center">
-  <a href="https://www.bilibili.com/video/BV1srNg6XEZj"><strong>▶ 完整真机视频</strong></a> &nbsp;·&nbsp;
+  <a href="https://www.bilibili.com/video/BV1srNg6XEZj"><strong>▶ 原参考版本真机视频</strong></a> &nbsp;·&nbsp;
   <a href="https://www.bilibili.com/video/BV18RK66JEdP">ACT 抓取</a> &nbsp;·&nbsp;
   <a href="https://www.bilibili.com/video/BV1GSK66XEqf">网页操作</a>
 </p>
@@ -25,7 +26,41 @@
   <br/><sub>URDF 可视化，并非实机照片。<a href="docs/artwork/README.md">来源与渲染方法</a> · 实际运行请看上方视频。</sub>
 </p>
 
-## 一台机器人，两条抓取路线
+## 当前分支：X1 全端侧适配
+
+**`x1-native` 专门用于犀牛派 X1（QCS8550）的全端侧部署与优化。**
+在 Ubuntu 22.04 ARM64、ROS 2 Humble 上原生运行，不使用容器。
+本机配置已切到单机推理，运行 Demo 无需笔记本或远程 GPU 服务。
+
+| 功能 | 当前 X1 实现 |
+| --- | --- |
+| 唤醒与播报 | 本地轻量唤醒、六条固定音频 |
+| 中文语音转写 | Whisper-base / NPU |
+| 意图理解、物品框选、抓取视觉判断 | 共用 Qwen2.5-VL-3B / NPU |
+| 人员检测 | YOLOv8n / NPU |
+| 抓取动作推理 | ACT / NPU，使用原权重和腕部图像 |
+| 定位、导航、控制与网页 | X1 本地 CPU |
+
+模型启动时加载并驻留；当前单机配置采用 ACT 抓取路线。
+优化以合理待机开销和实际任务流畅性为目标，允许工作负载峰值，不以 CPU 低于
+某个固定百分比作为硬门槛。每次启动自动记录 CPU、内存、DSP/NPU 指标和任务阶段。
+
+**已准备好本机 SDK、模型、地图和标定的 X1** 可执行：
+
+```bash
+tools/run demo --hardware
+# 停止
+tools/run demo --stop
+```
+
+启动方式、资源记录和回退见 [X1 单机 Demo 指南](docs/zh-CN/x1-single-machine-demo.md)。
+机器配置保存在忽略的 `config/local.yaml`；模型、地图、标定及凭据不随仓库发布，
+克隆仓库本身不等于完成部署。
+
+端侧模型接口、混合推理及相关软件测试已通过，完整取物递送仍待现场验证。
+上方视频及下方双机复现说明属于原参考版本，不作为 X1 全端侧实机验收证据。
+
+## 原参考版本：一台机器人，两条抓取路线
 
 同一套标定和机器人运行栈，完成到桌边、抓取、寻人、递送的完整任务。
 切换的是抓取后端，不是另一套 Demo。
@@ -44,7 +79,9 @@
 默认 **ACT + 羽毛球**，语音和网页开启。发布权重**只使用 30 条黄色胶棒示教训练**。
 羽毛球抓取属于定性泛化演示，不代表统计成功率或通用抓取能力。
 
-## 复现这个 Demo
+## 原参考版本的 Robot/GPU 双机复现
+
+以下保留原 Ubuntu 24.04 / Jazzy 双机部署资料；当前 X1 分支请使用上方单机指南。
 
 主 Demo 和工具页面顶部都提供 **EN / 中文** 切换按钮。默认保持中文，浏览器会记住上次选择；
 物体名、任务 ID、路径、测量数值和数采指令不会被翻译。切换不重启设备会话，也不改变语音链路的语言；

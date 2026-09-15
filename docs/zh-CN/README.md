@@ -4,7 +4,10 @@
 
 ## 跑现成 Demo
 
-X1 当前单机版本见 [X1 单机 Demo：启动与现场测试](x1-single-machine-demo.md)。
+**当前 `x1-native` 分支专门适配 X1 全端侧部署**：Ubuntu 22.04 / ROS 2 Humble
+原生运行，语音转写、VLM、人员检测和 ACT 均使用本机 NPU。
+启动与资源记录见 [X1 单机 Demo：启动与现场测试](x1-single-machine-demo.md)。
+以下 Robot/GPU 双机文档保留为原参考版本资料。
 
 使用发布的 ACT 权重复现视频，**不需要 Leader、下载训练数据或自行训练**。
 
