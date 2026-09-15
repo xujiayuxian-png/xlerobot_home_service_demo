@@ -35,6 +35,7 @@
 - [X1 优化复盘与后续路线](x1-optimization-retrospective.md)：本次经验、证据边界与下一阶段优先级。
 - [X1 第一阶段实现与实测](x1-native-implementation.md)：代码变化、局部基准、实机启动及待机数据。
 - [X1 无人值守开发与离线验证](x1-offline-validation.md)：分组启动、采样器优化与软件验证边界。
+- [X1 NPU 离线探索](x1-npu-experiments.md)：人员检测、中文转写和小模型意图解析的实测及接入边界。
 - [完整 demo 低于 60% 的方案](x1-demo-under-60-plan.md)：验收约束与整体重构方向。
 
 | 位置 | 内容 |
