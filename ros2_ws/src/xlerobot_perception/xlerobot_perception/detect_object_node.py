@@ -193,6 +193,7 @@ class DetectObjectNode(Node):
         )
         self._validate_parameters()
         self.vlm = LmStudioVlmClient(
+            backend=str(self.declare_parameter('vlm_backend', 'lmstudio').value),
             base_url=str(self.declare_parameter(
                 'vlm_base_url', 'http://127.0.0.1:1234'
             ).value),
@@ -284,6 +285,9 @@ class DetectObjectNode(Node):
         validate_dry_run_mode(self.dry_run_mode)
 
     def goal_callback(self, request):
+        if getattr(self.vlm, 'backend', 'lmstudio') == 'npu' and request.grasp_backend != 'act':
+            self.get_logger().error('X1 local inference profile supports ACT grasp only')
+            return GoalResponse.REJECT
         try:
             validate_goal_fields(
                 request.object_id, request.target_frame, request.grasp_backend

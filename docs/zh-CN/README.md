@@ -4,6 +4,8 @@
 
 ## 跑现成 Demo
 
+X1 当前单机版本见 [X1 单机 Demo：启动与现场测试](x1-single-machine-demo.md)。
+
 使用发布的 ACT 权重复现视频，**不需要 Leader、下载训练数据或自行训练**。
 
 1. [硬件](hardware.md)：参考改装、接线和设备别名。
@@ -37,6 +39,8 @@
 - [X1 无人值守开发与离线验证](x1-offline-validation.md)：分组启动、采样器优化与软件验证边界。
 - [X1 NPU 离线探索](x1-npu-experiments.md)：人员检测、中文转写和小模型意图解析的实测及接入边界。
 - [X1 VLM 与 ACT 的 NPU 实验](x1-npu-vlm-act-experiments.md)：同一 VLM 框选/解析意图、实际 ACT 权重导出与 NPU 完整动作块验证。
+- [X1 完全端侧运行可行性](x1-gpu-free-feasibility.md)：取消远程 GPU 依赖的模型组合、调度方案与迁移门槛。
+- [X1 端侧推理接入与验证](x1-npu-integration.md)：本地工作进程、CPU 热点修复、质量对照与接入边界。
 - [完整 demo 低于 60% 的方案](x1-demo-under-60-plan.md)：验收约束与整体重构方向。
 
 | 位置 | 内容 |

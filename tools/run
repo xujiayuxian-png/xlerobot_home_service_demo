@@ -8,12 +8,15 @@ usage() {
   cat <<'EOF'
 Usage:
   tools/run gpu [--config PATH]
+  tools/run npu [--stop|--status] [--config PATH]
   tools/run mapping --hardware [--phase build|validate] [--config PATH]
   tools/run grasp act|centroid|gpd --hardware [--config PATH]
   tools/run demo --hardware [--config PATH]
   tools/run demo --stop|--status
 
 `gpu` checks LM Studio and starts proposal services on 8765 and 8766.
+`npu` manages experimental loopback inference workers only; it never starts ROS
+or opens motor devices and does not switch the demo's configured backends.
 `mapping` starts the site mapping/validation workspace. `grasp` submits the
 configured object with one explicit backend to a running demo stack. `demo`
 starts the live fetch-and-deliver stack with ACT, shuttlecock, voice, and web
@@ -55,11 +58,20 @@ while (($#)); do
 done
 
 case $mode in
-  gpu|mapping|grasp|demo) ;;
+  gpu|npu|mapping|grasp|demo) ;;
   '') usage >&2; exit 2 ;;
   *) usage >&2; exit 2 ;;
 esac
 
+if [[ $mode == npu ]]; then
+  if $hardware || $phase_set || ((${#positionals[@]} != 0)); then
+    die 'npu is inference-only; hardware, phase and positional arguments are invalid'
+  fi
+  : "${XLEROBOT_CONFIG:=$repo_root/config/local.yaml}"
+  [[ $XLEROBOT_CONFIG == /* ]] || XLEROBOT_CONFIG="$repo_root/$XLEROBOT_CONFIG"
+  exec "$repo_root/.venv/robot/bin/python" "$repo_root/tools/lib/npu_stack.py" \
+    "${service_action:-start}" --config "$XLEROBOT_CONFIG"
+fi
 load_local_env
 if [[ -n $service_action ]]; then
   [[ $mode == demo && ${#positionals[@]} == 0 ]] && ! $phase_set && ! $hardware \
@@ -209,6 +221,14 @@ run_demo() {
     note 'starting the manual demo service; inspect journalctl -u xlerobot-demo -f for readiness'
     exec sudo systemctl start xlerobot-demo.service
   fi
+  if [[ $(config_get demo.inference_backend remote) == npu ]]; then
+    python3 "$repo_root/tools/lib/npu_profile.py" --config "$XLEROBOT_CONFIG"
+    unset XLEROBOT_ACT_TOKEN
+    if [[ ${XLEROBOT_NPU_MANAGED:-0} != 1 ]]; then
+      exec "$repo_root/.venv/robot/bin/python" "$repo_root/tools/lib/npu_stack.py" \
+        start --config "$XLEROBOT_CONFIG" --demo --hardware
+    fi
+  fi
   "$repo_root/tools/doctor" robot --config "$XLEROBOT_CONFIG"
   source_robot_workspace
 
@@ -229,11 +249,17 @@ run_demo() {
     x1_staged_startup:="$(config_get demo.staged_startup false)" \
     x1_act_wrist_only:="$(config_get demo.act_wrist_only false)" \
     x1_asr_threads:="$(config_get demo.asr_threads 2)" \
+    asr_backend:="$(config_get demo.asr_backend cpu)" \
+    person_backend:="$(config_get demo.person_backend cpu)" \
+    npu_asr_url:="$(config_get services.npu_asr_url http://127.0.0.1:18903)" \
+    npu_person_url:="$(config_get services.npu_person_url http://127.0.0.1:18902)" \
     wrist_camera_fps:="$(config_get demo.wrist_camera_fps 30.0)" \
     places_file:="$(absolute_from_repo "$(config_get site.places '')")" \
     act_predict_url:="$(url_join "$(config_get services.act_url '')" predict)" \
     classical_base_url:="$(config_get services.classical_url '')" \
     vlm_base_url:="$(config_get services.lm_studio_url '')" \
+    vlm_backend:="$(config_get demo.vlm_backend lmstudio)" \
+    vlm_model:="$(config_get models.vlm qwen/qwen3-vl-4b)" \
     person_model_path:="$(absolute_from_repo "$(config_get models.person_detector '')")" \
     right_bus:="$(config_get robot.devices.right_arm /dev/right_arm)" \
     left_bus:="$(config_get robot.devices.left_arm /dev/left_arm)" \

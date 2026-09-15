@@ -133,6 +133,7 @@ class VoiceAssistantNode(Node):
         self.lmstudio_model = str(self.declare_parameter(
             'lmstudio_model', 'qwen/qwen3-vl-4b'
         ).value)
+        self.vlm_backend = str(self.declare_parameter('vlm_backend', 'lmstudio').value)
         self.lmstudio_timeout_s = float(self.declare_parameter(
             'lmstudio_timeout_s', 6.0
         ).value)
@@ -243,6 +244,12 @@ class VoiceAssistantNode(Node):
             'command_audio_debug_max_files', 20
         ).value)
         self.whisper_model = str(self.declare_parameter('whisper_model', 'small').value)
+        self.asr_backend = str(self.declare_parameter('asr_backend', 'cpu').value)
+        self.npu_asr_url = str(self.declare_parameter('npu_asr_url', 'http://127.0.0.1:18903').value)
+        if self.asr_backend not in ('cpu', 'npu'):
+            raise ValueError('asr_backend must be cpu or npu')
+        if self.asr_backend == 'npu' and self.sample_rate != 16000:
+            raise ValueError('the NPU ASR artifact requires 16 kHz audio')
         self.whisper_compute_type = str(self.declare_parameter(
             'whisper_compute_type', 'int8'
         ).value)
@@ -396,6 +403,7 @@ class VoiceAssistantNode(Node):
                 f'capture_rate={capture_sample_rate}Hz model_rate={self.sample_rate}Hz'
             )
             intent_client = LmStudioIntentClient(
+                backend=self.vlm_backend,
                 base_url=self.lmstudio_url,
                 model=self.lmstudio_model,
                 timeout_s=self.lmstudio_timeout_s,
@@ -417,15 +425,19 @@ class VoiceAssistantNode(Node):
                 silence_rms=self.silence_rms,
                 input_device=input_device,
             ))
-            transcriber = FasterWhisperTranscriber(
-                model=self.whisper_model,
-                compute_type=self.whisper_compute_type,
-                beam_size=self.whisper_beam_size,
-                cpu_threads=self.whisper_threads,
-                workers=self.whisper_workers,
-                hotwords=self.whisper_hotwords,
-                initial_prompt=self.whisper_initial_prompt,
-            )
+            if self.asr_backend == 'npu':
+                from xlerobot_voice.npu import NpuTranscriber
+                transcriber = NpuTranscriber(self.npu_asr_url)
+            else:
+                transcriber = FasterWhisperTranscriber(
+                    model=self.whisper_model,
+                    compute_type=self.whisper_compute_type,
+                    beam_size=self.whisper_beam_size,
+                    cpu_threads=self.whisper_threads,
+                    workers=self.whisper_workers,
+                    hotwords=self.whisper_hotwords,
+                    initial_prompt=self.whisper_initial_prompt,
+                )
             device = recorder.sounddevice.query_devices(
                 input_device, 'input'
             )
@@ -476,7 +488,13 @@ class VoiceAssistantNode(Node):
             )
             self._set_state(VoiceState.TRANSCRIBING)
             asr_started_at = time.monotonic()
-            transcript = transcriber.transcribe(recording.samples)
+            try:
+                transcript = transcriber.transcribe(recording.samples)
+            except Exception as exc:
+                self.get_logger().error(f'ASR failed without task dispatch: {exc}')
+                self._set_state(VoiceState.ERROR)
+                self._speak(self.parse_failed_text)
+                continue
             asr_elapsed_s = time.monotonic() - asr_started_at
             self.get_logger().info(
                 f'ASR text={transcript.text!r} '

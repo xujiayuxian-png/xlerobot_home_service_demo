@@ -97,7 +97,6 @@ require_config() {
     site.map \
     site.places \
     services.lm_studio_url \
-    services.classical_url \
     services.act_url \
     services.bind_host \
     transfer.ssh_host \
@@ -114,7 +113,7 @@ require_config() {
     [[ -n $required_value ]] || die "config value $required_key is required"
   done
   local service_url
-  for required_key in services.lm_studio_url services.classical_url services.act_url; do
+  for required_key in services.lm_studio_url services.act_url; do
     service_url=$(config_get "$required_key" '')
     [[ $service_url == http://* || $service_url == https://* ]] || die \
       "config value $required_key must be an HTTP(S) URL"
@@ -123,6 +122,10 @@ require_config() {
   backend=$(config_get demo.grasp_backend '')
   case $backend in act|centroid|gpd) ;; *) die \
     'demo.grasp_backend must be act, centroid, or gpd' ;; esac
+  if [[ $backend != act ]]; then
+    service_url=$(config_get services.classical_url '')
+    [[ $service_url == http://* || $service_url == https://* ]] || die 'classical grasp requires services.classical_url'
+  fi
   voice_enabled=$(config_get demo.voice '')
   web_enabled=$(config_get demo.web '')
   [[ $voice_enabled == true || $voice_enabled == false ]] || die \

@@ -9,6 +9,19 @@ import re
 from typing import Any
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
+
+NPU_SYSTEM_PROMPT = (
+    '你是家庭机器人的指令解析器。只输出JSON对象，不要解释。'
+    '仅当前明确要求拿、取、递送具体物品时intent为fetch_deliver。'
+    '取消、停止、不要拿为cancel；闲聊、询问能力、未来才执行为unknown；'
+    '只有这个、那个、它等指代但没有明确物品名为clarify。'
+    '不要把否定指令当取物；“不要取消，继续拿杯子”仍为取物。'
+    '字段为intent、object、source_place、recipient、confidence。'
+    'object保留物品名、颜色等限定，非取物object为空。'
+    '桌面、桌子及未指定来源统一写source_place为table，recipient为nearest_person。'
+    'confidence为0到1的判断置信度。不要填占位词。'
+)
 
 
 GENERIC_OBJECT_NAMES = {
@@ -139,7 +152,13 @@ def parse_intent_text(text: str, *, min_confidence: float):
 class LmStudioIntentClient:
     """Small OpenAI-compatible client with response and time bounds."""
 
-    def __init__(self, *, base_url: str, model: str, timeout_s: float):
+    def __init__(self, *, base_url: str, model: str, timeout_s: float, backend='lmstudio'):
+        if backend not in ('lmstudio', 'npu'):
+            raise ValueError('intent backend must be lmstudio or npu')
+        if backend == 'npu' and (urlparse(base_url).hostname != '127.0.0.1'
+                                 or not base_url.startswith('http://')):
+            raise ValueError('NPU intent requires a literal loopback HTTP URL')
+        self.backend = backend
         if not base_url.startswith(('http://', 'https://')):
             raise ValueError('base_url must use http or https')
         if not model.strip():
@@ -158,13 +177,13 @@ class LmStudioIntentClient:
         body = {
             'model': self.model,
             'messages': [
-                {'role': 'system', 'content': SYSTEM_PROMPT},
+                {'role': 'system', 'content': NPU_SYSTEM_PROMPT if self.backend == 'npu' else SYSTEM_PROMPT},
                 {
                     'role': 'user',
-                    'content': USER_PROMPT.format(command_text=command_text),
+                    'content': command_text if self.backend == 'npu' else USER_PROMPT.format(command_text=command_text),
                 },
             ],
-            'temperature': 0.0,
+            'temperature': 0.1 if self.backend == 'npu' else 0.0,
             'max_tokens': 192,
             'stream': False,
         }
@@ -183,6 +202,8 @@ class LmStudioIntentClient:
             raise IntentParseError('LM Studio response exceeded 1 MB')
         try:
             data = json.loads(raw.decode('utf-8'))
+            if self.backend == 'npu' and data['choices'][0].get('finish_reason') != 'stop':
+                raise IntentParseError('NPU intent response was incomplete')
             message = data['choices'][0]['message']
             content = str(message.get('content') or message.get('reasoning_content') or '')
         except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:

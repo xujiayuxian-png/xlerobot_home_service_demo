@@ -10,6 +10,7 @@ import time
 from typing import Any
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 
 import cv2
 import numpy as np
@@ -155,7 +156,14 @@ class LmStudioVlmClient:
         bbox_format: str,
         jpeg_quality: int = 90,
         request_long_edge_px: int = 0,
+        backend: str = 'lmstudio',
     ) -> None:
+        if backend not in ('lmstudio', 'npu'):
+            raise ValueError('VLM backend must be lmstudio or npu')
+        if backend == 'npu' and (urlparse(base_url).hostname != '127.0.0.1'
+                                 or not base_url.startswith('http://')):
+            raise ValueError('NPU VLM requires a literal loopback HTTP URL')
+        self.backend = backend
         if not base_url.startswith(('http://', 'https://')):
             raise ValueError('base_url must use http or https')
         if not model.strip():
@@ -167,7 +175,7 @@ class LmStudioVlmClient:
         self.base_url = base_url.rstrip('/')
         self.model = model
         self.timeout_s = float(timeout_s)
-        self.bbox_format = bbox_format
+        self.bbox_format = 'px' if backend == 'npu' else bbox_format
         self.jpeg_quality = max(30, min(100, int(jpeg_quality)))
         self.request_long_edge_px = int(request_long_edge_px)
         if self.request_long_edge_px < 0:
@@ -188,6 +196,8 @@ class LmStudioVlmClient:
 
     def _request_image(self, bgr: np.ndarray):
         height, width = bgr.shape[:2]
+        if self.backend == 'npu':
+            return cv2.resize(bgr, (672, 672)), 672 / width, 672 / height
         long_edge = max(width, height)
         if self.request_long_edge_px <= 0 or long_edge >= self.request_long_edge_px:
             return bgr, 1.0, 1.0
@@ -217,15 +227,20 @@ class LmStudioVlmClient:
             'messages': [{
                 'role': 'user',
                 'content': [
-                    {'type': 'text', 'text': self.prompt(object_id, width, height)},
+                    {'type': 'text', 'text': (
+                        f'定位图中的{object_id}。只输出JSON对象，字段found、box、confidence。'
+                        'found为是否找到目标的布尔值；box为当前672×672图像的像素坐标'
+                        '[x1,y1,x2,y2]，不要归一化；confidence为0到1的判断置信度。'
+                        '不存在则found为false、box为null、confidence为0。不要解释。'
+                        if self.backend == 'npu' else self.prompt(object_id, width, height))},
                     {
                         'type': 'image_url',
                         'image_url': {'url': f'data:image/jpeg;base64,{image_data}'},
                     },
                 ],
             }],
-            'temperature': 0.0,
-            'max_tokens': 1024,
+            'temperature': 0.1 if self.backend == 'npu' else 0.0,
+            'max_tokens': 128 if self.backend == 'npu' else 1024,
         }
         request = urllib.request.Request(
             f'{self.base_url}/v1/chat/completions',
@@ -247,6 +262,24 @@ class LmStudioVlmClient:
         try:
             response = json.loads(raw.decode('utf-8'))
             text = _message_text(response['choices'][0]['message'])
+            if self.backend == 'npu':
+                if response['choices'][0].get('finish_reason') != 'stop':
+                    raise ValueError('NPU grounding response was incomplete')
+                item = _json_payload(text)
+                if item.get('found') is False:
+                    text = '{"objects":[]}'
+                elif item.get('found') is True:
+                    box, confidence = item.get('box'), item.get('confidence')
+                    if (not isinstance(box, list) or len(box) != 4
+                            or any(isinstance(v, bool) or not isinstance(v, (int, float))
+                                   or not np.isfinite(v) or not 0 <= v <= 672 for v in box)
+                            or isinstance(confidence, bool) or not isinstance(confidence, (int, float))
+                            or not np.isfinite(confidence) or not 0 <= confidence <= 1):
+                        raise ValueError('invalid NPU grounding coordinates/confidence')
+                    text = json.dumps({'objects': [{'label': object_id, 'bbox_2d': box,
+                                                   'confidence': confidence}]})
+                else:
+                    raise ValueError('NPU grounding response lacks boolean found')
             detections = parse_detections(
                 text, width=width, height=height, bbox_format=self.bbox_format
             )
@@ -297,7 +330,12 @@ class LmStudioVlmClient:
                 'content': [
                     {
                         'type': 'text',
-                        'text': self.grasp_verification_prompt(object_id),
+                        'text': (f'请判断机器人夹爪是否已经抓住目标物体“{object_id}”。'
+                                 '只有两指确实夹持目标且有离开桌面的证据才判成功。'
+                                 '在桌上、夹爪旁边、两指有间隙、抓着其他物品或证据不明确均判失败。'
+                                 '只输出JSON对象：grasp_success为布尔值，confidence为0到1的数值，'
+                                 'reason为根据实际画面写的一句简短理由。不要输出模板。'
+                                 if self.backend == 'npu' else self.grasp_verification_prompt(object_id)),
                     },
                     {
                         'type': 'image_url',
@@ -305,8 +343,8 @@ class LmStudioVlmClient:
                     },
                 ],
             }],
-            'temperature': 0.0,
-            'max_tokens': 256,
+            'temperature': 0.1 if self.backend == 'npu' else 0.0,
+            'max_tokens': 128 if self.backend == 'npu' else 256,
         }
         request = urllib.request.Request(
             f'{self.base_url}/v1/chat/completions',
@@ -327,6 +365,8 @@ class LmStudioVlmClient:
             raise RuntimeError('VLM response exceeded 2 MB')
         try:
             response = json.loads(raw.decode('utf-8'))
+            if self.backend == 'npu' and response['choices'][0].get('finish_reason') != 'stop':
+                raise ValueError('NPU grasp response was incomplete')
             text = _message_text(response['choices'][0]['message'])
             verification = parse_grasp_verification(text)
         except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:

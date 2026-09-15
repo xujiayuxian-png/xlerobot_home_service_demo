@@ -36,6 +36,8 @@ def generate_launch_description():
                 description='Choose contract-only or real read-only observation.',
             ),
             DeclareLaunchArgument('model_path', default_value=''),
+            DeclareLaunchArgument('person_backend', default_value='cpu', choices=['cpu', 'npu']),
+            DeclareLaunchArgument('npu_person_url', default_value='http://127.0.0.1:18902'),
             DeclareLaunchArgument('action_name', default_value='scan_for_person'),
             Node(
                 package='xlerobot_perception',
@@ -51,6 +53,8 @@ def generate_launch_description():
                         ),
                         'dry_run_mode': dry_run_mode,
                         'model_path': model_path,
+                        'person_backend': LaunchConfiguration('person_backend'),
+                        'npu_person_url': LaunchConfiguration('npu_person_url'),
                         'action_name': action_name,
                     },
                 ],

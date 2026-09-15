@@ -98,6 +98,10 @@ class ScanForPersonNode(Node):
         self.yolo_conf = float(self.declare_parameter('yolo_conf', 0.60).value)
         self.yolo_imgsz = int(self.declare_parameter('yolo_imgsz', 480).value)
         self.yolo_device = str(self.declare_parameter('yolo_device', 'cpu').value)
+        self.person_backend = str(self.declare_parameter('person_backend', 'cpu').value)
+        self.npu_person_url = str(self.declare_parameter('npu_person_url', 'http://127.0.0.1:18902').value)
+        if self.person_backend not in ('cpu', 'npu'):
+            raise ValueError('person_backend must be cpu or npu')
         self._validate_parameters()
         self.detector_factory = detector_factory
         self.detector = None
@@ -365,6 +369,9 @@ class ScanForPersonNode(Node):
             return self.detector.detect(bgr)
 
     def _create_detector(self):
+        if self.person_backend == 'npu':
+            from xlerobot_perception.detection.npu import NpuPersonDetector
+            return NpuPersonDetector(self.npu_person_url, confidence=self.yolo_conf)
         if not Path(self.model_path).is_file():
             raise RuntimeError(f'person model does not exist: {self.model_path}')
         return self.detector_factory(

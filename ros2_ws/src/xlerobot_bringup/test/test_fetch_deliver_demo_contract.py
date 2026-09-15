@@ -163,13 +163,18 @@ def test_complete_demo_fails_closed_without_explicit_hardware_consent():
         _load_launch(launch_path)._runtime(context)
 
 
-def test_x1_profile_propagates_typed_parameters_and_selects_fixed_audio(monkeypatch, tmp_path):
+@pytest.mark.parametrize('local_npu', [False, True])
+def test_x1_profile_propagates_typed_parameters_and_selects_fixed_audio(monkeypatch, tmp_path, local_npu):
     module = _load_launch(Path(__file__).resolve().parents[1] / 'launch/fetch_deliver_demo.launch.py')
     context = LaunchContext()
     context.launch_configurations.update({
         'hardware_enabled': 'true', 'x1_low_load': 'true', 'x1_act_wrist_only': 'true',
         'x1_asr_threads': '2', 'map': '/tmp/map.yaml', 'places_file': '/tmp/places.yaml',
         'enable_voice': 'true', 'enable_web': 'false',
+        'vlm_backend': 'npu' if local_npu else 'lmstudio',
+        'vlm_model': 'qwen2.5-vl-3b-instruct-672x672-qnn2.36-w4a16-qcs8550' if local_npu else 'qwen/qwen3-vl-4b',
+        'asr_backend': 'npu' if local_npu else 'cpu',
+        'person_backend': 'npu' if local_npu else 'cpu',
     })
     for action in module.generate_launch_description().entities:
         if isinstance(action, DeclareLaunchArgument):
@@ -209,6 +214,9 @@ def test_x1_profile_propagates_typed_parameters_and_selects_fixed_audio(monkeypa
                             'task_dry_run': False, 'speech_enabled': True,
                             'x1_low_load': True, 'x1_asr_threads': 2}.items():
             assert node.get_parameter(name).value == value
+        assert node.get_parameter('vlm_backend').value == context.launch_configurations['vlm_backend']
+        assert node.get_parameter('lmstudio_model').value == context.launch_configurations['vlm_model']
+        assert node.get_parameter('asr_backend').value == context.launch_configurations['asr_backend']
     finally:
         node.destroy_node()
         ros_context.shutdown()
@@ -216,6 +224,10 @@ def test_x1_profile_propagates_typed_parameters_and_selects_fixed_audio(monkeypa
     assert speech['config_file'].perform(context).endswith('/config/speak_fixed.yaml')
     assert speech['audio_predecode_pcm'] == 'false'
     assert speech['audio_player_device'] == ''
+    for filename in ('detect_object.launch.py', 'verify_grasp.launch.py'):
+        arguments = _include_arguments(actions, filename)
+        assert arguments['vlm_backend'].perform(context) == context.launch_configurations['vlm_backend']
+        assert arguments['vlm_model'].perform(context) == context.launch_configurations['vlm_model']
 
 
 def test_operator_console_is_registered_as_a_fail_closed_critical_process():

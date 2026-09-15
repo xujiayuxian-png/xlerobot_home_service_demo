@@ -46,6 +46,59 @@ def test_vlm_requires_valid_json_and_explicit_absence_and_object_name():
     assert not vlm.evaluate(case, {'intent': 'fetch_deliver', 'object': '杯子'})['passed']
 
 
+def test_grasp_probe_never_counts_unlabeled_or_invalid_results_as_success():
+    case = {'kind': 'grasp', 'expected_grasp': False}
+    result = {'grasp_success': False, 'confidence': 0.9, 'reason': '目标仍在桌面上'}
+    assert vlm.evaluate(case, result)['passed']
+    assert vlm.evaluate(case, {**result, 'grasp_success': True})['false_success']
+    assert not vlm.evaluate({**case, 'expected_grasp': None}, result)['passed']
+    for changes in ({'grasp_success': 'false'}, {'confidence': True},
+                    {'confidence': float('nan')}, {'reason': ''}):
+        assert not vlm.evaluate(case, {**result, **changes})['protocol_ok']
+
+
+def test_production_intent_probe_uses_real_task_acceptance_rules():
+    case = {'kind': 'production_intent', 'expected_accept': True, 'object_aliases': ['橡皮擦']}
+    payload = {'intent': 'fetch_deliver', 'object': '蓝色橡皮擦', 'confidence': 0.95}
+    assert vlm.evaluate(case, payload)['passed']
+    assert not vlm.evaluate(case, {**payload, 'confidence': 0.1})['accepted']
+    assert not vlm.evaluate({**case, 'expected_accept': False}, payload)['passed']
+
+
+def test_local_worker_rejects_expired_requests_before_inference_and_survives_bad_inputs():
+    sys.path.insert(0, str(ROOT))
+    from services.npu.server import Handler, Server, decode_bytes
+    import threading
+    import time
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+    class Runtime:
+        calls = 0
+        def predict(self, payload):
+            self.calls += 1
+            return {'result': 1}
+    runtime = Runtime()
+    with Server(('127.0.0.1', 0), Handler) as server:
+        server.runtime, server.kind, server.load_s = runtime, 'act', 0
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        url = f'http://127.0.0.1:{server.server_port}/predict'
+        try:
+            for body in (b'[]', b'{', json.dumps({'deadline_monotonic': time.monotonic()-1}).encode()):
+                with pytest.raises(HTTPError) as error:
+                    urlopen(Request(url, body), timeout=3)
+                assert error.value.code == 400
+            assert runtime.calls == 0
+            with urlopen(Request(url, b'{}'), timeout=3) as response:
+                assert json.load(response) == {'result': 1}
+            assert runtime.calls == 1
+        finally:
+            server.shutdown(); thread.join(timeout=3)
+    for value in ('???', 'YQ==', 1):
+        with pytest.raises(ValueError):
+            decode_bytes(value, 0)
+
+
 def test_act_rejects_incompatible_observation_contract():
     config = {'input_features': {'observation.state': {'type': 'STATE', 'shape': [6]},
                                 'observation.images.wrist': {'type': 'VISUAL', 'shape': [3, 480, 640]}},

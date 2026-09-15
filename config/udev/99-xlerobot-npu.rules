@@ -1,0 +1,3 @@
+# X1/QCS8550 Android FastRPC device name expected by ORT's QNN discovery.
+# Keep the vendor's owner, group and permissions; this rule adds only an alias.
+ACTION=="add", SUBSYSTEM=="fastrpc", KERNEL=="adsprpc-smd-secure", SYMLINK+="fastrpc-cdsp"

@@ -1,0 +1,5 @@
+# Isolated Python 3.12 worker only; never install these into the ROS Python 3.10 environment.
+onnxruntime==1.27.0
+onnxruntime-qnn==2.6.0
+numpy==2.5.3
+pillow==11.3.0

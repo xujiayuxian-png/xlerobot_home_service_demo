@@ -43,6 +43,8 @@ def generate_launch_description():
                 'classical_base_url', default_value='http://127.0.0.1:8765'
             ),
             DeclareLaunchArgument('grasp_alignment_file', default_value=''),
+            DeclareLaunchArgument('vlm_backend', default_value='lmstudio'),
+            DeclareLaunchArgument('vlm_model', default_value='qwen/qwen3-vl-4b'),
             Node(
                 package='xlerobot_perception',
                 executable='detect_object_vlm',
@@ -57,6 +59,8 @@ def generate_launch_description():
                         ),
                         'dry_run_mode': dry_run_mode,
                         'vlm_base_url': vlm_base_url,
+                        'vlm_backend': LaunchConfiguration('vlm_backend'),
+                        'vlm_model': LaunchConfiguration('vlm_model'),
                         'classical_base_url': classical_base_url,
                         'grasp_alignment_file': grasp_alignment_file,
                     },

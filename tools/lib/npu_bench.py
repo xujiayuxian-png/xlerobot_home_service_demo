@@ -188,6 +188,7 @@ def asr_candidate_passes(result):
 class QnnWhisper:
     def __init__(self, directory):
         from tokenizers import Tokenizer
+        import re
         self.encoder = load_qnn(directory / 'encoder_model_htp.bin.aidem', '240')
         try:
             self.decoder = load_qnn(directory / 'decoder_model_htp.bin.aidem', '240')
@@ -195,6 +196,8 @@ class QnnWhisper:
             self.inputs = {x.name: x for x in self.decoder.get_input_tensor_info()[0]}
             self.prefix = [self.tokenizer.token_to_id(t) for t in
                            ('<|startoftranscript|>', '<|zh|>', '<|transcribe|>', '<|notimestamps|>')]
+            self.language_ids = sorted(i for token, i in self.tokenizer.get_vocab().items()
+                                       if re.fullmatch(r'<\|[a-z]{2,3}\|>', token))
             if any(t is None for t in self.prefix) or self.inputs['attention_mask'].shape != [1, 1, 1, 200]:
                 raise ValueError('unexpected tokenizer or decoder context; this probe requires the verified artifact')
         except BaseException:
@@ -223,6 +226,7 @@ class QnnWhisper:
         if no_speech is None:
             no_speech = self.tokenizer.token_to_id('<|nocaptions|>')
         no_speech_probability = None
+        language_probability = None
         token_log_probabilities = []
         finished = False
         for position in range(max_tokens):
@@ -231,8 +235,10 @@ class QnnWhisper:
                 check(self.decoder.set_input_tensor(name, data))
             check(self.decoder.invoke())
             if position == 0 and no_speech is not None:
-                no_speech_probability = float(np.exp(token_log_probability(
-                    self.decoder.get_output_tensor('logits'), no_speech)))
+                first_logits = self.decoder.get_output_tensor('logits').copy().reshape(-1)
+                no_speech_probability = float(np.exp(token_log_probability(first_logits, no_speech)))
+                language_probability = float(np.exp(token_log_probability(
+                    first_logits[self.language_ids], self.language_ids.index(self.prefix[1]))))
             if position >= len(self.prefix)-1:
                 logits = self.decoder.get_output_tensor('logits').copy().reshape(-1)
                 raw_logits = logits.copy()
@@ -250,6 +256,7 @@ class QnnWhisper:
         return {'text': self.tokenizer.decode(tokens), 'finished': finished,
                 'encoder_ms': encoder_ms, 'decoder_steps': position+1, 'tokens': tokens,
                 'no_speech_probability': no_speech_probability,
+                'language_probability': language_probability,
                 'mean_token_log_probability': float(np.mean(token_log_probabilities))}
 
     def close(self):

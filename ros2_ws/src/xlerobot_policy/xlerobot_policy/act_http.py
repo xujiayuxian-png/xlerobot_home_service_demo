@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import cv2
@@ -31,6 +33,7 @@ class ActHttpClient:
         if timeout_s <= 0.0 or request_width <= 0 or max_response_bytes <= 0:
             raise ValueError('ACT HTTP bounds must be positive')
         self.predict_url = predict_url
+        self.local_worker = urllib.parse.urlparse(predict_url).hostname in ('127.0.0.1', '::1')
         self.timeout_s = float(timeout_s)
         self.jpeg_quality = max(35, min(95, int(jpeg_quality)))
         self.request_width = int(request_width)
@@ -39,6 +42,7 @@ class ActHttpClient:
 
     def predict(self, *, head_bgr, wrist_bgr, state):
         """Return a validated raw chunk in physical joint units."""
+        deadline = time.monotonic() + self.timeout_s if self.local_worker else None
         state = [float(value) for value in state]
         if len(state) != 6 or not all(np.isfinite(value) for value in state):
             raise ValueError('ACT state must contain six finite joint values')
@@ -46,6 +50,8 @@ class ActHttpClient:
             'wrist_image_base64': self._jpeg(wrist_bgr),
             'state': state,
         }
+        if self.local_worker:
+            payload['deadline_monotonic'] = deadline
         if head_bgr is not None:
             payload['head_image_base64'] = self._jpeg(head_bgr)
         headers = {'Content-Type': 'application/json'}
@@ -67,6 +73,8 @@ class ActHttpClient:
             raise RuntimeError(f'ACT request failed: {exc.reason}') from exc
         if len(raw) > self.max_response_bytes:
             raise RuntimeError('ACT response exceeded configured byte limit')
+        if deadline is not None and time.monotonic() >= deadline:
+            raise RuntimeError('ACT response exceeded local deadline; action discarded')
         try:
             payload = json.loads(raw.decode('utf-8'))
             actions = payload['action']

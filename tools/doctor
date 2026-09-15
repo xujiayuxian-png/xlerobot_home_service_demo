@@ -10,6 +10,7 @@ Usage: tools/doctor robot|gpu [--config PATH] [--profile --duration SECONDS --la
        tools/doctor robot --npu-bench yolo|whisper [--help]
        tools/doctor robot --npu-act-bench [--help]
        tools/doctor robot --npu-vlm-probe [--help]
+       tools/doctor robot --npu-system-probe [--help]
 
 Read-only checks only: this command never opens a camera or motor device.
 EOF
@@ -30,6 +31,11 @@ while (($#)); do
       shift
       [[ -x "$repo_root/.xlerobot/npu/ort-env/bin/python" ]] || die 'Prepare the isolated NPU experiment environment; see docs/zh-CN/x1-npu-vlm-act-experiments.md'
       exec "$repo_root/.xlerobot/npu/ort-env/bin/python" "$repo_root/tools/lib/npu_act_bench.py" "$@"
+      ;;
+    --npu-system-probe)
+      [[ $role == robot ]] || die '--npu-system-probe is only available for robot'
+      shift
+      exec "$repo_root/.venv/robot/bin/python" "$repo_root/tools/lib/npu_system_probe.py" "$@"
       ;;
     --npu-vlm-probe)
       [[ $role == robot ]] || die '--npu-vlm-probe is only available for robot'
@@ -162,13 +168,21 @@ http_check() {
 
 doctor_robot() {
   detect_robot_platform
+  local npu=false
+  [[ $(config_get demo.inference_backend remote) != npu ]] || npu=true
   if [[ -f $robot_ros_setup ]]; then
     ok "ROS 2 $robot_ros_distro installed"
   else
     fail "ROS 2 $robot_ros_distro missing at $robot_ros_setup"
   fi
   check_file 'workspace build' "$repo_root/ros2_ws/install/setup.bash"
-  if vlm_config_is_pinned; then
+  if $npu; then
+    if python3 "$repo_root/tools/lib/npu_profile.py" --config "$XLEROBOT_CONFIG" --health; then
+      ok 'all local NPU workers ready; no remote inference checks'
+    else
+      fail 'local NPU workers unavailable or profile invalid; start tools/run npu for standalone diagnosis'
+    fi
+  elif vlm_config_is_pinned; then
     ok 'LM Studio and concrete Qwen artifact identities match the public manifest'
   else
     fail 'LM Studio/Qwen artifact config differs from the public manifest'
@@ -191,7 +205,9 @@ doctor_robot() {
     else
       fail 'voice model IDs/revision differ from the public manifest'
     fi
-    if [[ -x $robot_python ]] && voice_models_command "$robot_python" \
+    if $npu; then
+      ok 'Whisper uses the already checked local NPU worker'
+    elif [[ -x $robot_python ]] && voice_models_command "$robot_python" \
         --check --component whisper \
         >/dev/null 2>&1; then
       ok 'pinned Whisper files match their SHA-256 manifest'
@@ -225,14 +241,18 @@ doctor_robot() {
 
   check_file 'map' "$(absolute_from_repo "$(config_get site.map '')")"
   check_file 'named places' "$(absolute_from_repo "$(config_get site.places '')")"
-  if [[ -x $robot_python ]] && person_model_command "$robot_python" --check \
+  if $npu; then
+    ok 'person detection uses the already checked local NPU worker'
+  elif [[ -x $robot_python ]] && person_model_command "$robot_python" --check \
       >/dev/null 2>&1; then
     ok 'optional AGPL person-detector file matches its size and SHA-256'
   else
     fail 'person detector missing or invalid; rerun tools/setup robot --with-person-detector'
   fi
-  check_python_versions 'optional AGPL person detector' "$robot_python" '' \
-    torch "$torch_version" ultralytics 8.4.58
+  if ! $npu; then
+    check_python_versions 'optional AGPL person detector' "$robot_python" '' \
+      torch "$torch_version" ultralytics 8.4.58
+  fi
   require_device_name 'lidar alias' "$(config_get robot.devices.lidar /dev/lidar)"
   require_device_name 'right arm alias' "$(config_get robot.devices.right_arm /dev/right_arm)"
   require_device_name 'left arm alias' "$(config_get robot.devices.left_arm /dev/left_arm)"
@@ -260,7 +280,9 @@ doctor_robot() {
   else
     fail "LM Studio does not list the configured model: $lm_model"
   fi
-  http_check 'classical grasp service' "$(url_join "$classical" health)"
+  if [[ $(config_get demo.grasp_backend act) != act ]]; then
+    http_check 'classical grasp service' "$(url_join "$classical" health)"
+  fi
   http_check 'ACT service' "$(url_join "$act" healthz)"
   if [[ $(config_get demo.act_wrist_only false) == true ]]; then
     if python3 - "$(url_join "$act" healthz)" <<'PY'
@@ -280,7 +302,9 @@ PY
       fail 'ACT wrist-only profile does not match the deployed checkpoint'
     fi
   fi
-  if [[ -n ${XLEROBOT_ACT_TOKEN:-} && ${XLEROBOT_ACT_TOKEN} != replace-* ]]; then
+  if $npu; then
+    ok 'ACT is loopback-only; remote token not required'
+  elif [[ -n ${XLEROBOT_ACT_TOKEN:-} && ${XLEROBOT_ACT_TOKEN} != replace-* ]]; then
     ok 'ACT token is configured'
   else
     fail 'set a non-placeholder XLEROBOT_ACT_TOKEN in .env'

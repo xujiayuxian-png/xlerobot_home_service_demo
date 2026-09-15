@@ -52,7 +52,7 @@ def test_model_ready_distinguishes_loading_failure_and_completed_warmup():
     assert query().message == 'disabled'
 
 
-def test_readiness_service_responds_while_warmup_holds_detector_lock():
+def test_readiness_service_responds_while_warmup_holds_detector_lock(tmp_path):
     os.environ['ROS_DOMAIN_ID'] = '81'
     release = threading.Event()
     warming = threading.Event()
@@ -63,7 +63,10 @@ def test_readiness_service_responds_while_warmup_holds_detector_lock():
             assert release.wait(timeout=5)
             return [], 0.0
     rclpy.init()
+    model_path = tmp_path/'fake-model.pt'
+    model_path.write_bytes(b'fake detector does not load weights')
     server = ScanForPersonNode(parameter_overrides=[
+        Parameter('model_path', value=str(model_path)),
         Parameter('x1_low_load', value=True), Parameter('backend_enabled', value=True),
         Parameter('dry_run_mode', value='observe')], detector_factory=SlowDetector)
     client = server.create_client(Trigger, '/scan_for_person/model_ready')

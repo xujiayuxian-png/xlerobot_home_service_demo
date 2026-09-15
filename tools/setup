@@ -8,7 +8,7 @@ source "$repo_root/tools/lib/robot_system.sh"
 
 usage() {
   cat <<'EOF'
-Usage: tools/setup robot|gpu [--system-only] [--with-person-detector] [--with-kws-model] [--generate-voice-prompts] [--with-gpd] [--install-demo-service]
+Usage: tools/setup robot|gpu [--system-only] [--with-person-detector] [--with-kws-model] [--generate-voice-prompts] [--with-gpd] [--install-demo-service] [--install-npu-device-rule]
 
 Source installation for the two supported computers. It does not start a ROS
 launch file, inference service, camera, serial device, or motor controller.
@@ -17,6 +17,7 @@ The person detector is an AGPL-3.0 optional extra. The upstream KWS model terms
 are unresolved, so its direct-provider download requires --with-kws-model.
 Voice prompt generation uses Edge TTS and writes ignored audio files locally.
 --install-demo-service only installs the manual service; it never starts/enables it.
+--install-npu-device-rule only persists X1 QNN's FastRPC alias, preserving device permissions.
 GPD is an optional native build for the classical grasp route.
 Robot supports the Jazzy reference and native X1 Jammy/Humble migration.
 --system-only installs Robot apt/ROS dependencies without downloading models or building.
@@ -34,10 +35,12 @@ generate_voice_prompts=false
 with_gpd=false
 system_only=false
 install_demo_service=false
+install_npu_device_rule=false
 while (($#)); do
   case $1 in
     --system-only) system_only=true; shift ;;
     --install-demo-service) install_demo_service=true; shift ;;
+    --install-npu-device-rule) install_npu_device_rule=true; shift ;;
     --with-person-detector) with_person_detector=true; shift ;;
     --with-kws-model) with_kws_model=true; shift ;;
     --generate-voice-prompts) generate_voice_prompts=true; shift ;;
@@ -81,6 +84,23 @@ ensure_conda_env() {
 
 setup_robot() {
   detect_robot_platform
+  if $install_npu_device_rule; then
+    [[ $(uname -m) == aarch64 && $robot_ros_distro == humble ]] || die 'the NPU device rule requires X1 Jammy/Humble'
+    [[ -c /dev/adsprpc-smd-secure && -d /sys/devices/virtual/fastrpc/adsprpc-smd-secure ]] \
+      || die 'the X1 secure FastRPC device is missing'
+    if [[ -e /dev/fastrpc-cdsp || -L /dev/fastrpc-cdsp ]]; then
+      [[ -L /dev/fastrpc-cdsp && $(readlink -f /dev/fastrpc-cdsp) == /dev/adsprpc-smd-secure ]] \
+        || die 'an unrelated fastrpc-cdsp device exists; refusing to replace it'
+    fi
+    sudo install -m 0644 "$repo_root/config/udev/99-xlerobot-npu.rules" /etc/udev/rules.d/99-xlerobot-npu.rules
+    sudo udevadm control --reload-rules
+    sudo udevadm trigger --action=add --subsystem-match=fastrpc --sysname-match=adsprpc-smd-secure
+    udevadm settle --timeout=10
+    [[ -L /dev/fastrpc-cdsp && $(readlink -f /dev/fastrpc-cdsp) == /dev/adsprpc-smd-secure ]] \
+      || die 'udev did not create the expected FastRPC alias'
+    note 'X1 FastRPC alias persisted; device permissions retained and no inference or robot started'
+    return
+  fi
   load_local_env
   if $install_demo_service; then
     require_config
@@ -243,9 +263,14 @@ if [[ $role == robot ]] && $with_gpd; then
   die '--with-gpd is only valid with tools/setup gpu'
 fi
 if [[ $role == gpu ]] && { \
-    $with_person_detector || $with_kws_model || $generate_voice_prompts || $system_only || $install_demo_service; \
+    $with_person_detector || $with_kws_model || $generate_voice_prompts || $system_only || $install_demo_service || $install_npu_device_rule; \
 }; then
   die 'robot-only setup flags require tools/setup robot'
+fi
+if $install_npu_device_rule && { \
+    $with_person_detector || $with_kws_model || $generate_voice_prompts || $system_only || $install_demo_service || $with_gpd; \
+}; then
+  die '--install-npu-device-rule must be used alone'
 fi
 
 case $role in

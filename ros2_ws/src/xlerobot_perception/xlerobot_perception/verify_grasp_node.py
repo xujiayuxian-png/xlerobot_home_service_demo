@@ -58,6 +58,7 @@ class VerifyGraspNode(Node):
         if not 0.0 <= self.success_confidence <= 1.0:
             raise ValueError('success_confidence must be between 0 and 1')
         self.vlm = LmStudioVlmClient(
+            backend=str(self.declare_parameter('vlm_backend', 'lmstudio').value),
             base_url=str(self.declare_parameter(
                 'vlm_base_url', 'http://127.0.0.1:1234'
             ).value),

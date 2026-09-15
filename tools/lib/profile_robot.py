@@ -27,6 +27,7 @@ def snapshot(telemetry_cache=None):
         # stat already contains comm; avoid another /proc open for every PID.
         name = stat.partition(' (')[2].rpartition(') ')[0]
         processes[directory.name] = {
+            'ppid': fields[1],
             'name': name, 'start': fields[19], 'ticks': int(fields[11]) + int(fields[12]),
             'rss_bytes': int(fields[21]) * os.sysconf('SC_PAGE_SIZE'),
             'threads': int(fields[17]), 'policy': int(fields[38]), 'rt_priority': int(fields[37]),
