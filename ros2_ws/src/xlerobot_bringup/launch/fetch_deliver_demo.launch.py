@@ -20,12 +20,14 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def _include(package, filename, arguments=None):
-    return IncludeLaunchDescription(
+    action = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([FindPackageShare(package), 'launch', filename])
         ),
         launch_arguments=(arguments or {}).items(),
     )
+    action.x1_startup_key = filename
+    return action
 
 
 def _fail_closed_on_operator_console_exit(event, context):
@@ -108,6 +110,7 @@ def _append_entrypoints(actions, context, live):
                 operator_console,
             ]
         )
+        actions[-2].x1_startup_key = 'operator_exit_guard'
 
 
 def _runtime(context):
@@ -117,6 +120,9 @@ def _runtime(context):
         )
     live = True
     low_load = LaunchConfiguration('x1_low_load', default='false').perform(context) == 'true'
+    staged = LaunchConfiguration('x1_staged_startup', default='false').perform(context) == 'true'
+    if staged and not low_load:
+        raise ValueError('x1_staged_startup requires x1_low_load')
     enabled = 'true'
     perception_mode = 'observe'
     map_file = LaunchConfiguration('map').perform(context)
@@ -313,6 +319,9 @@ def _runtime(context):
                             name='camera_health', output='screen',
                             parameters=[{'external_wrist_health': True}]))
     _append_entrypoints(actions, context, live)
+    if staged:
+        from xlerobot_bringup.startup_sequence import staged_demo_actions
+        return staged_demo_actions(actions, context)
     return actions
 
 
@@ -321,6 +330,7 @@ def generate_launch_description() -> LaunchDescription:
         [
             SetEnvironmentVariable('FASTDDS_BUILTIN_TRANSPORTS', 'UDPv4'),
             DeclareLaunchArgument('x1_low_load', default_value='false', choices=['true', 'false']),
+            DeclareLaunchArgument('x1_staged_startup', default_value='false', choices=['true', 'false']),
             DeclareLaunchArgument('x1_act_wrist_only', default_value='false', choices=['true', 'false']),
             DeclareLaunchArgument('x1_asr_threads', default_value='2'),
             DeclareLaunchArgument('wrist_camera_fps', default_value='30.0'),

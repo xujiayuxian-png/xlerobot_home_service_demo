@@ -40,6 +40,7 @@ install(PROGRAMS
   scripts/robot_description_publisher
   scripts/wrist_camera_node
   scripts/position_ready_spawner
+  scripts/startup_probe
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -48,6 +49,7 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_camera_health_runtime test/test_camera_health_runtime.py TIMEOUT 30)
   ament_add_pytest_test(test_robot_state_gateway test/test_robot_state_gateway.py TIMEOUT 30)
   ament_add_pytest_test(test_cpu_profile test/test_cpu_profile.py TIMEOUT 30)
+  ament_add_pytest_test(test_startup_sequence test/test_startup_sequence.py TIMEOUT 90)
   ament_add_pytest_test(test_initial_pose test/test_initial_pose.py TIMEOUT 30)
   ament_add_pytest_test(test_handeye_pose_geometry test/test_handeye_pose_geometry.py TIMEOUT 30)
   ament_add_pytest_test(test_lidar_geometry_source test/test_lidar_geometry_source.py TIMEOUT 30)

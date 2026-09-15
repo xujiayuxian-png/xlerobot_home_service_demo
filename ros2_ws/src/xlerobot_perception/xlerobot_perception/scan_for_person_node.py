@@ -20,6 +20,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, Image
+from std_srvs.srv import Trigger
 from xlerobot_perception.demand_images import DemandImages
 from tf2_ros import Buffer, TransformException, TransformListener
 from .robot_transform_client import RobotTransformClient
@@ -108,6 +109,9 @@ class ScanForPersonNode(Node):
         self._goal_lock = threading.Lock()
         self._goal_active = False
         low_load = bool(self.declare_parameter('x1_low_load', False).value)
+        self.model_ready_service = self.create_service(
+            Trigger, '/scan_for_person/model_ready', self._model_ready,
+            callback_group=self.group) if low_load else None
         self.tf_buffer = RobotTransformClient(self, self.group) if low_load else Buffer()
         self.tf_listener = None if low_load else TransformListener(self.tf_buffer, self)
         self.observation_publisher = self.create_publisher(
@@ -138,6 +142,21 @@ class ScanForPersonNode(Node):
                 daemon=True,
             )
             self.detector_thread.start()
+
+    def _model_ready(self, _request, response):
+        response.success = False
+        # The completion event is set after both success and failure. Do not take
+        # detector_lock here: a long warmup must not block the readiness request.
+        if not self.backend_enabled:
+            response.message = 'disabled'
+        elif not self.detector_ready.is_set():
+            response.message = 'loading'
+        elif self.detector_error is not None or self.detector is None:
+            response.message = 'warmup failed: ' + str(self.detector_error)
+        else:
+            response.success = True
+            response.message = 'ready'
+        return response
 
     def _validate_parameters(self):
         validate_dry_run_mode(self.dry_run_mode)

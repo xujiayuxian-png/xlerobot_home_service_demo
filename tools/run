@@ -226,6 +226,7 @@ run_demo() {
     hardware_enabled:=true \
     map:="$(absolute_from_repo "$(config_get site.map '')")" \
     x1_low_load:="$(config_get demo.low_load false)" \
+    x1_staged_startup:="$(config_get demo.staged_startup false)" \
     x1_act_wrist_only:="$(config_get demo.act_wrist_only false)" \
     x1_asr_threads:="$(config_get demo.asr_threads 2)" \
     wrist_camera_fps:="$(config_get demo.wrist_camera_fps 30.0)" \

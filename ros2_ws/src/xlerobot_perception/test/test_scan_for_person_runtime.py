@@ -3,6 +3,7 @@ import math
 import os
 import threading
 import time
+from types import SimpleNamespace
 
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import TransformStamped
@@ -12,6 +13,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from sensor_msgs.msg import CameraInfo, Image
+from std_srvs.srv import Trigger
 from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 from xlerobot_interfaces.action import ScanForPerson
 from xlerobot_interfaces.msg import CapabilityError
@@ -30,6 +32,59 @@ class EmptyDetector:
     def detect(cls, _image):
         cls.detections += 1
         return [], 0.0
+
+
+def test_model_ready_distinguishes_loading_failure_and_completed_warmup():
+    state = SimpleNamespace(backend_enabled=True, detector_ready=threading.Event(),
+                            detector=object(), detector_error=None)
+    query = lambda: ScanForPersonNode._model_ready(state, None, Trigger.Response())
+    assert not query().success
+    assert query().message == 'loading'  # Constructed detector is not warmed up yet.
+    state.detector_ready.set()
+    assert query().success
+    state.detector_error = RuntimeError('warmup failed')
+    assert not query().success
+    assert 'warmup failed' in query().message
+    state.detector_error = None
+    state.detector = None
+    assert not query().success
+    state.backend_enabled = False
+    assert query().message == 'disabled'
+
+
+def test_readiness_service_responds_while_warmup_holds_detector_lock():
+    os.environ['ROS_DOMAIN_ID'] = '81'
+    release = threading.Event()
+    warming = threading.Event()
+    class SlowDetector(EmptyDetector):
+        @classmethod
+        def detect(cls, _image):
+            warming.set()
+            assert release.wait(timeout=5)
+            return [], 0.0
+    rclpy.init()
+    server = ScanForPersonNode(parameter_overrides=[
+        Parameter('x1_low_load', value=True), Parameter('backend_enabled', value=True),
+        Parameter('dry_run_mode', value='observe')], detector_factory=SlowDetector)
+    client = server.create_client(Trigger, '/scan_for_person/model_ready')
+    try:
+        assert warming.wait(timeout=1)
+        assert client.wait_for_service(timeout_sec=1)
+        future = client.call_async(Trigger.Request())
+        rclpy.spin_until_future_complete(server, future, timeout_sec=1)
+        assert future.done(), 'readiness query blocked behind model warmup'
+        assert not future.result().success
+        assert future.result().message == 'loading'
+        release.set()
+        assert server.detector_ready.wait(timeout=1)
+        future = client.call_async(Trigger.Request())
+        rclpy.spin_until_future_complete(server, future, timeout_sec=1)
+        assert future.done() and future.result().success
+    finally:
+        release.set()
+        server.detector_thread.join(timeout=1)
+        server.destroy_node()
+        rclpy.shutdown()
 
 
 def wait_future(future, timeout_s=5.0):

@@ -120,4 +120,5 @@ Nav2 控制服务 9.49%、语音 9.22%。六核换算整机百分点需要除以
 目前消息处理、驱动和中断仍占较大比例，后续需针对这些路径继续定位热点。
 
 原始报告：忽略目录 `.xlerobot/environment/profile-20260915-102148.json`（待机），
-`.xlerobot/environment/profile-20260915-102031.json`（含启动）。采样结束后服务保持运行。
+`.xlerobot/environment/profile-20260915-102031.json`（含启动）。当次采样结束后服务保持运行；
+随后在用户不在现场的开发轮次中已停止，详见[无人值守开发与离线验证](x1-offline-validation.md)。

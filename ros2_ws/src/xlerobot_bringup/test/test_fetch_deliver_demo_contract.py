@@ -38,6 +38,40 @@ def _include_arguments(actions, filename):
     return dict(matches[0].launch_arguments)
 
 
+@pytest.mark.parametrize('voice,web', [('false', 'false'), ('true', 'false'),
+                                      ('false', 'true'), ('true', 'true')])
+def test_staged_startup_covers_all_components_without_executing_hardware(monkeypatch, voice, web):
+    from xlerobot_bringup import startup_sequence
+    module = _load_launch(Path(__file__).resolve().parents[1] / 'launch/fetch_deliver_demo.launch.py')
+    context = LaunchContext()
+    context.launch_configurations.update({
+        'hardware_enabled': 'true', 'x1_low_load': 'true', 'x1_staged_startup': 'true',
+        'map': '/tmp/not-opened-map.yaml', 'places_file': '/tmp/not-opened-places.yaml',
+        'enable_voice': voice, 'enable_web': web})
+    captured = []
+    def capture(phases, factory):
+        captured.extend(phases)
+        # Validate parameter serialization as launch will do, without executing a node.
+        probe = factory('sensors', startup_sequence.REQUIREMENTS['sensors'])
+        params = evaluate_parameters(context, probe._Node__parameters)
+        assert isinstance(params[0]['stage_spec'], str)
+        return ['constructed-only']
+    monkeypatch.setattr(startup_sequence, 'chain_phases', capture)
+    assert module._runtime(context) == ['constructed-only']
+    assert [name for name, _ in captured] == [name for name, _ in startup_sequence.PHASE_KEYS]
+    assert all(actions for _, actions in captured)
+    assert not any('planner' in name or 'navigation: Nav2' in name
+                   for name in startup_sequence.REQUIREMENTS['navigation_moveit']['diagnostics'])
+    with pytest.raises(ValueError, match='phase missing'):
+        startup_sequence.staged_demo_actions([ExecuteProcess(cmd=['true'])], context)
+    context.launch_configurations['x1_low_load'] = 'false'
+    with pytest.raises(ValueError, match='requires x1_low_load'):
+        module._runtime(context)
+    context.launch_configurations['hardware_enabled'] = 'false'
+    with pytest.raises(RuntimeError, match='no device was opened'):
+        module._runtime(context)
+
+
 def test_complete_demo_has_one_canonical_platform_owner_and_required_inputs():
     launch_path = (
         Path(__file__).resolve().parents[1]
