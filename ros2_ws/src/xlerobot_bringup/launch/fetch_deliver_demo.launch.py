@@ -124,6 +124,8 @@ def _runtime(context):
         )
     live = True
     low_load = LaunchConfiguration('x1_low_load', default='false').perform(context) == 'true'
+    geniex = (LaunchConfiguration('vlm_model', default='').perform(context)
+              == 'qwen3-vl-4b-instruct-geniex-q4_0-qcs8550')
     staged = LaunchConfiguration('x1_staged_startup', default='false').perform(context) == 'true'
     if staged and not low_load:
         raise ValueError('x1_staged_startup requires x1_low_load')
@@ -231,6 +233,7 @@ def _runtime(context):
                 'xlerobot_perception',
                 'verify_grasp.launch.py',
                 {
+                    'vlm_timeout_s': '15.0' if geniex else '10.0',
                     'backend_enabled': enabled,
                     'dry_run_mode': perception_mode,
                     'vlm_base_url': LaunchConfiguration('vlm_base_url'),
@@ -246,6 +249,7 @@ def _runtime(context):
                 parameters=[
                     {
                         'x1_low_load': low_load,
+                        'laser_guarded_spin': low_load,
                         'retreat_distance_m': 0.40,
                         'retreat_speed_mps': 0.08,
                         'manual_retreat_extra_timeout_s': 2.0,
@@ -268,6 +272,9 @@ def _runtime(context):
                 'xlerobot_manipulation',
                 'grasp_object.launch.py',
                 {
+                    # Two wrist requests plus fresh-frame waits must fit in
+                    # the parent action budget; control frequencies are unchanged.
+                    'verification_timeout_s': '35.0' if geniex else '10.0',
                     'execution_enabled': enabled,
                     'grasp_alignment_file': LaunchConfiguration(
                         'grasp_alignment_file'

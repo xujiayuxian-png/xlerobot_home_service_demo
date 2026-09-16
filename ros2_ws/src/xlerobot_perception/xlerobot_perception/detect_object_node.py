@@ -13,11 +13,10 @@ import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.duration import Duration
-from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, Image
-from xlerobot_perception.demand_images import DemandImages
+from xlerobot_perception.demand_images import DemandImages, DemandImageExecutor
 from tf2_ros import Buffer, TransformException, TransformListener
 from .robot_transform_client import RobotTransformClient
 from xlerobot_interfaces.action import DetectObject
@@ -746,7 +745,7 @@ def main():
     """Run the read-only detection action server."""
     rclpy.init()
     node = DetectObjectNode()
-    executor = MultiThreadedExecutor(num_threads=4)
+    executor = DemandImageExecutor(num_threads=4)
     executor.add_node(node)
     try:
         executor.spin()

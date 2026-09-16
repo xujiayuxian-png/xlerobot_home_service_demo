@@ -46,6 +46,13 @@ def test_good_covariance_and_current_scan_map_match_skip_relocalization(task_nod
     assert task_node._localization_ready()
 
 
+def test_navigation_failure_requires_relocalization_despite_small_covariance(task_node):
+    task_node._on_amcl_pose(amcl_pose())
+    task_node._on_scan_map_consistency(scan_map_result())
+    task_node._navigation_requires_relocalization = True
+    assert not task_node._localization_ready()
+
+
 @pytest.mark.parametrize(
     ('position_stddev', 'yaw_stddev'),
     [(0.21, 0.05), (0.05, 0.21)],

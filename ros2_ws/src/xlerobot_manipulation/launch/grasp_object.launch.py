@@ -5,6 +5,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -24,6 +25,7 @@ def generate_launch_description():
                 description='Independent gate for controller-facing grasp stages.',
             ),
             DeclareLaunchArgument('grasp_alignment_file', default_value=''),
+            DeclareLaunchArgument('verification_timeout_s', default_value='10.0'),
             Node(
                 package='xlerobot_manipulation',
                 executable='grasp_object_server',
@@ -34,6 +36,8 @@ def generate_launch_description():
                     {
                         'execution_enabled': execution_enabled,
                         'grasp_alignment_file': grasp_alignment_file,
+                        'verification_timeout_s': ParameterValue(
+                            LaunchConfiguration('verification_timeout_s'), value_type=float),
                     },
                 ],
             ),

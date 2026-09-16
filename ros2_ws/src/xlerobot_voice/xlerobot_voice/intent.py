@@ -10,6 +10,7 @@ from typing import Any
 import urllib.error
 import urllib.request
 from urllib.parse import urlparse
+from xlerobot_voice.chinese_text import simplified_text
 
 NPU_SYSTEM_PROMPT = (
     '你是家庭机器人的指令解析器。只输出JSON对象，不要解释。'
@@ -115,13 +116,18 @@ def normalize_intent(payload: dict[str, Any], *, min_confidence: float):
         raise IntentParseError('object must contain 1 to 128 characters')
     if any(ord(character) < 32 for character in object_id):
         raise IntentParseError('object must not contain control characters')
+    object_id = simplified_text(object_id)
     object_id = COMMON_OBJECT_HOMOPHONES.get(object_id, object_id)
-    source_place = _safe_text(payload, 'source_place', 'table', max_length=64)
+    source_place = simplified_text(_safe_text(payload, 'source_place', 'table', max_length=64))
+    # Models can return the display name despite the prompt requesting a place
+    # ID. Normalize table aliases before dispatch; preserve other place IDs.
+    if source_place in {'桌面', '桌子', '桌上', '桌子上', '桌面上'}:
+        source_place = 'table'
     # The delivered demo has one recipient capability: find the nearest person.
     # Do not let free-form model output leak an unsupported recipient identifier
     # into ExecuteTask and fail only after the object has already been grasped.
     recipient_id = 'nearest_person'
-    normalized = str(payload.get('normalized_command') or '').strip()
+    normalized = simplified_text(str(payload.get('normalized_command') or '').strip())
     try:
         confidence = float(payload.get('confidence', 0.0))
     except (TypeError, ValueError) as exc:
@@ -171,7 +177,7 @@ class LmStudioIntentClient:
 
     def parse(self, command_text: str, *, min_confidence: float):
         """Request then validate a structured fetch-and-deliver intent."""
-        command_text = command_text.strip()
+        command_text = simplified_text(command_text.strip())
         if not command_text or len(command_text) > 500:
             raise IntentParseError('command text must contain 1 to 500 characters')
         body = {

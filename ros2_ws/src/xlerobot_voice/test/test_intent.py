@@ -3,6 +3,24 @@ import math
 import pytest
 
 from xlerobot_voice.intent import IntentParseError, parse_intent_text
+from xlerobot_voice.chinese_text import simplified_text
+
+
+def test_traditional_chinese_is_normalized_without_changing_latin_or_numbers():
+    assert simplified_text('幫我拿藍色口香糖瓶和 USB-C 2 號打火機') == (
+        '帮我拿蓝色口香糖瓶和 USB-C 2 号打火机')
+
+
+def test_model_output_is_normalized_before_task_dispatch():
+    result = parse_intent_text(
+        '{"intent":"fetch_deliver","object":"黃色打火機",'
+        '"source_place":"桌面","confidence":0.9,'
+        '"normalized_command":"幫我拿黃色打火機"}',
+        min_confidence=0.6,
+    )
+    assert result.object_id == '黄色打火机'
+    assert result.source_place == 'table'
+    assert result.normalized_command == '帮我拿黄色打火机'
 
 
 def test_plain_json_maps_verified_defaults():
@@ -26,6 +44,17 @@ def test_fenced_json_keeps_source_but_uses_canonical_recipient():
     assert result.object_id == '露营灯'
     assert result.source_place == 'side_table'
     assert result.recipient_id == 'nearest_person'
+
+
+@pytest.mark.parametrize('source', ['桌面', '桌子', '桌上', '桌子上', '桌面上', ' table '])
+def test_table_display_names_become_navigation_place_id(source):
+    result = parse_intent_text(
+        '{"intent":"fetch_deliver","object":"打火機",'
+        '"source_place":"' + source + '","confidence":0.8}',
+        min_confidence=0.6,
+    )
+    assert result.source_place == 'table'
+    assert result.object_id == '打火机'
 
 
 def test_generic_model_recipient_cannot_break_person_search_contract():

@@ -38,6 +38,22 @@ def _include_arguments(actions, filename):
     return dict(matches[0].launch_arguments)
 
 
+@pytest.mark.parametrize('model,request_budget,parent_budget', [
+    ('qwen3-vl-4b-instruct-geniex-q4_0-qcs8550', '15.0', '35.0'),
+    ('qwen/qwen3-vl-4b', '10.0', '10.0'),
+])
+def test_geniex_two_frame_verification_fits_parent_budget(model, request_budget, parent_budget):
+    module = _load_launch(Path(__file__).resolve().parents[1] / 'launch/fetch_deliver_demo.launch.py')
+    context = LaunchContext()
+    context.launch_configurations.update({
+        'hardware_enabled': 'true', 'map': '/tmp/not-opened-map.yaml',
+        'places_file': '/tmp/not-opened-places.yaml', 'enable_voice': 'false',
+        'enable_web': 'false', 'vlm_model': model})
+    actions = module._runtime(context)  # Construct descriptions only, never execute them.
+    assert _include_arguments(actions, 'verify_grasp.launch.py')['vlm_timeout_s'] == request_budget
+    assert _include_arguments(actions, 'grasp_object.launch.py')['verification_timeout_s'] == parent_budget
+
+
 @pytest.mark.parametrize('voice,web', [('false', 'false'), ('true', 'false'),
                                       ('false', 'true'), ('true', 'true')])
 def test_staged_startup_covers_all_components_without_executing_hardware(monkeypatch, voice, web):

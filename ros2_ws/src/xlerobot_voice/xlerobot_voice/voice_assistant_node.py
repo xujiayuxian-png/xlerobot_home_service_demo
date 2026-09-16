@@ -31,6 +31,7 @@ from xlerobot_voice.audio import (
     Transcript,
 )
 from xlerobot_voice.intent import IntentParseError, LmStudioIntentClient
+from xlerobot_voice.chinese_text import simplified_text
 from xlerobot_voice.task_adapter import execute_task_goal
 
 
@@ -503,7 +504,8 @@ class VoiceAssistantNode(Node):
                 f'average_log_probability={transcript.average_log_probability:.3f} '
                 f'no_speech_probability={transcript.no_speech_probability:.3f}'
             )
-            self.transcript_publisher.publish(String(data=transcript.text.strip()))
+            command_text = simplified_text(transcript.text.strip())
+            self.transcript_publisher.publish(String(data=command_text))
             if not transcript_is_acceptable(
                 transcript,
                 minimum_language_probability=self.whisper_min_language_probability,
@@ -517,7 +519,7 @@ class VoiceAssistantNode(Node):
             intent_started_at = time.monotonic()
             try:
                 intent = intent_client.parse(
-                    transcript.text, min_confidence=self.intent_threshold
+                    command_text, min_confidence=self.intent_threshold
                 )
             except IntentParseError as exc:
                 self.get_logger().warning(f'Intent parse failed: {exc}')

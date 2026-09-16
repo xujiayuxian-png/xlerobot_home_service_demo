@@ -42,13 +42,12 @@ grasp_object_server:
     pregrasp_gripper_position: 1.64
     gripper_lower_position: 0.0
     gripper_upper_position: 1.65
-    # An empty close currently settles near 0.01 rad on the reference robot.
-    # Retry only when this mechanical signal and the single wrist VLM check
-    # both report an empty grasp.
+    # Thin objects can be held at small openings. Require visual confirmation
+    # above the empty-close tolerance; verification failure must not regrasp.
     gripper_closed_position: 0.0
     # Keep consistent with handover_object: a widely open gripper is not a grasp.
     held_max_position: 0.15
-    empty_gripper_tolerance_rad: 0.05
+    empty_gripper_tolerance_rad: 0.01
     head_lower_positions: [-1.57, -0.76]
     head_upper_positions: [1.57, 1.45]
     ready_positions: [-0.11505, 1.62142, 1.62602, 0.50621, 0.00153]

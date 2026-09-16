@@ -4,6 +4,9 @@ from pathlib import Path
 import yaml
 
 MODEL = 'qwen2.5-vl-3b-instruct-672x672-qnn2.36-w4a16-qcs8550'
+MODEL_4B = 'qwen3-vl-4b-instruct-448x448-qnn2.40-w4a16-qcs8550'
+MODEL_GENIEX = 'qwen3-vl-4b-instruct-geniex-q4_0-qcs8550'
+MODELS = (MODEL, MODEL_4B, MODEL_GENIEX)
 URLS = {'lm_studio_url': 'http://127.0.0.1:18888',
         'act_url': 'http://127.0.0.1:18901',
         'npu_person_url': 'http://127.0.0.1:18902',
@@ -17,8 +20,8 @@ def validate_profile(config):
             raise ValueError(f'demo.{key} must be npu for the local demo')
     if demo.get('grasp_backend') != 'act' or demo.get('act_wrist_only') is not True:
         raise ValueError('local demo requires wrist-only ACT')
-    if config.get('models', {}).get('vlm') != MODEL:
-        raise ValueError('local demo requires the verified 3B NPU model')
+    if config.get('models', {}).get('vlm') not in MODELS:
+        raise ValueError('local demo requires a supported X1 NPU VLM model')
     for key, expected in URLS.items():
         if config.get('services', {}).get(key) != expected:
             raise ValueError(f'services.{key} must be {expected}; remote fallback is disabled')
@@ -29,7 +32,8 @@ if __name__ == '__main__':
     parser.add_argument('--config', required=True)
     parser.add_argument('--health', action='store_true')
     args = parser.parse_args()
-    validate_profile(yaml.safe_load(Path(args.config).read_text()))
+    config = yaml.safe_load(Path(args.config).read_text())
+    validate_profile(config)
     if args.health:
         import json
         from urllib.request import urlopen
@@ -40,6 +44,6 @@ if __name__ == '__main__':
                 raise ValueError(f'{kind} is not the expected NPU worker')
         with urlopen(URLS['lm_studio_url']+'/v1/models', timeout=3) as response:
             models = json.load(response)['data']
-        if not any(model.get('id') == MODEL for model in models):
+        if not any(model.get('id') == config['models']['vlm'] for model in models):
             raise ValueError('NPU VLM is not ready')
     print('X1 local profile: all inference endpoints are loopback; wrist-only ACT')

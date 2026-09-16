@@ -15,12 +15,12 @@ from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
-from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from xlerobot_interfaces.action import ScanForPerson
 from xlerobot_interfaces.msg import CapabilityError
-from xlerobot_perception.demand_images import DemandImages
+from xlerobot_perception.demand_images import DemandImages, DemandImageExecutor
+from xlerobot_task.scan_spin import run_scan_spin
 
 
 class SearchFailure(RuntimeError):
@@ -92,8 +92,11 @@ class PersonSearchNode(Node):
         self.spin_client = ActionClient(
             self, Spin, '/spin', callback_group=self.group
         )
+        self.laser_guarded_spin = bool(self.declare_parameter('laser_guarded_spin', False).value)
+        self.scan_vel_pub = self.create_publisher(Twist, '/cmd_vel_nav_raw', 10)
         self._odom_lock = threading.Lock()
         self._base_xy = None
+        self._spin_odom = None
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel_teleop', 10)
         self.odom_stream = DemandImages(
             self, [(Odometry, '/odom', self._on_odom)], self._clear_odom,
@@ -167,12 +170,15 @@ class PersonSearchNode(Node):
             total_views = len(self.body_turns_rad) * len(self.scan_pan_rad)
             view_index = 0
             for body_index, turn in enumerate(self.body_turns_rad):
-                spin = Spin.Goal()
-                spin.target_yaw = turn
-                spin.time_allowance.sec = 18
-                self._require_success(
-                    self.spin_client, spin, 21.0, goal_handle, 'body spin'
-                )
+                if self.laser_guarded_spin:
+                    self._laser_guarded_turn(turn, goal_handle)
+                else:
+                    spin = Spin.Goal()
+                    spin.target_yaw = turn
+                    spin.time_allowance.sec = 18
+                    self._require_success(
+                        self.spin_client, spin, 21.0, goal_handle, 'body spin'
+                    )
                 # Serpentine order avoids the old 2.4 rad cross-body head jump
                 # between scan sectors while preserving all six views.
                 pans = (
@@ -284,6 +290,31 @@ class PersonSearchNode(Node):
     def _clear_odom(self):
         with self._odom_lock:
             self._base_xy = None
+            self._spin_odom = None
+
+    def _laser_guarded_turn(self, turn, parent):
+        self.odom_stream.start()
+        self.get_logger().info(f'person-search turn {turn:.3f}rad through live laser collision monitor')
+        try:
+            run_scan_spin(turn, self._read_spin_odom, self._publish_scan_speed,
+                          lambda: parent.is_cancel_requested, rclpy.ok)
+        except InterruptedError as exc:
+            raise SearchFailure(CapabilityError.CANCELED, str(exc)) from exc
+        except TimeoutError as exc:
+            raise SearchFailure(CapabilityError.TIMEOUT, str(exc)) from exc
+        except RuntimeError as exc:
+            raise SearchFailure(CapabilityError.BACKEND_FAILURE, str(exc)) from exc
+        finally:
+            self.odom_stream.stop()
+
+    def _read_spin_odom(self):
+        with self._odom_lock:
+            return self._spin_odom
+
+    def _publish_scan_speed(self, speed):
+        command = Twist()
+        command.angular.z = speed
+        self.scan_vel_pub.publish(command)
 
     def _move_head(self, pan, parent):
         goal = FollowJointTrajectory.Goal()
@@ -561,8 +592,14 @@ class PersonSearchNode(Node):
 
     def _on_odom(self, message):
         position = message.pose.pose.position
+        q = message.pose.pose.orientation
+        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                         1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        stamp = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
+        age = self.get_clock().now().nanoseconds * 1e-9 - stamp
         with self._odom_lock:
             self._base_xy = (float(position.x), float(position.y))
+            self._spin_odom = (yaw, float(message.twist.twist.angular.z), time.monotonic() - age)
 
     def _current_base_xy(self):
         with self._odom_lock:
@@ -619,7 +656,7 @@ class PersonSearchNode(Node):
 def main():
     rclpy.init()
     node = PersonSearchNode()
-    executor = MultiThreadedExecutor(num_threads=6)
+    executor = DemandImageExecutor(num_threads=6)
     executor.add_node(node)
     try:
         executor.spin()

@@ -1,5 +1,7 @@
-// Process-local compatibility shim for AidGen 2.3: use its public configuration
+// Process-local compatibility shim for AidGen: use its public configuration
 // API before the vendor HTTP server creates the generator. No binary patches.
+// Recompile against the installed SDK after an SDK upgrade; do not reuse an
+// older binary across ContextProperties ABI changes.
 #include <aidlux/aidgen/aidgen.hpp>
 #include <cstdio>
 #include <cstdlib>

@@ -16,14 +16,13 @@ from cv_bridge import CvBridge
 import rclpy
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
-from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.time import Time
 from sensor_msgs.msg import Image, JointState
 from xlerobot_interfaces.action import ExecuteLearnedPolicy, ExecutePolicyStream
 from xlerobot_interfaces.msg import CapabilityError, PolicyJointChunk
 from xlerobot_policy.act_http import ActHttpClient
-from xlerobot_perception.demand_images import DemandImages
+from xlerobot_perception.demand_images import DemandImages, DemandImageExecutor
 from xlerobot_policy.postprocess import (
     freeze_joint,
     GripperGovernorConfig,
@@ -896,7 +895,7 @@ def main():
     """Run the policy adapter without granting controller ownership."""
     rclpy.init()
     node = ActPolicyNode()
-    executor = MultiThreadedExecutor(num_threads=4)
+    executor = DemandImageExecutor(num_threads=4)
     executor.add_node(node)
     try:
         executor.spin()

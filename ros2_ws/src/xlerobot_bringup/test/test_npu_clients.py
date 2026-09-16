@@ -1,6 +1,7 @@
 """Loopback protocol tests with fake model outputs; no SDK, camera or motor use."""
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -18,6 +19,30 @@ from services.npu.server import Handler, Server
 from xlerobot_perception.detection.npu import NpuPersonDetector
 from xlerobot_voice.npu import NpuTranscriber
 from xlerobot_policy.act_http import ActHttpClient
+
+
+def test_private_aidlite_plugin_redirect_is_process_local_and_exact(tmp_path):
+    shim = tmp_path/'shim.so'
+    plugin = tmp_path/'plugin.so'
+    source = tmp_path/'plugin.c'
+    source.write_text('int x1_test_value(void) { return 42; }\n')
+    subprocess.run(['cc', '-shared', '-fPIC', str(source), '-o', str(plugin)], check=True)
+    subprocess.run(['cc', '-shared', '-fPIC', str(ROOT/'tools/lib/npu_aidlite_backend.c'),
+                    '-ldl', '-o', str(shim)], check=True)
+    script = '''
+import ctypes
+assert ctypes.CDLL('/usr/local/lib/libaidlite_qnn240.so').x1_test_value() == 42
+assert ctypes.CDLL(None).getpid() > 0
+try:
+    ctypes.CDLL('/nonexistent/libaidlite_qnn240.so')
+except OSError:
+    pass
+else:
+    raise AssertionError('unrelated paths must not be redirected')
+'''
+    env = {**os.environ, 'LD_PRELOAD': str(shim),
+           'XLEROBOT_AIDLITE_QNN240_LIBRARY': str(plugin)}
+    subprocess.run([sys.executable, '-c', script], env=env, check=True, timeout=5)
 
 
 def test_local_vlm_maps_672_pixel_boxes_to_original_camera_and_uses_nonzero_temperature(monkeypatch):
@@ -50,10 +75,12 @@ def test_local_vlm_maps_672_pixel_boxes_to_original_camera_and_uses_nonzero_temp
 
 
 def test_local_profile_rejects_a_remote_endpoint_and_demo_requires_hardware():
-    from tools.lib.npu_profile import MODEL, URLS, validate_profile
+    from tools.lib.npu_profile import MODEL, MODEL_4B, URLS, validate_profile
     config = {'demo': {**dict.fromkeys(('inference_backend', 'asr_backend', 'person_backend', 'vlm_backend'), 'npu'),
                        'grasp_backend': 'act', 'act_wrist_only': True},
               'models': {'vlm': MODEL}, 'services': dict(URLS)}
+    validate_profile(config)
+    config['models']['vlm'] = MODEL_4B
     validate_profile(config)
     config['services']['act_url'] = 'http://192.0.2.1:8766'
     with pytest.raises(ValueError, match='remote fallback'):

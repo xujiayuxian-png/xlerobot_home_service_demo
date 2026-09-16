@@ -1,0 +1,3 @@
+# Install only in the isolated VLM environment, never in the robot/QNN env.
+geniex==0.6.1
+Pillow==12.3.0

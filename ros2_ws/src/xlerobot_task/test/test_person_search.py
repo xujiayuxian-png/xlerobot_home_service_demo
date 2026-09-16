@@ -30,6 +30,8 @@ def search_fixture():
     search._lock = threading.Lock()
     search._odom_lock = threading.Lock()
     search._base_xy = None
+    search._spin_odom = None
+    search.laser_guarded_spin = False
     search._goal_active = True
     search.odom_stream = SimpleNamespace(start=lambda: None, stop=lambda: None)
     return search

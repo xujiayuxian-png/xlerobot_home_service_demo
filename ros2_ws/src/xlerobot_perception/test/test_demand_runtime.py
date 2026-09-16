@@ -5,12 +5,12 @@ import time
 
 import rclpy
 from rclpy.action import ActionClient
-from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from xlerobot_interfaces.action import VerifyGrasp
 from xlerobot_interfaces.msg import CapabilityError
 from xlerobot_perception.verify_grasp_node import VerifyGraspNode
+from xlerobot_perception.demand_images import DemandImageExecutor
 
 
 def wait_for(predicate, timeout=4):
@@ -31,7 +31,7 @@ def test_cancel_timeout_and_contract_goal_all_leave_no_image_subscriptions(monke
         Parameter('sensor_timeout_s', value=0.5)])
     client_node = Node('demand_image_test_client')
     client = ActionClient(client_node, VerifyGrasp, 'verify_grasp')
-    executor = MultiThreadedExecutor(num_threads=3)
+    executor = DemandImageExecutor(num_threads=3)
     executor.add_node(server)
     executor.add_node(client_node)
     thread = threading.Thread(target=executor.spin, daemon=True)

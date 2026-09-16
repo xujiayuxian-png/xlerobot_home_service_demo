@@ -9,10 +9,9 @@ import time
 import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
-from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import Image
-from xlerobot_perception.demand_images import DemandImages
+from xlerobot_perception.demand_images import DemandImages, DemandImageExecutor
 from xlerobot_interfaces.action import VerifyGrasp
 from xlerobot_interfaces.msg import CapabilityError
 from xlerobot_perception.execution_modes import validate_dry_run_mode
@@ -124,16 +123,7 @@ class VerifyGraspNode(Node):
                     'grasp verification backend is disabled',
                 )
             self.images.start()
-            image = self._fresh_image(goal_handle)
-            self._feedback(goal_handle, 'verifying', 0.40, 'checking wrist image')
-            try:
-                verification, latency_s = self.vlm.verify_grasp(
-                    color_to_bgr(image), goal_handle.request.object_id.strip()
-                )
-            except Exception as exc:
-                raise VerificationFailure(
-                    CapabilityError.BACKEND_FAILURE, str(exc)
-                ) from exc
+            verification, latency_s = self._verify_images(goal_handle)
             result.grasped = bool(verification.grasped)
             result.confidence = float(verification.confidence)
             result.reason = verification.reason
@@ -168,6 +158,33 @@ class VerifyGraspNode(Node):
             self.images.stop()
             with self._goal_lock:
                 self._goal_active = False
+
+    def _verify_images(self, goal_handle):
+        """Recheck one fresh view on NPU rejection, without moving the gripper."""
+        latency_s = 0.0
+        attempts = 2 if self.vlm.backend == 'npu' else 1
+        for attempt in range(attempts):
+            image = self._fresh_image(goal_handle)
+            self._feedback(goal_handle, 'verifying', 0.40 + 0.20 * attempt,
+                           'checking wrist image' if attempt == 0 else
+                           'rechecking a new wrist frame; gripper remains closed')
+            try:
+                verification, elapsed = self.vlm.verify_grasp(
+                    color_to_bgr(image), goal_handle.request.object_id.strip()
+                )
+            except Exception as exc:
+                raise VerificationFailure(CapabilityError.BACKEND_FAILURE, str(exc)) from exc
+            latency_s += elapsed
+            if goal_handle.is_cancel_requested:
+                raise VerificationFailure(CapabilityError.CANCELED,
+                                          'grasp verification canceled')
+            self.get_logger().info(
+                f'wrist verification {attempt + 1}/{attempts}: stamp_ns={stamp_ns(image)}, '
+                f'grasped={verification.grasped}, confidence={verification.confidence:.2f}, '
+                f'reason={verification.reason}')
+            if verification.grasped and verification.confidence >= self.success_confidence:
+                break
+        return verification, latency_s
 
     def _fresh_image(self, goal_handle):
         not_before_ns = self.get_clock().now().nanoseconds
@@ -204,7 +221,7 @@ class VerifyGraspNode(Node):
 def main():
     rclpy.init()
     node = VerifyGraspNode()
-    executor = MultiThreadedExecutor(num_threads=2)
+    executor = DemandImageExecutor(num_threads=2)
     executor.add_node(node)
     try:
         executor.spin()

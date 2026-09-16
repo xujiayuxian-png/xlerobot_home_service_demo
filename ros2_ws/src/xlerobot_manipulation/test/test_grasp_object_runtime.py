@@ -456,54 +456,66 @@ class GraspObjectRuntimeTest(unittest.TestCase):
         self.assertEqual(pregrasp.points[0].time_from_start.sec, 4)
         self.assertEqual(pregrasp.points[0].time_from_start.nanosec, 0)
 
-    def test_02a_failed_verification_retries_the_complete_grasp_once(self):
+    def test_02a_negative_verification_never_reopens_a_possibly_loaded_gripper(self):
         self.fake.events.clear()
         self.fake.verification_results = [False, True]
         self.fake.policy_gripper_positions = [0.0, 0.10]
         wrapped = self._run(self._goal(dry_run=False))
-        self.assertEqual(wrapped.status, GoalStatus.STATUS_SUCCEEDED, wrapped.result.error.message)
-        self.assertEqual(wrapped.result.error.code, CapabilityError.NONE)
+        self.assertEqual(wrapped.status, GoalStatus.STATUS_ABORTED, wrapped.result.error.message)
+        self.assertEqual(wrapped.result.error.code, CapabilityError.NOT_FOUND)
+        self.assertIn('not retrying', wrapped.result.error.message)
         self.assertEqual(
             self.fake.events,
             [
-                'ik', 'plan', 'gripper', 'arm', 'policy', 'arm', 'verify',
                 'ik', 'plan', 'gripper', 'arm', 'policy', 'arm', 'verify', 'head',
             ],
         )
 
-    def test_02b_two_failed_verifications_abort_after_the_single_retry(self):
+    def test_02b_near_closed_gripper_also_stops_without_regrasp(self):
         self.fake.events.clear()
         self.fake.verification_results = [False, False]
-        self.fake.policy_gripper_positions = [0.0, 0.0]
+        self.fake.policy_gripper_positions = [0.010738]
         wrapped = self._run(self._goal(dry_run=False))
         self.assertEqual(wrapped.status, GoalStatus.STATUS_ABORTED)
         self.assertEqual(
             wrapped.result.error.code, CapabilityError.NOT_FOUND, wrapped.result.error.message
         )
-        self.assertEqual(self.fake.events.count('policy'), 2)
-        self.assertEqual(self.fake.events.count('verify'), 2)
+        self.assertEqual(self.fake.events.count('policy'), 1)
+        self.assertEqual(self.fake.events.count('verify'), 1)
+        self.assertEqual(self.fake.events.count('gripper'), 1)
         self.assertEqual(self.fake.events[-1], 'head')
 
-    def test_02c_vlm_false_negative_does_not_retry_a_blocked_gripper(self):
+    def test_02c_intermediate_gripper_requires_visual_confirmation(self):
         self.fake.events.clear()
         self.fake.verification_results = [False]
         self.fake.policy_gripper_positions = [0.10]
         wrapped = self._run(self._goal(dry_run=False))
         self.assertEqual(
-            wrapped.status, GoalStatus.STATUS_SUCCEEDED, wrapped.result.error.message
+            wrapped.status, GoalStatus.STATUS_ABORTED, wrapped.result.error.message
         )
-        self.assertEqual(wrapped.result.error.code, CapabilityError.NONE)
+        self.assertEqual(wrapped.result.error.code, CapabilityError.NOT_FOUND)
+        self.assertIn('Visual grasp confirmation is required', wrapped.result.error.message)
         self.assertEqual(self.fake.events.count('policy'), 1)
         self.assertEqual(self.fake.events.count('verify'), 1)
         self.assertEqual(self.fake.events[-1], 'head')
 
-    def test_02d_vlm_positive_accepts_a_fully_closed_gripper(self):
+    def test_02d_visual_positive_cannot_override_fully_closed_gripper(self):
         self.fake.events.clear()
         self.fake.verification_results = [True]
         self.fake.policy_gripper_positions = [0.0]
         wrapped = self._run(self._goal(dry_run=False))
-        self.assertEqual(wrapped.status, GoalStatus.STATUS_SUCCEEDED)
-        self.assertEqual(wrapped.result.error.code, CapabilityError.NONE)
+        self.assertEqual(wrapped.status, GoalStatus.STATUS_ABORTED)
+        self.assertEqual(wrapped.result.error.code, CapabilityError.NOT_FOUND)
+        self.assertIn('fully closed', wrapped.result.error.message)
+        self.assertEqual(self.fake.events.count('policy'), 1)
+        self.assertEqual(self.fake.events.count('verify'), 1)
+
+    def test_02da_thin_object_passes_with_visual_confirmation(self):
+        self.fake.events.clear()
+        self.fake.verification_results = [True]
+        self.fake.policy_gripper_positions = [0.029146]
+        wrapped = self._run(self._goal(dry_run=False))
+        self.assertEqual(wrapped.status, GoalStatus.STATUS_SUCCEEDED, wrapped.result.error.message)
         self.assertEqual(self.fake.events.count('policy'), 1)
         self.assertEqual(self.fake.events.count('verify'), 1)
 
@@ -511,7 +523,8 @@ class GraspObjectRuntimeTest(unittest.TestCase):
         self.fake.events.clear()
         self.fake.policy_gripper_positions = [1.02]
         wrapped = self._run(self._goal(dry_run=False))
-        self.assertEqual(wrapped.status, GoalStatus.STATUS_SUCCEEDED)
+        self.assertEqual(wrapped.status, GoalStatus.STATUS_ABORTED)
+        self.assertIn('fully closed', wrapped.result.error.message)
         self.assertEqual(self.fake.events, [
             'ik', 'plan', 'gripper', 'arm', 'policy', 'gripper', 'arm', 'verify', 'head',
         ])

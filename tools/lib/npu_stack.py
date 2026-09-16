@@ -9,12 +9,15 @@ from pathlib import Path
 import signal
 import socket
 import subprocess
+import sys
 import time
 from urllib.request import urlopen
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 STATE = ROOT / '.xlerobot/npu/stack'
 
 
@@ -52,11 +55,40 @@ def settings(path):
     required |= {str((result['whisper_model']/name).resolve()) for name in
                  ('encoder_model_htp.bin.aidem', 'decoder_model_htp.bin.aidem', 'tokenizer.json')}
     vlm = json.loads(result['vlm_config'].read_text())
-    model_id = 'qwen2.5-vl-3b-instruct-672x672-qnn2.36-w4a16-qcs8550'
-    if vlm.get('default_model_id') != model_id or len(vlm.get('model_cfg_list', [])) != 1:
-        raise ValueError('only the experimentally verified VLM is supported')
-    model_dir = Path(vlm['res_folder'])/'models'/model_id
-    required |= {str(p.resolve()) for p in model_dir.rglob('*') if p.is_file()}
+    from tools.lib.npu_profile import MODELS, MODEL_4B, MODEL_GENIEX
+    model_id = config.get('models', {}).get('vlm')
+    if model_id not in MODELS:
+        raise ValueError('unsupported X1 NPU VLM model')
+    result['geniex'] = model_id == MODEL_GENIEX
+    if result['geniex']:
+        from tools.lib.geniex_runtime import runtime_settings
+        artifacts, command, environment = runtime_settings(vlm, result['vlm_config'], ROOT)
+        required |= artifacts
+        result['vlm_command'], result['vlm_env'] = command, environment
+    else:
+        entries = vlm.get('model_cfg_list', [])
+        if (vlm.get('default_model_id') != model_id or len(entries) != 1
+                or entries[0].get('model_id') != model_id):
+            raise ValueError('VLM service configuration must match the selected local model')
+        model_dir = Path(vlm['res_folder'])/'models'/model_id
+        if not model_dir.is_dir():
+            raise ValueError('selected VLM model directory is missing')
+        required |= {str(p.resolve()) for p in model_dir.rglob('*') if p.is_file()}
+    result['vlm_args'] = []
+    result['vlm_library_dir'] = None
+    if model_id == MODEL_4B:
+        result['vlm_args'] = ['--qnn_ver', '240']
+        library_dir = Path(npu.get('vlm_library_dir', ''))
+        if not library_dir.is_absolute():
+            library_dir = ROOT/library_dir
+        for name in ('libaidlite.so', 'libaidlite_qnn240.so'):
+            library = library_dir/name
+            if not library.is_file():
+                raise ValueError('4B requires its isolated AidLite 2.5 runtime')
+            required.add(str(library.resolve()))
+        result['vlm_library_dir'] = library_dir
+        required.add(str(result['vlm_config'].resolve()))
+        required.add(str(Path(vlm['model_cfg_list'][0]['cfg_path']).resolve()))
     if not required <= set(manifest):
         raise ValueError('manifest does not cover the selected worker artifacts')
     for filename, expected in manifest.items():
@@ -187,7 +219,7 @@ def main():
             subprocess.run(['cc', '-shared', '-fPIC', str(ROOT/'tools/lib/npu_loopback_bind.c'),
                             '-ldl', '-o', str(library)], check=True, timeout=30)
             config_library = STATE/'aidgen_config.so'
-            if config['low_idle_cpu']:
+            if config['low_idle_cpu'] and not config['geniex']:
                 subprocess.run(['c++', '-shared', '-fPIC', '-std=c++17',
                                 str(ROOT/'tools/lib/npu_aidgen_config.cpp'), '-I/usr/local/include',
                                 '-L/usr/local/lib', '-laidgen', '-ldl', '-o', str(config_library)],
@@ -197,13 +229,30 @@ def main():
             env = {**os.environ, 'OMP_NUM_THREADS': '2', 'OPENBLAS_NUM_THREADS': '1'}
             vendor_env = {**env, 'LD_PRELOAD': str(library),
                           'LD_LIBRARY_PATH': '/opt/aidlux/app/aid-openai-api/lib:'+env.get('LD_LIBRARY_PATH', '')}
-            if config['low_idle_cpu']:
+            if config['vlm_library_dir']:
+                vendor_env['LD_LIBRARY_PATH'] = (
+                    str(config['vlm_library_dir'])+
+                    ':/usr/local/lib/aidlux/qairt/qnn240:/usr/local/lib:'+vendor_env['LD_LIBRARY_PATH'])
+                backend_library = STATE/'aidlite_backend.so'
+                subprocess.run(['cc', '-shared', '-fPIC', str(ROOT/'tools/lib/npu_aidlite_backend.c'),
+                                '-ldl', '-o', str(backend_library)], check=True, timeout=30)
+                vendor_env['LD_PRELOAD'] += ':'+str(backend_library)
+                vendor_env['XLEROBOT_AIDLITE_QNN240_LIBRARY'] = str(config['vlm_library_dir']/'libaidlite_qnn240.so')
+            vendor_env.pop('XLEROBOT_AIDGEN_RAW_CONFIG', None)
+            vendor_env.pop('XLEROBOT_AIDGEN_VOCAB_EMBEDDING', None)
+            if config['low_idle_cpu'] and not config['geniex']:
                 vendor_env['LD_PRELOAD'] += ':'+str(config_library)
-            vlm_config = json.loads(config['vlm_config'].read_text())
-            if not any(row.get('port') == 18888 for row in vlm_config.get('http_cfg', [])):
-                raise ValueError('experimental VLM config must use port 18888')
-            # Start sequentially to avoid competing cold compilation peaks.
-            child = launch('vlm', ['/opt/aidlux/app/aid-openai-api/api', '--config', str(config['vlm_config'])], vendor_env)
+            if config['geniex']:
+                geniex_env = {**env, **config['vlm_env']}
+                geniex_env.pop('LD_PRELOAD', None)
+                geniex_env.pop('LD_LIBRARY_PATH', None)
+                child = launch('vlm', config['vlm_command'], geniex_env)
+            else:
+                vlm_config = json.loads(config['vlm_config'].read_text())
+                if not any(row.get('port') == 18888 for row in vlm_config.get('http_cfg', [])):
+                    raise ValueError('experimental VLM config must use port 18888')
+                child = launch('vlm', ['/opt/aidlux/app/aid-openai-api/api', '--config', str(config['vlm_config']),
+                                       *config['vlm_args']], vendor_env)
             ready(child, 'http://127.0.0.1:18888/v1/models')
             for kind, port in [('person', 18902), ('whisper', 18903), ('act', 18901)]:
                 python = ROOT/('.xlerobot/npu/ort-env/bin/python' if kind == 'act' else '.venv/robot/bin/python')
@@ -218,7 +267,7 @@ def main():
             while not stopping:
                 for kind, child in children.items():
                     if child.poll() is not None:
-                        raise RuntimeError(f'{kind} exited; stopping the complete inference stack')
+                        raise RuntimeError(f'{kind} exited (returncode={child.returncode}); stopping the complete inference stack')
                 time.sleep(0.5)
         finally:
             for kind, child in children.items():

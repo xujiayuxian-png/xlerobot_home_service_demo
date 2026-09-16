@@ -175,7 +175,10 @@ class LmStudioVlmClient:
         self.base_url = base_url.rstrip('/')
         self.model = model
         self.timeout_s = float(timeout_s)
-        self.bbox_format = 'px' if backend == 'npu' else bbox_format
+        self.npu_geniex = backend == 'npu' and model == 'qwen3-vl-4b-instruct-geniex-q4_0-qcs8550'
+        self.npu_qwen3 = self.npu_geniex or (backend == 'npu' and model == 'qwen3-vl-4b-instruct-448x448-qnn2.40-w4a16-qcs8550')
+        self.npu_image_size = 448 if self.npu_qwen3 else 672
+        self.bbox_format = ('norm1000' if self.npu_qwen3 else 'px') if backend == 'npu' else bbox_format
         self.jpeg_quality = max(30, min(100, int(jpeg_quality)))
         self.request_long_edge_px = int(request_long_edge_px)
         if self.request_long_edge_px < 0:
@@ -194,9 +197,31 @@ class LmStudioVlmClient:
 3. bbox_2d 必须基于原图 {width}x{height} 的 0-1000 相对坐标，与输入图像尺寸无关。
 4. 格式：[{{"label":"杯子","bbox_2d":[x1,y1,x2,y2],"confidence":0.9}}]"""
 
-    def _request_image(self, bgr: np.ndarray):
+    def _request_image(self, bgr: np.ndarray, *, grounding: bool = False):
         height, width = bgr.shape[:2]
         if self.backend == 'npu':
+            if self.npu_geniex:
+                # Native camera aspect ratio; larger HTP vision graphs have
+                # not passed on this runtime. Never upsample this profile.
+                scale = min(1., 640. / max(width, height), (307200. / (width * height)) ** .5)
+                if scale == 1.:
+                    return bgr, 1., 1.
+                w, h = max(1, int(width * scale)), max(1, int(height * scale))
+                return cv2.resize(bgr, (w, h), interpolation=cv2.INTER_AREA), w / width, h / height
+            if self.npu_qwen3:
+                size = self.npu_image_size
+                return cv2.resize(bgr, (size, size), interpolation=cv2.INTER_CUBIC), size / width, size / height
+            if grounding:
+                # Two-stage cubic resampling selected in the X1 head-camera
+                # glue-stick evaluation; grasp verification uses its own path.
+                enlarged = cv2.resize(
+                    bgr, (width * 2, height * 2), interpolation=cv2.INTER_CUBIC
+                )
+                return (
+                    cv2.resize(enlarged, (672, 672), interpolation=cv2.INTER_CUBIC),
+                    672 / width,
+                    672 / height,
+                )
             return cv2.resize(bgr, (672, 672)), 672 / width, 672 / height
         long_edge = max(width, height)
         if self.request_long_edge_px <= 0 or long_edge >= self.request_long_edge_px:
@@ -214,11 +239,11 @@ class LmStudioVlmClient:
         if bgr.ndim != 3 or bgr.shape[2] != 3 or bgr.dtype != np.uint8:
             raise ValueError('VLM input must be a BGR uint8 image')
         source_height, source_width = bgr.shape[:2]
-        request_bgr, scale_x, scale_y = self._request_image(bgr)
+        request_bgr, scale_x, scale_y = self._request_image(bgr, grounding=True)
         height, width = request_bgr.shape[:2]
         ok, encoded = cv2.imencode(
-            '.jpg', request_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality]
-        )
+            '.png' if self.npu_geniex else '.jpg', request_bgr,
+            [] if self.npu_geniex else [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality])
         if not ok:
             raise RuntimeError('JPEG encoding failed')
         image_data = base64.b64encode(encoded.tobytes()).decode('ascii')
@@ -229,13 +254,15 @@ class LmStudioVlmClient:
                 'content': [
                     {'type': 'text', 'text': (
                         f'定位图中的{object_id}。只输出JSON对象，字段found、box、confidence。'
-                        'found为是否找到目标的布尔值；box为当前672×672图像的像素坐标'
-                        '[x1,y1,x2,y2]，不要归一化；confidence为0到1的判断置信度。'
+                        'found为是否找到目标的布尔值；box为'
+                        + ('0到1000归一化坐标[x1,y1,x2,y2]；' if self.npu_qwen3 else
+                           '当前672×672图像的像素坐标[x1,y1,x2,y2]，不要归一化；')
+                        + 'confidence为0到1的判断置信度。'
                         '不存在则found为false、box为null、confidence为0。不要解释。'
                         if self.backend == 'npu' else self.prompt(object_id, width, height))},
                     {
                         'type': 'image_url',
-                        'image_url': {'url': f'data:image/jpeg;base64,{image_data}'},
+                        'image_url': {'url': f'data:image/{"png" if self.npu_geniex else "jpeg"};base64,{image_data}'},
                     },
                 ],
             }],
@@ -270,9 +297,11 @@ class LmStudioVlmClient:
                     text = '{"objects":[]}'
                 elif item.get('found') is True:
                     box, confidence = item.get('box'), item.get('confidence')
+                    if isinstance(box, list) and len(box) == 1 and isinstance(box[0], list):
+                        box = box[0]
                     if (not isinstance(box, list) or len(box) != 4
                             or any(isinstance(v, bool) or not isinstance(v, (int, float))
-                                   or not np.isfinite(v) or not 0 <= v <= 672 for v in box)
+                                   or not np.isfinite(v) or not 0 <= v <= (1000 if self.npu_qwen3 else 672) for v in box)
                             or isinstance(confidence, bool) or not isinstance(confidence, (int, float))
                             or not np.isfinite(confidence) or not 0 <= confidence <= 1):
                         raise ValueError('invalid NPU grounding coordinates/confidence')
@@ -318,8 +347,8 @@ class LmStudioVlmClient:
             raise ValueError('VLM input must be a BGR uint8 image')
         request_bgr, _scale_x, _scale_y = self._request_image(bgr)
         ok, encoded = cv2.imencode(
-            '.jpg', request_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality]
-        )
+            '.png' if self.npu_geniex else '.jpg', request_bgr,
+            [] if self.npu_geniex else [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality])
         if not ok:
             raise RuntimeError('JPEG encoding failed')
         image_data = base64.b64encode(encoded.tobytes()).decode('ascii')
@@ -330,22 +359,32 @@ class LmStudioVlmClient:
                 'content': [
                     {
                         'type': 'text',
-                        'text': (f'请判断机器人夹爪是否已经抓住目标物体“{object_id}”。'
-                                 '只有两指确实夹持目标且有离开桌面的证据才判成功。'
-                                 '在桌上、夹爪旁边、两指有间隙、抓着其他物品或证据不明确均判失败。'
+                        'text': (f'这是机器人抬起机械臂后的腕部相机图像，目标名为“{object_id}”。'
+                                 '只判断目标物体是否被夹爪带离桌面。'
+                                 '目标在夹爪处可见，已经悬空、不再受桌面支撑，就判成功。'
+                                 '不需要判断两指是否夹紧，也不需要判断指间间隙或接触细节。'
+                                 '目标名仅作辅助，不要仅因无法识别物体用途或名称就判失败。'
+                                 '物体仍在桌面上，或夹爪处没有可见物体，或无法判断是否离开桌面，判失败。'
+                                 '不能仅因为桌面上找不到物体就判成功。'
                                  '只输出JSON对象：grasp_success为布尔值，confidence为0到1的数值，'
                                  'reason为根据实际画面写的一句简短理由。不要输出模板。'
                                  if self.backend == 'npu' else self.grasp_verification_prompt(object_id)),
                     },
                     {
                         'type': 'image_url',
-                        'image_url': {'url': f'data:image/jpeg;base64,{image_data}'},
+                        'image_url': {'url': f'data:image/{"png" if self.npu_geniex else "jpeg"};base64,{image_data}'},
                     },
                 ],
             }],
             'temperature': 0.1 if self.backend == 'npu' else 0.0,
             'max_tokens': 128 if self.backend == 'npu' else 256,
         }
+        if self.npu_geniex:
+            payload['messages'][0]['content'][0]['text'] = (
+                '观察机器人夹爪和物体的位置关系。物体当前属于哪一种情况：'
+                'A. 物体在夹爪口处，被夹爪带起；B. 物体放在桌面上，与夹爪口分离；'
+                'C. 看不清或没有物体。只有A为抓取成功，B和C为失败。'
+                '输出JSON：{"grasp_success":true,"confidence":0.95,"reason":"说明位置关系"}。')
         request = urllib.request.Request(
             f'{self.base_url}/v1/chat/completions',
             data=json.dumps(payload).encode('utf-8'),

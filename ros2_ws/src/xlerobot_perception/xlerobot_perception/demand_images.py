@@ -2,7 +2,29 @@
 
 import threading
 
+from rclpy.exceptions import InvalidHandle
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import QoSProfile, ReliabilityPolicy
+
+
+class DemandImageExecutor(MultiThreadedExecutor):
+    """Handle queued takes of explicitly retired subscriptions on ROS Humble.
+
+    Humble can schedule a subscription take before an action destroys that
+    subscription. Returning no message here lets its handler finish callback
+    group bookkeeping; catching the exception around spin would not do that.
+    Other InvalidHandle errors must still propagate.
+    """
+
+    def _take_subscription(self, subscription):
+        if getattr(subscription, '_xlerobot_retired', False):
+            return None
+        try:
+            return super()._take_subscription(subscription)
+        except InvalidHandle:
+            if not getattr(subscription, '_xlerobot_retired', False):
+                raise
+            return None
 
 
 class DemandImages:
@@ -62,4 +84,5 @@ class DemandImages:
             subscriptions, self.subscriptions = self.subscriptions, []
             self.clear()
         for subscription in subscriptions:
+            subscription._xlerobot_retired = True
             self.node.destroy_subscription(subscription)

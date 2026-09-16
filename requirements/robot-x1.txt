@@ -9,6 +9,7 @@ huggingface-hub==1.20.1
 onnxruntime==1.23.2
 sherpa-onnx==1.13.4
 sounddevice==0.5.5
+opencc-python-reimplemented==0.1.7
 scipy==1.11.4
 numpy==1.26.4
 opencv-python==4.11.0.86

@@ -12,7 +12,6 @@ from geometry_msgs.msg import PoseWithCovarianceStamped
 import rclpy
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
-from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import (
     DurabilityPolicy,
@@ -42,7 +41,7 @@ from xlerobot_interfaces.msg import (
     TaskEvent,
 )
 from xlerobot_task.flow import CAPABILITY_SEQUENCE, FetchDeliverRequest, validate_request
-from xlerobot_perception.demand_images import DemandImages
+from xlerobot_perception.demand_images import DemandImages, DemandImageExecutor
 
 
 READINESS_JOINT_NAMES = (
@@ -124,6 +123,7 @@ class FetchDeliverTaskNode(Node):
 
     def __init__(self, *, parameter_overrides=None) -> None:
         super().__init__("fetch_deliver_task", parameter_overrides=parameter_overrides)
+        self._navigation_requires_relocalization = False
         self.x1_low_load = bool(self.declare_parameter('x1_low_load', False).value)
         self.group = ReentrantCallbackGroup()
         self.task_timeout_s = float(self.declare_parameter("task_timeout_s", 360.0).value)
@@ -537,6 +537,7 @@ class FetchDeliverTaskNode(Node):
                 )
                 if not request.dry_run:
                     self._wait_for_scan_map_consistency(goal_handle, deadline)
+                    self._navigation_requires_relocalization = False
             self._feedback(
                 goal_handle,
                 "navigate_to_named_place",
@@ -700,6 +701,11 @@ class FetchDeliverTaskNode(Node):
                     "a child capability reported cancellation without a "
                     f"parent cancellation request: {exc.message}"
                 )
+            if (not request.dry_run and not parent_canceled
+                    and self._task_event_capability == 'navigate_to_named_place'
+                    and error_code in (CapabilityError.BACKEND_FAILURE, CapabilityError.TIMEOUT)):
+                self._navigation_requires_relocalization = True
+                error_message += '; next task will recheck localization before navigation'
             result.error.code = error_code
             result.error.message = error_message
             result.completed_object_id = ""
@@ -1559,6 +1565,9 @@ class FetchDeliverTaskNode(Node):
         )
 
     def _localization_ready(self) -> bool:
+        if self._navigation_requires_relocalization:
+            self.get_logger().info('previous navigation failed; requiring fresh localization')
+            return False
         if self._latest_amcl_pose is None:
             self.get_logger().info('localization quality: no AMCL pose received')
             return False
@@ -1586,7 +1595,7 @@ class FetchDeliverTaskNode(Node):
 def main() -> None:
     rclpy.init()
     node = FetchDeliverTaskNode()
-    executor = MultiThreadedExecutor(num_threads=4)
+    executor = DemandImageExecutor(num_threads=4)
     executor.add_node(node)
     try:
         executor.spin()

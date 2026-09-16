@@ -27,7 +27,7 @@ setup(
         (f'share/{package_name}/audio', package_files('audio/*.wav')),
         (f'share/{package_name}/launch', package_files('launch/*.launch.py')),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'opencc-python-reimplemented==0.1.7'],
     tests_require=['pytest'],
     zip_safe=True,
     maintainer='xujiayuxian-png',

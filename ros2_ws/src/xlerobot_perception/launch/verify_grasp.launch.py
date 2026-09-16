@@ -26,6 +26,7 @@ def generate_launch_description():
         DeclareLaunchArgument('vlm_base_url', default_value='http://127.0.0.1:1234'),
         DeclareLaunchArgument('vlm_backend', default_value='lmstudio'),
         DeclareLaunchArgument('vlm_model', default_value='qwen/qwen3-vl-4b'),
+        DeclareLaunchArgument('vlm_timeout_s', default_value='10.0'),
         Node(
             package='xlerobot_perception',
             executable='verify_grasp_vlm',
@@ -44,6 +45,7 @@ def generate_launch_description():
                     'vlm_base_url': LaunchConfiguration('vlm_base_url'),
                     'vlm_backend': LaunchConfiguration('vlm_backend'),
                     'vlm_model': LaunchConfiguration('vlm_model'),
+                    'vlm_timeout_s': ParameterValue(LaunchConfiguration('vlm_timeout_s'), value_type=float),
                 },
             ],
         ),

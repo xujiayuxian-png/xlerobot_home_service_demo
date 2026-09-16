@@ -75,7 +75,9 @@ struct GraspVerificationFailure : public GraspFailure
   : GraspFailure(CapabilityError::NOT_FOUND, message_value) {}
 };
 
-constexpr int kMaximumGraspAttempts = 2;
+// A near-closed joint and a visual negative do not prove an empty grasp.
+// Never reopen a possibly loaded gripper for an automatic second attempt.
+constexpr int kMaximumGraspAttempts = 1;
 
 bool finite_point(const geometry_msgs::msg::Point & point)
 {
@@ -185,7 +187,7 @@ public:
     gripper_closed_position_ = declare_parameter<double>("gripper_closed_position", 0.0);
     held_max_position_ = declare_parameter<double>("held_max_position", 0.15);
     empty_gripper_tolerance_rad_ =
-      declare_parameter<double>("empty_gripper_tolerance_rad", 0.05);
+      declare_parameter<double>("empty_gripper_tolerance_rad", 0.01);
     head_lower_positions_ = declare_parameter<std::vector<double>>(
       "head_lower_positions", {-1.57, -0.76});
     head_upper_positions_ = declare_parameter<std::vector<double>>(
@@ -1595,22 +1597,18 @@ private:
               CapabilityError::SAFETY_REJECTED,
               "gripper is too open to claim a grasp: " + std::to_string(gripper_position));
     }
+    if (gripper_position <= gripper_closed_position_ + empty_gripper_tolerance_rad_) {
+      throw GraspVerificationFailure(
+              "Gripper is fully closed; visual success cannot override it; not retrying: " +
+              std::to_string(gripper_position));
+    }
     if (wrapped.result && !wrapped.result->grasped &&
       wrapped.result->error.code == CapabilityError::NOT_FOUND)
     {
-      const bool gripper_fully_closed =
-        gripper_position <= gripper_closed_position_ + empty_gripper_tolerance_rad_;
-      if (gripper_fully_closed) {
-        throw GraspVerificationFailure(
-                "VLM and closed gripper both indicate an empty grasp: " +
-                wrapped.result->error.message + "; gripper_position=" +
-                std::to_string(gripper_position));
-      }
-      publish_feedback(
-        parent, "verify_grasp", 0.98F,
-        "VLM reported empty, but gripper stopped before fully closed at " +
-        std::to_string(gripper_position) + " rad; accepting grasp");
-      return;
+      throw GraspVerificationFailure(
+              "Visual grasp confirmation is required even with an intermediate gripper "
+              "position; not retrying: " + wrapped.result->error.message +
+              "; gripper_position=" + std::to_string(gripper_position));
     }
     if (wrapped.code != rclcpp_action::ResultCode::SUCCEEDED || !wrapped.result ||
       wrapped.result->error.code != CapabilityError::NONE || !wrapped.result->grasped)
@@ -1623,7 +1621,7 @@ private:
     }
     publish_feedback(
       parent, "verify_grasp", 0.98F,
-      wrapped.result->error.message);
+      wrapped.result->error.message + "; gripper_position=" + std::to_string(gripper_position));
   }
 
   void cancel_verification_noexcept(const VerifyGoalHandle::SharedPtr & handle)
@@ -1910,7 +1908,7 @@ private:
   double gripper_upper_position_{1.65};
   double gripper_closed_position_{0.0};
   double held_max_position_{0.15};
-  double empty_gripper_tolerance_rad_{0.05};
+  double empty_gripper_tolerance_rad_{0.01};
   std::vector<double> head_ready_positions_;
   std::vector<double> head_lower_positions_;
   std::vector<double> head_upper_positions_;
