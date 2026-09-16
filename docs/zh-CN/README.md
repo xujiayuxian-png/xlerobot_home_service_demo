@@ -44,6 +44,7 @@
 - [X1 VLM 与 ACT 的 NPU 实验](x1-npu-vlm-act-experiments.md)：同一 VLM 框选/解析意图、实际 ACT 权重导出与 NPU 完整动作块验证。
 - [X1 完全端侧运行可行性](x1-gpu-free-feasibility.md)：取消远程 GPU 依赖的模型组合、调度方案与迁移门槛。
 - [X1 端侧推理接入与验证](x1-npu-integration.md)：本地工作进程、CPU 热点修复、质量对照与接入边界。
+- [X1 4B 适配总结与展望](x1-4b-porting-retrospective.md)：面向公开分享的技术路线、实测结果、未解决问题与后续计划。
 - [完整 demo 低于 60% 的方案](x1-demo-under-60-plan.md)：验收约束与整体重构方向。
 
 | 位置 | 内容 |

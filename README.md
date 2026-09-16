@@ -37,7 +37,7 @@ GPU service is required at runtime.
 | --- | --- |
 | Wake word and speech prompts | Local lightweight wake word and six fixed audio clips |
 | Chinese transcription | Whisper-base / NPU |
-| Intent, object grounding and visual grasp verification | One shared Qwen2.5-VL-3B / NPU |
+| Intent, object grounding and visual grasp verification | One resident Qwen3-VL-4B / GenieX Hexagon model with some CPU assistance; [retrospective and outlook (Chinese)](docs/zh-CN/x1-4b-porting-retrospective.md), [experiment record](docs/zh-CN/x1-qwen3-vl-4b-official-experiment.md). The first robot trial hit a native inference process exit; resolution and robot acceptance remain pending. |
 | Person detection | YOLOv8n / NPU |
 | Grasp policy inference | ACT / NPU, with the original weights and wrist images |
 | Localization, navigation, control and web console | Local X1 CPU |

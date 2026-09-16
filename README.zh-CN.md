@@ -36,7 +36,7 @@
 | --- | --- |
 | 唤醒与播报 | 本地轻量唤醒、六条固定音频 |
 | 中文语音转写 | Whisper-base / NPU |
-| 意图理解、物品框选、抓取视觉判断 | 共用 Qwen2.5-VL-3B / NPU |
+| 意图理解、物品框选、抓取视觉判断 | 共用常驻 Qwen3-VL-4B / GenieX Hexagon，少量 CPU 协作；[适配总结与展望](docs/zh-CN/x1-4b-porting-retrospective.md)、[实验记录](docs/zh-CN/x1-qwen3-vl-4b-official-experiment.md)；首次实机出现推理进程退出，尚待解决及验收 |
 | 人员检测 | YOLOv8n / NPU |
 | 抓取动作推理 | ACT / NPU，使用原权重和腕部图像 |
 | 定位、导航、控制与网页 | X1 本地 CPU |
